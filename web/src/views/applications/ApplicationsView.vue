@@ -495,6 +495,11 @@ const certificateSupplyCertificateOptions = computed(() => {
   return [...byName.values()]
 })
 const certificateSupplyProviders = computed(() => activeCertificateSupplyData.value?.providers ?? {})
+const certificateSupplyDnsCredentialTemplate = computed(() => {
+  const providerId = certificateSupplyDraft.dnsProviderId
+  if (!providerId) return ''
+  return String(certificateSupplyProviders.value.dns?.find((provider) => String(provider.id ?? '') === providerId)?.credentialTemplate ?? '')
+})
 const certificateSupplyAuthorities = computed(() => {
   const internalProviderIds = new Set((certificateSupplyProviders.value.ca ?? [])
     .filter((provider) => String(provider.status ?? '').toLowerCase() === 'active')
@@ -2661,9 +2666,11 @@ function toAssetOverviewCard(asset: ApiRecord): AssetOverviewCard {
 }
 
 function assetExecutionCompatibilityLabel(card: AssetOverviewCard): string {
-  return card.executionCompatibilityStatus === 'READY'
+  const label = card.executionCompatibilityStatus === 'READY'
     ? t('assets.card.status.executable')
     : t('assets.card.status.needsConfiguration')
+  if (card.executionCompatibilityStatus === 'READY' || card.executionCompatibilityIssueCount <= 0) return label
+  return `${label} (${card.executionCompatibilityIssueCount})`
 }
 
 function assetExecutionCompatibilityTone(card: AssetOverviewCard): StatusTone {
@@ -2675,9 +2682,13 @@ function assetExecutionReady(asset: ApiRecord): boolean {
 }
 
 function assetExecutionCompatibilitySummary(card: AssetOverviewCard): string {
-  const issue = card.executionCompatibilityIssues[0]
-  if (!issue) return ''
-  return `${deploymentInputIssueLabel(issue)}: ${deploymentInputIssuePath(issue)}`
+  const issues = card.executionCompatibilityIssues
+  const firstIssue = issues[0]
+  if (!firstIssue) return ''
+  const fields = issues
+    .map((issue, index) => `${index + 1}. ${deploymentInputIssuePath(issue)}`)
+    .join('\n')
+  return `${deploymentInputIssueLabel(firstIssue)}:\n${fields}`
 }
 
 function assetPluginVersionId(asset: ApiRecord): string {
@@ -4036,11 +4047,8 @@ function managedTargetLabel(target: ApiRecord): string {
                         :status="card.executionCompatibilityStatus"
                         :label="assetExecutionCompatibilityLabel(card)"
                         :tone="assetExecutionCompatibilityTone(card)"
+                        :title="assetExecutionCompatibilitySummary(card)"
                       />
-                      <span v-if="card.executionCompatibilityIssueCount > 0">({{ card.executionCompatibilityIssueCount }})</span>
-                      <span v-if="card.executionCompatibilityIssues.length" class="asset-page__compatibility-summary">
-                        {{ assetExecutionCompatibilitySummary(card) }}
-                      </span>
                     </dd>
                   </div>
                   <div>
@@ -4197,9 +4205,6 @@ function managedTargetLabel(target: ApiRecord): string {
                   :tone="assetExecutionCompatibilityTone(row.card)"
                   :title="assetExecutionCompatibilitySummary(row.card)"
                 />
-                <span v-if="row.card.executionCompatibilityIssueCount > 0" class="asset-page__compatibility-summary">
-                  ({{ row.card.executionCompatibilityIssueCount }}) {{ assetExecutionCompatibilitySummary(row.card) }}
-                </span>
               </div>
             </template>
             <template #cell-actions="{ row }">
@@ -4672,6 +4677,7 @@ function managedTargetLabel(target: ApiRecord): string {
                 :required-metadata="{ providerId: certificateSupplyDraft.dnsProviderId }"
                 value-key="secretRef"
                 :options="certificateSupplyCredentialSelectOptions"
+                :secret-template="certificateSupplyDnsCredentialTemplate"
               />
             </div>
           </div>
@@ -4873,6 +4879,7 @@ function managedTargetLabel(target: ApiRecord): string {
                 :required-metadata="{ providerId: certificateSupplyDraft.dnsProviderId }"
                 value-key="secretRef"
                 :options="certificateSupplyCredentialSelectOptions"
+                :secret-template="certificateSupplyDnsCredentialTemplate"
               />
             </div>
             <p v-if="certificateSupplyError" class="asset-form__error">{{ certificateSupplyError }}</p>

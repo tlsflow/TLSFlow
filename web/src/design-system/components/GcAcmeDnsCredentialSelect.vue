@@ -92,7 +92,7 @@ function onCreated(credential: CredentialProfileDetail): void {
       </div>
       <pre v-if="credentialTemplate" class="gc-acme-dns-credential__template">{{ credentialTemplate }}</pre>
     </div>
-    <GcCredentialCreateModal v-model:open="createOpen" :kinds="['DNS_PROVIDER']" :metadata="{ credentialType: 'acme-dns', providerId, providerName, format: 'lego-env' }" :name-prefix="`${providerName} DNS`" @created="onCreated" />
+    <GcCredentialCreateModal v-model:open="createOpen" :kinds="['DNS_PROVIDER']" :metadata="{ credentialType: 'acme-dns', providerId, providerName, format: 'lego-env' }" :name-prefix="`${providerName} DNS`" :secret-template="credentialTemplate" @created="onCreated" />
     <p v-if="error" class="gc-acme-dns-credential__error" role="alert">{{ error }}</p>
   </section>
 </template>

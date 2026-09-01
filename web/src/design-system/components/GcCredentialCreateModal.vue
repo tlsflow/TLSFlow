@@ -11,10 +11,12 @@ const props = withDefaults(defineProps<{
   kinds?: CredentialKind[]
   metadata?: Record<string, unknown>
   namePrefix?: string
+  secretTemplate?: string
 }>(), {
   kinds: () => [],
   metadata: () => ({}),
   namePrefix: '',
+  secretTemplate: '',
 })
 
 const emit = defineEmits<{
@@ -45,7 +47,7 @@ watch(() => props.open, (open) => {
   form.username = ''
   form.deliveryLocation = 'header'
   form.deliveryName = 'X-API-Key'
-  form.primarySecret = ''
+  form.primarySecret = form.kind === 'DNS_PROVIDER' ? props.secretTemplate.trim() : ''
   form.secondarySecret = ''
   error.value = ''
 }, { immediate: true })

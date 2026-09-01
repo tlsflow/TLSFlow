@@ -18,6 +18,7 @@ const props = withDefaults(defineProps<{
   options?: Array<{ id: string; value?: string; label?: string; kind?: string; username?: string; status?: CredentialProfileSummary['status']; metadata?: Record<string, unknown> }>
   valueKey?: 'id' | 'secretRef'
   createEnabled?: boolean
+  secretTemplate?: string
 }>(), {
   acceptedKinds: () => [],
   acceptedScopes: () => [],
@@ -25,6 +26,7 @@ const props = withDefaults(defineProps<{
   options: undefined,
   valueKey: 'id',
   createEnabled: true,
+  secretTemplate: '',
 })
 
 const { t } = useI18n()
@@ -115,7 +117,7 @@ function onCreated(credential: CredentialProfileDetail): void {
     </div>
     <small v-if="hint">{{ hint }}</small>
   </label>
-  <GcCredentialCreateModal v-model:open="createOpen" :kinds="createKinds" :metadata="createMetadata" @created="onCreated" />
+  <GcCredentialCreateModal v-model:open="createOpen" :kinds="createKinds" :metadata="createMetadata" :secret-template="secretTemplate" @created="onCreated" />
 </template>
 
 <style scoped>
