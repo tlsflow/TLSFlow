@@ -203,6 +203,41 @@ describe('统一设备详情动作边界', () => {
     expect(source).toContain("candidates: ['controlVersion']")
   })
 
+  it('设备列表提供插件资产编辑入口并复用声明式表单', () => {
+    const devicesSource = readFileSync(resolve(process.cwd(), 'src/views/devices/DevicesView.vue'), 'utf8')
+    const editSource = readFileSync(resolve(process.cwd(), 'src/views/devices/DeviceAssetEditModal.vue'), 'utf8')
+    expect(devicesSource).toContain("label: t('devices.actions.edit')")
+    expect(devicesSource).toContain("permission: 'application.device.update'")
+    expect(devicesSource).toContain('<DeviceAssetEditModal')
+    expect(editSource).toContain('<GcPluginForm')
+    expect(editSource).toContain('getUnifiedPluginUiResources')
+    expect(editSource).toContain('updatePluginBinding')
+    expect(editSource).toContain('updateDeviceAsset')
+    expect(editSource).toContain("String(extension.type ?? '').toUpperCase() !== 'PLUGIN'")
+  })
+
+  it('云服务详情只由统一设备详情模态框承载', () => {
+    const assetsSource = readFileSync(resolve(process.cwd(), 'src/views/assets/AssetsView.vue'), 'utf8')
+    const devicesSource = readFileSync(resolve(process.cwd(), 'src/views/devices/DevicesView.vue'), 'utf8')
+    const modalSource = readFileSync(resolve(process.cwd(), 'src/views/devices/details/ManagedDeviceDetailModal.vue'), 'utf8')
+
+    expect(assetsSource).not.toContain('isCloudServiceAsset')
+    expect(assetsSource).not.toContain('cloudTopology')
+    expect(devicesSource).toContain("const assetKind = String(row.raw.assetKind ?? '').toUpperCase() === 'CLOUD_SERVICE' ? 'CLOUD_SERVICE' : 'DEVICE'")
+    expect(devicesSource).toContain("route.query.assetKind === 'CLOUD_SERVICE'")
+    expect(devicesSource).toContain('<ManagedDeviceDetailModal ref="deviceDetailModal" />')
+    expect(modalSource).toContain("const response = assetKind === 'CLOUD_SERVICE'")
+    expect(modalSource).toContain('await getServiceAssetDetail(resourceId)')
+    expect(modalSource).toContain('frameworkInstanceId: String(site.frameworkInstanceId ?? \'\')')
+    expect(modalSource).toContain("assetKind: 'CLOUD_SERVICE'")
+    expect(modalSource).toContain('function displayPluginVersion')
+    expect(modalSource).not.toContain('metadata.pluginVersion ??')
+    expect(assetsSource).not.toContain('asset-detail-modal')
+    expect(assetsSource).toContain('application-detail-modal')
+    expect(assetsSource).toContain('if (detailError.value || !loadedDetail || !isApplicationAsset(loadedDetail)) return')
+    expect(assetsSource).toContain('applicationDetailModalOpen.value = true\n  void loadDeploymentRecords(applicationAssetId)')
+  })
+
   it('设备详情弹窗使用紧凑的十五像素上下间距', () => {
     const modalSource = readFileSync(resolve(process.cwd(), 'src/views/devices/details/ManagedDeviceDetailModal.vue'), 'utf8')
 
