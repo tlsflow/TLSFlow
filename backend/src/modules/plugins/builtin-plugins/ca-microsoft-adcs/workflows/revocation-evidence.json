@@ -1,7 +1,7 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "ca-microsoft-adcs-revocation-evidence", "version": "1.0.14" },
+  "metadata": { "name": "ca-microsoft-adcs-revocation-evidence", "version": "1.0.15" },
   "inputContract": { "apiVersion": "gcac.deployment-input/v1", "variables": { "request": { "type": "object", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" }, "idempotencyKey": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "system", "key": "execution.idempotencyKey" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" } }, "connections": {}, "credentials": {}, "artifacts": {} },
   "steps": [{ "name": "adcs-revocation-evidence", "type": "plugin.action", "stage": "verify", "pluginId": "ca.microsoft-adcs", "capability": "ca.revocation.evidence", "actionId": "ca.revocation.evidence.v1", "actionContractVersion": "v1", "input": { "operation": "{{variables.request.operation}}", "serialNumber": "{{variables.request.serialNumber}}" }, "inputSchemaSha256": "sha256:0880689bf3ec633c1fe2f8c6acbc529a84703918dc3dc199e368a57a386a631e", "outputSchemaSha256": "sha256:8bf975a71f01a301911702aaa78bce65d3aa7f5473a6fca82512ccb5acbf5b80", "timeoutSeconds": 60, "writeEffect": false, "idempotencyKeyRef": "{{variables.idempotencyKey}}" }]
 }

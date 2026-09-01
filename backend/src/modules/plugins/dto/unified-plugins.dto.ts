@@ -1,3 +1,5 @@
+import type { ProductCategory } from '../../../shared/enums/core.enums.js';
+
 export type UnifiedPluginRuntime = 'AGENT_PLAN' | 'WORKFLOW_DSL';
 export type UnifiedPluginSource = 'BUILTIN' | 'USER';
 export type UnifiedPluginScope = 'MANAGED' | 'STANDALONE' | 'BOTH';
@@ -87,6 +89,8 @@ export interface UnifiedPluginManifestV1 {
   version: string;
   displayNameKey: string;
   descriptionKey?: string;
+  /** 跨 Plugin、Asset、Application 的显式产品分类。历史插件可缺失。 */
+  productCategory?: ProductCategory;
   /** 旧版本数据库 Manifest 的兼容读取字段，新插件包不得继续声明。 */
   logoUrl?: string;
   /** 旧版本数据库 Manifest 的兼容读取字段，新插件包不得继续声明。 */
@@ -202,6 +206,7 @@ export interface UnifiedPluginCatalogItem {
   name: string;
   displayNameKey: string;
   descriptionKey?: string;
+  productCategory?: ProductCategory;
   displayName?: string;
   description?: string;
   logoUrl?: string;

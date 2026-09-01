@@ -7,7 +7,7 @@ const packages = [
   {
     id: 'device.citrix.netscaler-adc',
     directory: './builtin-plugins/citrix-adc/',
-    version: '2.0.22',
+    version: '2.0.23',
     protocol: 'NITRO',
     credentialKind: 'USERNAME_PASSWORD',
     rejectedReason: 'PASSWORD_INVALID',
@@ -18,7 +18,7 @@ const packages = [
   {
     id: 'device.chaitin-safeline-waf',
     directory: './builtin-plugins/device-chaitin-safeline-waf/',
-    version: '0.1.13',
+    version: '0.1.16',
     protocol: 'SAFELINE_OPEN_API',
     credentialKind: 'API_KEY',
     rejectedReason: 'TOKEN_REJECTED',
@@ -29,7 +29,7 @@ const packages = [
   {
     id: 'device.nginx-proxy-manager',
     directory: './builtin-plugins/device-nginx-proxy-manager/',
-    version: '0.1.12',
+    version: '0.1.13',
     protocol: 'NPM_API',
     credentialKind: 'USERNAME_PASSWORD',
     rejectedReason: 'PASSWORD_INVALID',

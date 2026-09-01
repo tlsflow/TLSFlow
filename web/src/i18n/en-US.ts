@@ -1069,6 +1069,7 @@ export default {
       description: 'Built-in templates ship with the system, while user templates come from data/workflows. Each template can maintain its own logo, semantic version, and capability tags.'
     },
     sources: { builtin: 'Built-in', user: 'User plugin' },
+    categories: { label: 'Product category', all: 'All', WEB_SITE: 'Web sites', APPLICATION_MIDDLEWARE: 'Application middleware', NETWORK_GATEWAY: 'Network devices and gateways', CLOUD_PLATFORM: 'Cloud platforms', CA_ISSUANCE: 'CA and issuance' },
     statuses: { valid: 'Available', invalid: 'Invalid', available: 'Ready to create', enabled: 'Enabled', disabled: 'Not enabled', pendingApproval: 'Pending approval', inUse: 'In use', notInUse: 'Not used' },
     filters: {
       searchLabel: 'Search plugins',

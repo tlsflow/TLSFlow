@@ -1,7 +1,7 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "web-iis-certificate-rollback", "displayName": "IIS certificate rollback", "category": "certificate", "version": "1.0.23", "platforms": ["windows"], "maintainer": "GCAC" },
+  "metadata": { "name": "web-iis-certificate-rollback", "displayName": "IIS certificate rollback", "category": "certificate", "version": "1.0.24", "platforms": ["windows"], "maintainer": "GCAC" },
   "inputContract": {
     "apiVersion": "gcac.deployment-input/v1",
     "variables": {

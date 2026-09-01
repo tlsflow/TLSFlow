@@ -1,7 +1,7 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "ca-microsoft-adcs-query", "version": "1.0.14" },
+  "metadata": { "name": "ca-microsoft-adcs-query", "version": "1.0.15" },
   "inputContract": { "apiVersion": "gcac.deployment-input/v1", "variables": { "request": { "type": "object", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" }, "idempotencyKey": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "system", "key": "execution.idempotencyKey" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" } }, "connections": {}, "credentials": {}, "artifacts": {} },
   "steps": [{ "name": "adcs-query", "type": "plugin.action", "stage": "verify", "pluginId": "ca.microsoft-adcs", "capability": "ca.certificate.query", "actionId": "ca.certificate.query.v1", "actionContractVersion": "v1", "input": { "operation": "{{variables.request.operation}}", "providerRequestId": "{{variables.request.providerRequestId}}" }, "inputSchemaSha256": "sha256:c9873ce578ea9b4f4e53b6ebb0aea945f5061d0eceb7ed92fa4e0b1c18550764", "outputSchemaSha256": "sha256:147e8bfc6e9efbcfd7d7e6dc702709b1e3123a529ede3553b90a14ae21c5fd25", "timeoutSeconds": 60, "writeEffect": false, "idempotencyKeyRef": "{{variables.idempotencyKey}}" }]
 }

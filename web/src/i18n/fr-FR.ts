@@ -1043,6 +1043,7 @@ export default {
     },
     market: { eyebrow: 'Marché des plugins DSL', title: 'Découvrir des automatisations réutilisables', description: 'Les modèles intégrés sont livrés avec le système et les modèles utilisateur proviennent de data/workflows. Chaque modèle gère son logo, sa version sémantique et ses tags.' },
     sources: { builtin: 'Intégré', user: 'Plugin utilisateur' },
+    categories: { label: 'Catégorie de produit', all: 'Tous', WEB_SITE: 'Sites Web', APPLICATION_MIDDLEWARE: 'Intergiciels applicatifs', NETWORK_GATEWAY: 'Équipements réseau et passerelles', CLOUD_PLATFORM: 'Plateformes cloud', CA_ISSUANCE: 'CA et émission' },
     statuses: { valid: 'Disponible', invalid: 'Invalide', available: 'Prêt à créer', enabled: 'Activé', disabled: 'Non activé', pendingApproval: 'En attente d’approbation', inUse: 'Utilisé', notInUse: 'Non utilisé' },
     filters: { searchLabel: 'Rechercher des plugins', searchPlaceholder: 'Rechercher par nom, tag, catégorie ou chemin', allSources: 'Toutes les sources', allStatuses: 'Tous les états', statusLabel: 'État du plugin' },
     card: { defaultDescription: 'Ce plugin DSL ne possède pas encore de description.', unversioned: 'Sans version', stepCount: '{count} étapes d’exécution', moreTags: '+{count} autres' },

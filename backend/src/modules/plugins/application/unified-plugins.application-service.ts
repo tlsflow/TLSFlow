@@ -17,6 +17,7 @@ import type {
   UnifiedPluginWorkflowVersionSummary,
   UnifiedPluginVersionRecord,
 } from '../dto/unified-plugins.dto.js';
+import type { ProductCategory } from '../../../shared/enums/core.enums.js';
 import { PgUnifiedPluginsRepository, type UnifiedPluginsRepository } from '../repository/unified-plugins.repository.js';
 import type { PluginWorkflowBindingsRepositoryPort } from '../repository/plugin-workflow-bindings.repository.js';
 import { assertUnifiedPluginResources, validateLogoResourceContent, validateUnifiedPluginManifest } from '../schema/unified-plugins.schema.js';
@@ -349,11 +350,12 @@ export class UnifiedPluginsApplicationService {
   async listCatalog(
     tenantId: string,
     locale = 'zh-CN',
-    filters: { runtime?: UnifiedPluginManifestV1['runtime'] } = {},
+    filters: { runtime?: UnifiedPluginManifestV1['runtime']; productCategory?: ProductCategory } = {},
   ): Promise<UnifiedPluginCatalogItem[]> {
     const versions = (await this.repository.listAccessibleVersions(tenantId))
       .filter((record) => record.status !== 'RETIRED' && record.status !== 'QUARANTINED')
-      .filter((record) => !filters.runtime || record.runtime === filters.runtime);
+      .filter((record) => !filters.runtime || record.runtime === filters.runtime)
+      .filter((record) => !filters.productCategory || record.manifest.productCategory === filters.productCategory);
     const versionsByPlugin = new Map<string, UnifiedPluginVersionRecord[]>();
     for (const record of versions) {
       versionsByPlugin.set(record.pluginId, [...(versionsByPlugin.get(record.pluginId) ?? []), record]);
@@ -446,6 +448,7 @@ export class UnifiedPluginsApplicationService {
         name: record.pluginId,
         displayNameKey: record.manifest.displayNameKey,
         descriptionKey: record.manifest.descriptionKey,
+        productCategory: record.manifest.productCategory,
         displayName,
         description,
         ...(record.manifest.resources.logos?.horizontal ? { logoUrl: pluginLogoResourceUrl(record.id, 'horizontal') } : {}),

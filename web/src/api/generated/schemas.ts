@@ -41,6 +41,7 @@ export type PluginCatalogItem = {
   readonly "name": string
   readonly "displayNameKey": string
   readonly "descriptionKey"?: string
+  readonly "productCategory"?: "WEB_SITE" | "APPLICATION_MIDDLEWARE" | "NETWORK_GATEWAY" | "CLOUD_PLATFORM" | "CA_ISSUANCE"
   readonly "displayName"?: string
   readonly "description"?: string
   readonly "logoUrl"?: string
@@ -93,6 +94,7 @@ export type PluginVersionRecord = {
   readonly "version": string
   readonly "displayNameKey": string
   readonly "descriptionKey"?: string
+  readonly "productCategory"?: "WEB_SITE" | "APPLICATION_MIDDLEWARE" | "NETWORK_GATEWAY" | "CLOUD_PLATFORM" | "CA_ISSUANCE"
   readonly "logoUrl"?: string
   readonly "logoSquareUrl"?: string
   readonly "defaultLocale"?: string

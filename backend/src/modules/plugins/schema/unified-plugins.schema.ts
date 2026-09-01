@@ -13,6 +13,7 @@ import type {
   UnifiedPluginSupport,
   UnifiedPluginTrust,
 } from '../dto/unified-plugins.dto.js';
+import { ProductCategories, type ProductCategory } from '../../../shared/enums/core.enums.js';
 
 export const unifiedPluginSources = ['BUILTIN', 'USER'] as const satisfies readonly UnifiedPluginSource[];
 export const unifiedPluginScopes = ['MANAGED', 'STANDALONE', 'BOTH'] as const satisfies readonly UnifiedPluginScope[];
@@ -27,7 +28,7 @@ const forbiddenExecutableExtensions = ['.ts', '.tsx', '.vue', '.ps1', '.sh', '.b
 const maximumResourceCount = 500;
 const maximumResourceBytes = 20 * 1024 * 1024;
 const manifestKeys = new Set([
-  'apiVersion', 'kind', 'pluginId', 'version', 'displayNameKey', 'descriptionKey', 'logoUrl', 'logoSquareUrl', 'defaultLocale', 'publisher', 'runtime',
+  'apiVersion', 'kind', 'pluginId', 'version', 'displayNameKey', 'descriptionKey', 'productCategory', 'logoUrl', 'logoSquareUrl', 'defaultLocale', 'publisher', 'runtime',
   'source', 'scope', 'trust', 'support', 'minGcacVersion', 'capabilities',
   'credentialAcquire', 'permissions', 'compatibility', 'resources',
 ]);
@@ -43,6 +44,7 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
   const scope = requireEnum(manifest.scope, unifiedPluginScopes, 'scope');
   const trust = requireEnum(manifest.trust, unifiedPluginTrustLevels, 'trust');
   const support = requireEnum(manifest.support, unifiedPluginSupportLevels, 'support');
+  const productCategory = manifest.productCategory === undefined ? undefined : requireEnum(manifest.productCategory, ProductCategories, 'productCategory');
   const minGcacVersion = manifest.minGcacVersion === undefined
     ? undefined
     : normalizeMinimumGcacVersion(manifest.minGcacVersion);
@@ -65,6 +67,7 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
     version,
     displayNameKey: requireString(manifest.displayNameKey, 'displayNameKey'),
     descriptionKey: optionalString(manifest.descriptionKey, 'descriptionKey'),
+    ...(productCategory ? { productCategory: productCategory as ProductCategory } : {}),
     logoUrl: optionalLogoUrl(manifest.logoUrl, 'logoUrl'),
     logoSquareUrl: optionalLogoUrl(manifest.logoSquareUrl, 'logoSquareUrl'),
     defaultLocale: optionalString(manifest.defaultLocale, 'defaultLocale'),

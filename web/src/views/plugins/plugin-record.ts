@@ -1,6 +1,7 @@
 import type { PluginCatalogItem, PluginRuntimeMetric, PluginVersionRecord } from '@/api/generated/schemas'
 
 export type PluginSource = 'builtin' | 'user'
+export type ProductCategory = 'WEB_SITE' | 'APPLICATION_MIDDLEWARE' | 'NETWORK_GATEWAY' | 'CLOUD_PLATFORM' | 'CA_ISSUANCE'
 export type PluginCatalogType = 'UNIFIED_PLUGIN'
 export type RunnerStatus = 'ready' | 'busy' | 'unavailable' | 'notObserved'
 
@@ -27,6 +28,7 @@ export interface PluginRecord {
   pluginVersionId: string
   version: string
   source: PluginSource
+  productCategory?: ProductCategory
   valid: boolean
   updatedAt: string
   metadata: PluginMetadata
@@ -59,6 +61,7 @@ export function toCatalogPluginRecord(record: PluginCatalogItem, versionRecord?:
     pluginVersionId,
     version,
     source: record.source === 'USER' ? 'user' : 'builtin',
+    productCategory: readOptionalString(record.productCategory) as ProductCategory | undefined,
     valid: !['INVALID', 'REJECTED', 'QUARANTINED', 'RETIRED'].includes(status.toUpperCase()),
     updatedAt: readString(versionRecord?.updatedAt),
     metadata: {

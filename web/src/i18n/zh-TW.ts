@@ -1046,6 +1046,7 @@ export default {
     },
     market: { eyebrow: "DSL 外掛市場", title: "探索可重用的自動化能力", description: "內建模板隨系統發布，使用者模板來自 data/workflows。每個模板都可維護 Logo、語意版本與能力標籤。" },
     sources: { builtin: "內建外掛", user: "使用者外掛" },
+    categories: { label: "產品分類", all: "全部", WEB_SITE: "Web 站點", APPLICATION_MIDDLEWARE: "應用中介軟體", NETWORK_GATEWAY: "網路設備與閘道", CLOUD_PLATFORM: "雲平台", CA_ISSUANCE: "CA 與簽發" },
     statuses: { valid: "可用", invalid: "無效", available: "可建立", enabled: "已啟用", disabled: "未啟用", pendingApproval: "待審批", inUse: "正在使用", notInUse: "尚未使用" },
     filters: { searchLabel: "搜尋外掛", searchPlaceholder: "依名稱、標籤、分類或路徑搜尋", allSources: "全部來源", allStatuses: "全部狀態", statusLabel: "外掛狀態" },
     card: { defaultDescription: "此 DSL 外掛尚未設定說明。", unversioned: "未標示版本", stepCount: "{count} 個執行步驟", moreTags: "另 {count} 項" },

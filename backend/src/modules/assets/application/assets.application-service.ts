@@ -58,6 +58,7 @@ import type { PluginAgentLinkageService } from '../../plugins/application/plugin
 import type { CloudResourceProjectionService } from '../../providers/discovery/cloud-resource-projection.js';
 import type { ApplicationExecutionCompatibilityService } from './application-execution-compatibility.service.js';
 import { structuredLogger } from '../../../common/logging/structured-logger.js';
+import type { ProductCategory } from '../../../shared/enums/core.enums.js';
 
 /** 应用主域名变更后的证书供应策略同步端口。 */
 export interface ApplicationCertificateDomainChangePort {
@@ -81,6 +82,7 @@ export interface AssetPluginVersionResolver {
     version: string;
     runtime: string;
     manifest: {
+      productCategory?: ProductCategory;
       compatibility?: {
         productFamilies?: string[];
       };
@@ -250,7 +252,7 @@ export class AssetsApplicationService {
 
   async createServiceAsset(tenantId: string, input: CreateServiceAssetDto): Promise<import('../dto/assets.dto.js').ServiceAssetDto> {
     await this.ensureServiceAssetQuotaAvailable(tenantId);
-    const resolvedInput = await this.resolveSiteAssetCreationInput(tenantId, input);
+    const resolvedInput = await this.resolveProductCategoryInput(tenantId, await this.resolveSiteAssetCreationInput(tenantId, input));
     const normalized = this.domain.normalizeServiceAsset(resolvedInput);
     if (normalized.deploymentStrategy) {
       const strategy = await this.applyPluginBindingCompatibility(tenantId, normalizeDeploymentStrategy(normalized.deploymentStrategy, {
@@ -263,6 +265,17 @@ export class AssetsApplicationService {
     const created = await this.repository.createServiceAsset(tenantId, normalized);
     if (!created) throw new AppError('SYSTEM_INTERNAL_ERROR', '创建 ServiceAsset 后未返回结果');
     return this.hydrateServiceAssetStrategy(tenantId, created);
+  }
+
+  private async resolveProductCategoryInput(tenantId: string, input: CreateServiceAssetDto): Promise<CreateServiceAssetDto> {
+    if (!input.pluginVersionId || !this.pluginVersionResolver) return input;
+    const plugin = await this.pluginVersionResolver.getVersionForTenant(tenantId, input.pluginVersionId);
+    const declared = plugin.manifest.productCategory;
+    if (!declared) return input;
+    if (input.productCategory && input.productCategory !== declared) {
+      throw new AppError('VALIDATION_FAILED', '资产产品分类与来源插件不一致', { code: 'PRODUCT_CATEGORY_MISMATCH', productCategory: input.productCategory, declaredProductCategory: declared });
+    }
+    return { ...input, productCategory: declared };
   }
 
   private async resolveSiteAssetCreationInput(tenantId: string, input: CreateServiceAssetDto): Promise<CreateServiceAssetDto> {

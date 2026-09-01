@@ -1072,6 +1072,7 @@ export default {
       builtin: '内置插件',
       user: '用户插件'
     },
+    categories: { label: '产品分类', all: '全部', WEB_SITE: 'Web 站点', APPLICATION_MIDDLEWARE: '应用中间件', NETWORK_GATEWAY: '网络设备与网关', CLOUD_PLATFORM: '云平台', CA_ISSUANCE: 'CA 与签发' },
     statuses: {
       valid: '可用',
       invalid: '无效',

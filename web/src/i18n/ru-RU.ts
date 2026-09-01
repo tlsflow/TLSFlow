@@ -1021,6 +1021,7 @@ export default {
     },
     market: { eyebrow: 'Каталог DSL-плагинов', title: 'Повторно используемые возможности автоматизации', description: 'Встроенные шаблоны поставляются с системой, пользовательские загружаются из data/workflows. Для каждого шаблона можно задать логотип, семантическую версию и теги.' },
     sources: { builtin: 'Встроенный', user: 'Пользовательский' },
+    categories: { label: 'Категория продукта', all: 'Все', WEB_SITE: 'Веб-сайты', APPLICATION_MIDDLEWARE: 'Промежуточное ПО приложений', NETWORK_GATEWAY: 'Сетевые устройства и шлюзы', CLOUD_PLATFORM: 'Облачные платформы', CA_ISSUANCE: 'ЦС и выпуск' },
     statuses: { valid: 'Доступен', invalid: 'Недействителен', available: 'Можно создать', enabled: 'Включен', disabled: 'Не включен', pendingApproval: 'Ожидает одобрения', inUse: 'Используется', notInUse: 'Не используется' },
     filters: { searchLabel: 'Поиск плагинов', searchPlaceholder: 'Поиск по имени, тегу, категории или пути', allSources: 'Все источники', allStatuses: 'Все статусы', statusLabel: 'Статус плагина' },
     card: { defaultDescription: 'Для этого DSL-плагина пока нет описания.', unversioned: 'Без версии', stepCount: 'Шагов выполнения: {count}', moreTags: 'Еще {count}' },

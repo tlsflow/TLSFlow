@@ -9,7 +9,7 @@ import { workflowTemplatesSchemaRegistry } from '../workflow-templates/schema/wo
 
 const expected = {
   'web.iis': {
-    version: '1.0.23',
+    version: '1.0.24',
     platformKey: 'iis',
     displayName: 'Windows IIS站点',
     englishDisplayName: 'Windows IIS Site',
@@ -17,7 +17,7 @@ const expected = {
     format: 'PFX',
   },
   'web.apache.windows': {
-    version: '1.0.6',
+    version: '1.0.7',
     platformKey: 'web.apache.windows',
     displayName: 'Windows Apache站点',
     englishDisplayName: 'Windows Apache Site',
@@ -25,7 +25,7 @@ const expected = {
     format: 'PEM',
   },
   'web.nginx.windows': {
-    version: '1.0.9',
+    version: '1.0.10',
     platformKey: 'web.nginx.windows',
     displayName: 'Windows Nginx站点',
     englishDisplayName: 'Windows Nginx Site',
@@ -33,7 +33,7 @@ const expected = {
     format: 'PEM',
   },
   'web.apache.linux': {
-    version: '1.0.5',
+    version: '1.0.6',
     platformKey: 'web.apache.linux',
     displayName: 'Linux Apache站点',
     englishDisplayName: 'Linux Apache Site',
@@ -41,7 +41,7 @@ const expected = {
     format: 'PEM',
   },
   'web.nginx.linux': {
-    version: '1.0.7',
+    version: '1.0.8',
     platformKey: 'web.nginx.linux',
     displayName: 'Linux Nginx站点',
     englishDisplayName: 'Linux Nginx Site',
@@ -49,7 +49,7 @@ const expected = {
     format: 'PEM',
   },
   'app.tomcat.linux': {
-    version: '1.0.8',
+    version: '1.0.9',
     platformKey: 'app.tomcat.linux',
     displayName: 'Linux Tomcat 应用',
     englishDisplayName: 'Linux Tomcat Site',
@@ -57,7 +57,7 @@ const expected = {
     formats: ['PFX', 'JKS'],
   },
   'app.tomcat.windows': {
-    version: '1.0.9',
+    version: '1.0.10',
     platformKey: 'app.tomcat.windows',
     displayName: 'Windows Tomcat 应用',
     englishDisplayName: 'Windows Tomcat Site',
@@ -127,7 +127,7 @@ test('阿里云 CDN 提供仅选择云服务资产的统一应用向导配方', 
   const plugin = packages.find((item) => (item.manifest as { pluginId?: string }).pluginId === 'cloud.aliyun');
   assert.ok(plugin, 'cloud.aliyun 内置插件包缺失');
   const manifest = plugin.manifest as Parameters<typeof ApplicationOnboardingRecipeLoader.prototype.load>[0]['manifest'];
-  assert.equal(manifest.version, '2.0.35');
+  assert.equal(manifest.version, '2.0.36');
   const recipe = new ApplicationOnboardingRecipeLoader().loadAll({
     id: `cloud.aliyun-${manifest.version}`,
     pluginId: 'cloud.aliyun',
@@ -138,7 +138,7 @@ test('阿里云 CDN 提供仅选择云服务资产的统一应用向导配方', 
   }).find((item) => item.recipe.platformKey === 'cloud.aliyun.cdn');
 
   assert.ok(recipe, '阿里云 CDN 应用向导配方缺失');
-  assert.equal(recipe.pluginVersion, '2.0.35');
+  assert.equal(recipe.pluginVersion, '2.0.36');
   assert.equal(recipe.recipe.deploymentMode, 'DIRECT_WORKFLOW');
   assert.equal(recipe.recipe.deviceSelection, 'NONE');
   assert.deepEqual(recipe.recipe.capabilities, {

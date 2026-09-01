@@ -9,6 +9,7 @@ import { UnifiedPluginsApplicationService } from '../application/unified-plugins
 import { isCloudAccountIdentificationCapability, PluginBindingsApplicationService } from '../application/plugin-bindings.application-service.js';
 import { ManagedTargetPluginQueryService, type SaveManagedTargetPluginOverrideInput } from '../application/managed-target-plugin-query.service.js';
 import type { ImportUnifiedPluginVersionInput, UnifiedPluginManifestV1 } from '../dto/unified-plugins.dto.js';
+import { ProductCategories, type ProductCategory } from '../../../shared/enums/core.enums.js';
 import { semanticVersionPattern } from '../schema/unified-plugins.schema.js';
 import { StandardPluginFieldRegistry } from '../forms/standard-plugin-field.registry.js';
 import { PluginCapabilityRegistry } from '../capabilities/plugin-capability.registry.js';
@@ -91,8 +92,13 @@ export class PluginsController {
     await assertRouteAction(security, 'plugin.read', 'plugin');
     const locale = typeof request.query['filter[locale]'] === 'string' ? request.query['filter[locale]'] : 'zh-CN';
     const runtime = queryFilterString(request, 'runtime');
+    const productCategory = queryFilterString(request, 'productCategory');
+    if (productCategory && !ProductCategories.includes(productCategory as ProductCategory)) {
+      throw new AppError('VALIDATION_FAILED', '产品分类不合法', { field: 'productCategory', allowedValues: ProductCategories });
+    }
     const items = await this.unifiedPlugins.listCatalog(security.tenantId, locale, {
       ...(runtime ? { runtime: runtime as UnifiedPluginManifestV1['runtime'] } : {}),
+      ...(productCategory ? { productCategory: productCategory as ProductCategory } : {}),
     });
     const authorizedItems = await this.filterVersionItems(security, items, 'pluginVersionId');
     return { items: authorizedItems, page: 1, pageSize: authorizedItems.length, total: authorizedItems.length };
@@ -847,7 +853,7 @@ function pluginCapabilitySchema(): OpenApiSchema {
 function pluginManifestSchema(): OpenApiSchema {
   return strictSchema({
     apiVersion: { type: 'string' }, kind: { type: 'string' }, pluginId: idSchema(), version: { type: 'string' },
-    displayNameKey: { type: 'string' }, descriptionKey: { type: 'string' }, logoUrl: { type: 'string' }, logoSquareUrl: { type: 'string' }, defaultLocale: { type: 'string' },
+    displayNameKey: { type: 'string' }, descriptionKey: { type: 'string' }, productCategory: { type: 'string', enum: ['WEB_SITE', 'APPLICATION_MIDDLEWARE', 'NETWORK_GATEWAY', 'CLOUD_PLATFORM', 'CA_ISSUANCE'] }, logoUrl: { type: 'string' }, logoSquareUrl: { type: 'string' }, defaultLocale: { type: 'string' },
     publisher: { type: 'string' }, runtime: { type: 'string', enum: ['AGENT_PLAN', 'WORKFLOW_DSL'] },
     source: { type: 'string', enum: ['BUILTIN', 'USER'] }, scope: { type: 'string', enum: ['MANAGED', 'STANDALONE', 'BOTH'] },
     trust: { type: 'string', enum: ['OFFICIAL_SIGNED', 'USER_SIGNED', 'UNSIGNED'] },
@@ -871,7 +877,7 @@ function pluginVersionRecordSchema(): OpenApiSchema {
 
 function pluginCatalogItemSchema(): OpenApiSchema {
   return strictSchema({
-    id: idSchema(), catalogType: { type: 'string' }, ...identityProperties(), name: { type: 'string' }, displayNameKey: { type: 'string' }, descriptionKey: { type: 'string' }, displayName: { type: 'string' }, description: { type: 'string' }, logoUrl: { type: 'string' }, logoSquareUrl: { type: 'string' }, tags: stringArraySchema(), platforms: stringArraySchema(), stepCount: { type: 'number' }, rollbackCount: { type: 'number' }, configuration: jsonObjectSchema(), source: { type: 'string' }, runtime: { type: 'string' }, scope: { type: 'string' }, trust: { type: 'string' }, support: { type: 'string' }, status: { type: 'string' }, capabilities: { type: 'array', items: pluginCapabilitySchema() }, compatibility: jsonObjectSchema(), detailRef: strictSchema({ pluginVersionId: idSchema() }, ['pluginVersionId']),
+    id: idSchema(), catalogType: { type: 'string' }, ...identityProperties(), name: { type: 'string' }, displayNameKey: { type: 'string' }, descriptionKey: { type: 'string' }, productCategory: { type: 'string', enum: ['WEB_SITE', 'APPLICATION_MIDDLEWARE', 'NETWORK_GATEWAY', 'CLOUD_PLATFORM', 'CA_ISSUANCE'] }, displayName: { type: 'string' }, description: { type: 'string' }, logoUrl: { type: 'string' }, logoSquareUrl: { type: 'string' }, tags: stringArraySchema(), platforms: stringArraySchema(), stepCount: { type: 'number' }, rollbackCount: { type: 'number' }, configuration: jsonObjectSchema(), source: { type: 'string' }, runtime: { type: 'string' }, scope: { type: 'string' }, trust: { type: 'string' }, support: { type: 'string' }, status: { type: 'string' }, capabilities: { type: 'array', items: pluginCapabilitySchema() }, compatibility: jsonObjectSchema(), detailRef: strictSchema({ pluginVersionId: idSchema() }, ['pluginVersionId']),
   }, ['id', 'catalogType', 'pluginId', 'pluginVersionId', 'version', 'name', 'displayNameKey', 'tags', 'platforms', 'stepCount', 'rollbackCount', 'source', 'runtime', 'scope', 'trust', 'support', 'packageSha256', 'manifestSha256', 'resourceSha256', 'status', 'capabilities', 'detailRef']);
 }
 

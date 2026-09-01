@@ -17,7 +17,7 @@ import type { ApiRecord } from '@/api/modules/common'
 import { GcDevicePresentation, GcEmptyState, GcModal, GcPagination, GcPluginForm, GcPluginLogo, type DevicePresentationSchema, type PluginFormSchema } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { translateDynamic } from '@/i18n/translate'
-import { toCatalogPluginRecord, type PluginRecord } from './plugin-record'
+import { toCatalogPluginRecord, type PluginRecord, type ProductCategory } from './plugin-record'
 
 type SourceFilter = 'all' | PluginSource
 type ValidityFilter = 'all' | 'valid' | 'invalid'
@@ -38,6 +38,7 @@ const plugins = ref<PluginRecord[]>([])
 const keyword = ref('')
 const sourceFilter = ref<SourceFilter>('all')
 const validityFilter = ref<ValidityFilter>('all')
+const categoryFilter = ref<'all' | ProductCategory>('all')
 const pluginPage = ref(1)
 const pluginPageSize = ref(20)
 const selectedPlugin = ref<PluginRecord | null>(null)
@@ -70,12 +71,22 @@ const validityOptions = computed(() => [
   { value: 'invalid' as const, label: t('plugins.statuses.invalid') },
 ])
 
+const categoryOptions = computed(() => [
+  { value: 'all' as const, label: t('plugins.categories.all') },
+  { value: 'WEB_SITE' as const, label: t('plugins.categories.WEB_SITE') },
+  { value: 'APPLICATION_MIDDLEWARE' as const, label: t('plugins.categories.APPLICATION_MIDDLEWARE') },
+  { value: 'NETWORK_GATEWAY' as const, label: t('plugins.categories.NETWORK_GATEWAY') },
+  { value: 'CLOUD_PLATFORM' as const, label: t('plugins.categories.CLOUD_PLATFORM') },
+  { value: 'CA_ISSUANCE' as const, label: t('plugins.categories.CA_ISSUANCE') },
+])
+
 const filteredPlugins = computed(() => {
   const normalizedKeyword = keyword.value.trim().toLocaleLowerCase()
   return plugins.value.filter((plugin) => {
     if (sourceFilter.value !== 'all' && plugin.source !== sourceFilter.value) return false
     if (validityFilter.value === 'valid' && !plugin.valid) return false
     if (validityFilter.value === 'invalid' && plugin.valid) return false
+    if (categoryFilter.value !== 'all' && plugin.productCategory !== categoryFilter.value) return false
     if (!normalizedKeyword) return true
     const searchable = [
       plugin.metadata.displayName,
@@ -115,7 +126,7 @@ watch(locale, () => {
   void loadPlugins()
 })
 
-watch([keyword, sourceFilter, validityFilter], () => {
+watch([keyword, sourceFilter, validityFilter, categoryFilter], () => {
   pluginPage.value = 1
 })
 
@@ -137,7 +148,7 @@ async function loadPlugins(refreshBuiltins = false): Promise<void> {
       page: 1,
       pageSize: 500,
       sort: 'updatedAt:desc',
-      filters: { locale: locale.value },
+      filters: { locale: locale.value, ...(categoryFilter.value !== 'all' ? { productCategory: categoryFilter.value } : {}) },
     } as const
     const catalogResult = await listPluginCatalog(query)
     const versionResult = await listUnifiedPluginVersions(query).catch(() => undefined)
@@ -531,6 +542,18 @@ function pluginStatusClass(plugin: PluginRecord): string {
           {{ option.label }}
         </button>
       </div>
+      <div class="market-filter-group" :aria-label="t('plugins.categories.label')">
+        <button
+          v-for="option in categoryOptions"
+          :key="option.value"
+          class="market-filter"
+          :class="{ 'market-filter--active': categoryFilter === option.value }"
+          type="button"
+          @click="categoryFilter = option.value"
+        >
+          {{ option.label }}
+        </button>
+      </div>
       <label class="market-status-filter">
         <span class="market-field-label">{{ t('plugins.filters.statusLabel') }}</span>
         <select v-model="validityFilter" class="market-select">
@@ -572,6 +595,7 @@ function pluginStatusClass(plugin: PluginRecord): string {
             <h3>{{ pluginTitle(plugin) }}</h3>
             <span class="plugin-version">{{ pluginVersion(plugin) }}</span>
           </div>
+          <span v-if="plugin.productCategory" class="plugin-category">{{ t(`plugins.categories.${plugin.productCategory}`) }}</span>
           <p>{{ pluginDescription(plugin) }}</p>
           <div v-if="compactPluginChips(plugin).length" class="plugin-card__chips">
             <span
@@ -1100,6 +1124,7 @@ function pluginStatusClass(plugin: PluginRecord): string {
 .plugin-source,
 .plugin-state,
 .plugin-version,
+.plugin-category,
 .plugin-chip,
 .plugin-methods span {
   display: inline-flex;
@@ -1119,6 +1144,11 @@ function pluginStatusClass(plugin: PluginRecord): string {
 .plugin-source--user {
   color: var(--gc-color-success);
   background: var(--gc-color-success-bg);
+}
+
+.plugin-category {
+  color: var(--gc-color-primary);
+  background: var(--gc-color-primary-soft);
 }
 
 .plugin-state--using {

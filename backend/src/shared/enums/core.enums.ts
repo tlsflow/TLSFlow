@@ -37,6 +37,10 @@ export type CapabilitySuggestionType = (typeof CapabilitySuggestionTypes)[number
 
 export type ProviderType = string;
 
+/** Plugin、Asset、Application 共用的产品分类；不得用于权限或兼容性判定。 */
+export const ProductCategories = ['WEB_SITE', 'APPLICATION_MIDDLEWARE', 'NETWORK_GATEWAY', 'CLOUD_PLATFORM', 'CA_ISSUANCE'] as const;
+export type ProductCategory = (typeof ProductCategories)[number];
+
 export const BindingTypes = ['FILE_PATH', 'WINDOWS_CERT_STORE', 'KEYSTORE', 'DEVICE_API', 'CUSTOM'] as const;
 export type BindingType = (typeof BindingTypes)[number];
 

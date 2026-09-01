@@ -464,6 +464,8 @@ export class AssetsController {
       lastDiscoveredAt: { type: 'string' },
       status: { type: 'string', enum: assetsEnumValues.serviceAssetStatuses },
       tags: { type: 'array' },
+      productCategory: { type: 'string', enum: ['WEB_SITE', 'APPLICATION_MIDDLEWARE', 'NETWORK_GATEWAY', 'CLOUD_PLATFORM', 'CA_ISSUANCE'] },
+      pluginVersionId: { type: 'string' },
       metadata: { type: 'object' },
       deploymentStrategy: { type: 'object' },
       targetBinding: { type: 'object' },
@@ -481,7 +483,7 @@ export class AssetsController {
   private async listServiceAssets(request: HttpRequest, forcedAssetKind?: 'APPLICATION' | 'CLOUD_SERVICE') {
     const query = parsePageQuery(request.query, {
       allowedSortFields: ['address', 'port', 'protocol', 'createdAt', 'updatedAt', 'status', 'serviceInstanceId', 'hostId'],
-      allowedFilterFields: ['id', 'address', 'addressType', 'port', 'protocol', 'sniName', 'serviceInstanceId', 'serviceEndpointId', 'hostId', 'environment', 'discoverySource', 'status', 'assetKind', 'tag'],
+      allowedFilterFields: ['id', 'address', 'addressType', 'port', 'protocol', 'sniName', 'serviceInstanceId', 'serviceEndpointId', 'hostId', 'environment', 'discoverySource', 'status', 'assetKind', 'productCategory', 'tag'],
     });
     const scopedQuery = forcedAssetKind
       ? { ...query, filter: { ...query.filter, assetKind: forcedAssetKind } }
@@ -542,6 +544,8 @@ export class AssetsController {
       lastDiscoveredAt: { type: 'string' },
       status: { type: 'string', enum: assetsEnumValues.serviceAssetStatuses },
       tags: { type: 'array' },
+      productCategory: { type: 'string', enum: ['WEB_SITE', 'APPLICATION_MIDDLEWARE', 'NETWORK_GATEWAY', 'CLOUD_PLATFORM', 'CA_ISSUANCE'] },
+      pluginVersionId: { type: 'string' },
       metadata: { type: 'object' },
       deploymentStrategy: { type: 'object' },
       targetBinding: { type: 'object' },
@@ -1202,7 +1206,7 @@ export function projectServiceAsset(asset: Record<string, unknown>, canManage: b
 export function matchesUnifiedAssetFilter(asset: Record<string, unknown>, filter: Record<string, string>): boolean {
   return Object.entries(filter).every(([key, expected]) => {
     if (key === 'assetKind') return String(asset.assetKind).toUpperCase() === expected.toUpperCase() || expected.toUpperCase() === 'ALL';
-    if (key === 'category' || key === 'productFamily' || key === 'managementMethod' || key === 'health' || key === 'status') {
+    if (key === 'category' || key === 'productCategory' || key === 'productFamily' || key === 'managementMethod' || key === 'health' || key === 'status') {
       return String(asset[key] ?? '').toUpperCase() === expected.toUpperCase();
     }
     if (key === 'tag') return Array.isArray(asset.tags) && asset.tags.map(String).includes(expected);
