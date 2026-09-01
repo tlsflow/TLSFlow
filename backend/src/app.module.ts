@@ -35,6 +35,7 @@ import { BindingsApplicationService } from './modules/bindings/application/bindi
 import { BindingsController, getBindingsRouteContracts } from './modules/bindings/controller/bindings.controller.js';
 import { PgBindingsRepository } from './modules/bindings/repository/bindings.repository.js';
 import { CertificatesController, createCertificateServices, getCertificateRouteContracts, type CertificateServices } from './modules/certificates/index.js';
+import { ApplicationCertificateSupplyApplicationService, ApplicationCertificateSupplyController, ApplicationCertificateSupplyRepository, getApplicationCertificateSupplyRouteContracts } from './modules/application-certificate-supply/index.js';
 import {
   AcmeAccountService,
   AcmeCertificateService,
@@ -1336,6 +1337,14 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('automationScheduler', automationScheduler);
   app.setResource('automationEventDelivery', automationEventDelivery);
   new AssetsController(security, assetsService, new ApplicationAssetExecutionService(appDb)).register(app.router);
+  const applicationCertificateSupplyService = new ApplicationCertificateSupplyApplicationService(
+    new ApplicationCertificateSupplyRepository(appDb),
+    internalCaService,
+    certificateServices.certificates,
+    internalCaService,
+  );
+  app.setResource('applicationCertificateSupplyService', applicationCertificateSupplyService);
+  new ApplicationCertificateSupplyController(security, applicationCertificateSupplyService).register(app.router);
   const bindingsController = new BindingsController(assetsService, bindingsService, security);
   bindingsController.register(app.router);
 
@@ -2113,6 +2122,7 @@ export function getRouteContracts(
     ...getDeviceRouteContracts(),
     ...getBindingsRouteContracts(),
     ...getCertificateRouteContracts(),
+    ...getApplicationCertificateSupplyRouteContracts(),
     ...getInternalCaRouteContracts(),
     ...getCapabilitiesRouteContracts(),
     ...getAgentsRouteContracts(),

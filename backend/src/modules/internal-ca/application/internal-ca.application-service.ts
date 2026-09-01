@@ -180,6 +180,8 @@ export interface CreateProfileInput {
 
 export interface CreateCertificateRequestInput {
   applicationAssetId: string;
+  certificateAssetId?: string;
+  applicationCertificatePolicyVersionId?: string;
   caId: string;
   trustDomainId?: string;
   profileVersionId: string;
@@ -1602,6 +1604,14 @@ export class InternalCaApplicationService {
   }
 
   async createCertificateRequest(tenantId: string, input: CreateCertificateRequestInput, context?: RequestContext): Promise<CertificateRequestEntity> {
+    if (input.applicationCertificatePolicyVersionId && !input.certificateAssetId) {
+      throw new AppError('APPLICATION_CERTIFICATE_POLICY_INVALID', '应用证书供应策略申请必须绑定 certificateAssetId', {
+        applicationCertificatePolicyVersionId: input.applicationCertificatePolicyVersionId,
+      });
+    }
+    if (input.certificateAssetId && input.certificateAssetId === input.applicationAssetId) {
+      throw new AppError('APPLICATION_CERTIFICATE_POLICY_INVALID', 'applicationAssetId 与 certificateAssetId 语义不能相同');
+    }
     const authority = await this.requireAuthority(tenantId, input.caId);
     if (authority.status !== 'active') throw new AppError('CA_PROVIDER_UNAVAILABLE', '证书机构当前不可签发', { caId: authority.id, status: authority.status });
     const profileVersion = await this.repository.getProfileVersion(input.profileVersionId);
@@ -1654,6 +1664,8 @@ export class InternalCaApplicationService {
       id: requestId,
       tenantId,
       applicationAssetId: requiredText(input.applicationAssetId, 'applicationAssetId'),
+      ...(input.certificateAssetId ? { certificateAssetId: input.certificateAssetId } : {}),
+      ...(input.applicationCertificatePolicyVersionId ? { applicationCertificatePolicyVersionId: input.applicationCertificatePolicyVersionId } : {}),
       caId: authority.id,
       trustDomainId: authority.trustDomainId,
       profileVersionId: profileVersion.id,
@@ -1716,6 +1728,8 @@ export class InternalCaApplicationService {
       id: newId('certreq'),
       tenantId,
       applicationAssetId: requiredText(input.applicationAssetId, 'applicationAssetId'),
+      ...(input.certificateAssetId ? { certificateAssetId: input.certificateAssetId } : {}),
+      ...(input.applicationCertificatePolicyVersionId ? { applicationCertificatePolicyVersionId: input.applicationCertificatePolicyVersionId } : {}),
       caId: authority.id,
       trustDomainId: authority.trustDomainId,
       profileVersionId: profileVersion.id,
@@ -2510,6 +2524,7 @@ export class InternalCaApplicationService {
     }
     const imported = await this.dependencies.certificates.importVersion({
       tenantId: request.tenantId,
+      ...(request.certificateAssetId ? { certificateAssetId: request.certificateAssetId } : {}),
       certificatePem: issued.certificateChainPem,
       allowCertificateOnly: !keyReference.secretRef,
       existingPrivateKeySecretRef: keyReference.secretRef,

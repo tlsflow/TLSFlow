@@ -13,6 +13,7 @@ const CAPABILITIES_PATH = '/api/v1/capabilities/definitions'
 const CAPABILITY_DECLARATIONS_PATH = '/api/v1/capabilities/declarations'
 const CAPABILITY_REQUIREMENTS_PATH = '/api/v1/capabilities/requirements'
 const AGENTS_PATH = '/api/v1/agents'
+const APPLICATION_CERTIFICATE_SUPPLY_POLICY_PATH = '/api/v1/application-assets'
 
 export function listAssets(query?: BusinessListQuery) {
   return listRecords(APPLICATIONS_PATH, query)
@@ -28,6 +29,25 @@ export function getApplicationDetail(applicationId: string): Promise<ApiRecordRe
 
 export function getApplicationAssetLinkageStatus(applicationAssetId: string): Promise<ApiRecordResult> {
   return apiClient.get<ApiRecord>(toClientPath(`${APPLICATIONS_PATH}/${encodeURIComponent(applicationAssetId)}/linkage-status`))
+}
+
+/** 查询应用级证书供应策略。响应仅包含候选证书和脱敏的 SecretRef。 */
+export function getApplicationCertificateSupplyPolicy(applicationAssetId: string): Promise<ApiRecordResult> {
+  return apiClient.get<ApiRecord>(toClientPath(`${APPLICATION_CERTIFICATE_SUPPLY_POLICY_PATH}/${encodeURIComponent(applicationAssetId)}/certificate-supply-policy`))
+}
+
+/** 保存应用级证书供应策略；后端会追加不可变策略版本。 */
+export function saveApplicationCertificateSupplyPolicy(applicationAssetId: string, payload: ApiBody): Promise<ApiRecordResult> {
+  return apiClient.request<ApiRecord>(toClientPath(`${APPLICATION_CERTIFICATE_SUPPLY_POLICY_PATH}/${encodeURIComponent(applicationAssetId)}/certificate-supply-policy`), {
+    method: 'PUT',
+    body: payload,
+    idempotencyKey: createIdempotencyKey('application_certificate_supply_policy_save'),
+  })
+}
+
+/** 只读预览应用级证书供应策略，不创建申请、密钥或部署计划。 */
+export function previewApplicationCertificateSupplyPolicy(applicationAssetId: string, payload: ApiBody): Promise<ApiRecordResult> {
+  return apiClient.post<ApiRecord>(toClientPath(`${APPLICATION_CERTIFICATE_SUPPLY_POLICY_PATH}/${encodeURIComponent(applicationAssetId)}/certificate-supply-policy/preview`), payload)
 }
 
 export function repairApplicationAssetLinkage(applicationAssetId: string): Promise<ApiRecordResult> {

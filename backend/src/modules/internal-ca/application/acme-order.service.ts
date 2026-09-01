@@ -287,7 +287,7 @@ export class AcmeOrderService {
       id: order.id,
       status: order.status,
       certificateRequestId: order.certificateRequestId,
-      certificateAssetId: request?.applicationAssetId,
+      ...(request?.certificateAssetId ? { certificateAssetId: request.certificateAssetId } : {}),
       externalOrderUrl: order.externalOrderUrl,
       identifiers: order.identifiers.map((item) => ({ ...item })),
       authorizationCount: order.authorizationUrls.length,

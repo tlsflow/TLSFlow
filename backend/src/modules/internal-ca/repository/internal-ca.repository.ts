@@ -410,6 +410,8 @@ export class InternalCaRepository {
     return this.upsert('pg_certificate_requests', entity.id, entity, {
       tenant_id: entity.tenantId,
       application_asset_id: entity.applicationAssetId,
+      certificate_asset_id: entity.certificateAssetId ?? null,
+      application_certificate_policy_version_id: entity.applicationCertificatePolicyVersionId ?? null,
       ca_id: entity.caId,
       trust_domain_id: entity.trustDomainId ?? null,
       profile_version_id: entity.profileVersionId,
@@ -430,20 +432,33 @@ export class InternalCaRepository {
     });
   }
 
-  getRequest(tenantId: string, id: string): Promise<CertificateRequestEntity | undefined> {
-    return this.get('pg_certificate_requests', tenantId, id);
+  async getRequest(tenantId: string, id: string): Promise<CertificateRequestEntity | undefined> {
+    const result = await this.db.query<RequestRow>(
+      `select payload, certificate_asset_id, application_certificate_policy_version_id
+         from pg_certificate_requests
+        where tenant_id = $1 and id = $2`,
+      [tenantId, id],
+    );
+    return result.rows[0] ? requestFromRow(result.rows[0]) : undefined;
   }
 
   async getRequestByIdempotencyKey(tenantId: string, idempotencyKey: string): Promise<CertificateRequestEntity | undefined> {
-    const result = await this.db.query<{ payload: CertificateRequestEntity }>(
-      'select payload from pg_certificate_requests where tenant_id = $1 and idempotency_key = $2',
+    const result = await this.db.query<RequestRow>(
+      'select payload, certificate_asset_id, application_certificate_policy_version_id from pg_certificate_requests where tenant_id = $1 and idempotency_key = $2',
       [tenantId, idempotencyKey],
     );
-    return result.rows[0]?.payload ? structuredClone(result.rows[0].payload) : undefined;
+    return result.rows[0] ? requestFromRow(result.rows[0]) : undefined;
   }
 
-  listRequests(tenantId: string): Promise<CertificateRequestEntity[]> {
-    return this.list('pg_certificate_requests', tenantId);
+  async listRequests(tenantId: string): Promise<CertificateRequestEntity[]> {
+    const result = await this.db.query<RequestRow>(
+      `select payload, certificate_asset_id, application_certificate_policy_version_id
+         from pg_certificate_requests
+        where tenant_id = $1
+        order by created_at desc`,
+      [tenantId],
+    );
+    return result.rows.map(requestFromRow);
   }
 
   saveRenewal(entity: CertificateRenewalJobEntity): Promise<CertificateRenewalJobEntity> {
@@ -591,6 +606,26 @@ export class InternalCaRepository {
 }
 
 const jsonColumns = new Set(['payload', 'capabilities', 'configuration', 'rules', 'target_scope', 'root_policy', 'trust_policy', 'evidence', 'warnings', 'sans', 'capability_evidence']);
+
+interface RequestRow {
+  [key: string]: unknown;
+  payload?: unknown;
+  certificate_asset_id?: string | null;
+  application_certificate_policy_version_id?: string | null;
+}
+
+function requestFromRow(row: RequestRow): CertificateRequestEntity {
+  const payload = row.payload && typeof row.payload === 'object'
+    ? structuredClone(row.payload as CertificateRequestEntity)
+    : {} as CertificateRequestEntity;
+  return {
+    ...payload,
+    ...(row.certificate_asset_id ? { certificateAssetId: row.certificate_asset_id } : {}),
+    ...(row.application_certificate_policy_version_id
+      ? { applicationCertificatePolicyVersionId: row.application_certificate_policy_version_id }
+      : {}),
+  };
+}
 
 function profileVersionFromRow(row: Record<string, unknown>): CertificateProfileVersionEntity {
   return {

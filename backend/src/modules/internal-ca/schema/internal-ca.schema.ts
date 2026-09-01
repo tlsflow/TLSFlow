@@ -359,6 +359,10 @@ export interface CertificateRequestEntity {
   id: string;
   tenantId: string;
   applicationAssetId: string;
+  /** 证书资产 ID，与应用资产 ID 严格分离；专属申请必须显式绑定。 */
+  certificateAssetId?: string;
+  /** 应用证书供应策略版本 ID，用于把申请固定到不可变策略快照。 */
+  applicationCertificatePolicyVersionId?: string;
   caId: string;
   trustDomainId?: string;
   profileVersionId: string;

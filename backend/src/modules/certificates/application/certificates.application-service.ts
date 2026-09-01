@@ -132,7 +132,9 @@ export class CertificatesApplicationService {
   async createAsset(input: CreateCertificateAssetInput): Promise<CertificateAssetDto> {
     const now = new Date().toISOString();
     const primaryDomain = normalizeCertificateDomain(input.primaryDomain);
-    const existing = await this.repository.findAssetByPrimaryDomain(primaryDomain, input.tenantId);
+    const existing = input.applicationAssetId
+      ? await this.repository.findAssetByApplicationAssetId?.(input.applicationAssetId, input.tenantId)
+      : await this.repository.findAssetByPrimaryDomain(primaryDomain, input.tenantId);
     if (existing) {
       const updated = await this.repository.updateAsset(existing.id, {
         name: existing.name || input.name || primaryDomain,
@@ -145,6 +147,7 @@ export class CertificatesApplicationService {
     const asset = await this.repository.createAsset({
       id: newId('certasset'),
       tenantId: input.tenantId,
+      ...(input.applicationAssetId ? { applicationAssetId: input.applicationAssetId } : {}),
       name: input.name ?? primaryDomain,
       primaryDomain,
       sans: uniqueStrings((input.sans ?? []).map(normalizeCertificateDomain)),

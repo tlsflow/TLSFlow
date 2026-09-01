@@ -25,6 +25,8 @@ export interface CertificateDistinguishedName {
 export interface CertificateAssetEntity {
   id: string;
   tenantId?: string;
+  /** 专属证书资产的应用归属；共享/手动证书保持为空。 */
+  applicationAssetId?: string;
   name: string;
   primaryDomain: string;
   sans: string[];

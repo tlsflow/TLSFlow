@@ -10,6 +10,7 @@ import type { RootCertificateRecordDto } from '../trust-roots/dto/trust-roots.dt
 
 export interface CertificateAssetDto {
   id: string;
+  applicationAssetId?: string;
   name: string;
   primaryDomain: string;
   sans: string[];
@@ -76,6 +77,8 @@ export interface CertificateArtifactFileDto {
 
 export interface CreateCertificateAssetInput {
   tenantId?: string;
+  /** 仅专属证书使用；提供后跳过租户+域名共享资产复用。 */
+  applicationAssetId?: string;
   name: string;
   primaryDomain: string;
   sans?: string[];

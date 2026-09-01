@@ -17,6 +17,7 @@ export interface CertificatesRepository {
   updateAsset(id: string, patch: Partial<CertificateAssetEntity>, tenantId?: string): Promise<CertificateAssetEntity>;
   getAsset(id: string, tenantId?: string): Promise<CertificateAssetEntity | undefined>;
   findAssetByPrimaryDomain(primaryDomain: string, tenantId?: string): Promise<CertificateAssetEntity | undefined>;
+  findAssetByApplicationAssetId?(applicationAssetId: string, tenantId?: string): Promise<CertificateAssetEntity | undefined>;
   deleteOrUpdateAsset(id: string, patch: Partial<CertificateAssetEntity>, tenantId?: string): Promise<CertificateAssetEntity>;
   listVersionsByAsset(certificateAssetId: string, tenantId?: string): Promise<CertificateVersionEntity[]>;
   updateVersion(id: string, patch: Partial<CertificateVersionEntity>, tenantId?: string): Promise<CertificateVersionEntity>;
@@ -49,12 +50,13 @@ export class PgCertificatesRepository implements CertificatesRepository {
     const tenantId = await this.resolveWriteTenantId(entity.tenantId);
     await this.db.query(
       `insert into pg_certificate_assets (
-         id, tenant_id, name, primary_domain, sans, source_type, current_version_id,
+         id, tenant_id, application_asset_id, name, primary_domain, sans, source_type, current_version_id,
          status, tags, created_by, created_at, updated_at
-       ) values ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9::jsonb, $10, $11::timestamptz, $12::timestamptz)`,
+       ) values ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10::jsonb, $11, $12::timestamptz, $13::timestamptz)`,
       [
         entity.id,
         tenantId,
+        entity.applicationAssetId ?? null,
         entity.name,
         entity.primaryDomain,
         JSON.stringify(entity.sans ?? []),
@@ -83,18 +85,20 @@ export class PgCertificatesRepository implements CertificatesRepository {
     await this.db.query(
       `update pg_certificate_assets
           set name = $2,
-              primary_domain = $3,
-              sans = $4::jsonb,
-              source_type = $5,
-              current_version_id = $6,
-              status = $7,
-              tags = $8::jsonb,
-              updated_at = $9::timestamptz
+              application_asset_id = $3,
+              primary_domain = $4,
+              sans = $5::jsonb,
+              source_type = $6,
+              current_version_id = $7,
+              status = $8,
+              tags = $9::jsonb,
+              updated_at = $10::timestamptz
         where id = $1
-          and ($10::text is null or tenant_id = $10)`,
+          and ($11::text is null or tenant_id = $11)`,
       [
         id,
         next.name,
+        next.applicationAssetId ?? null,
         next.primaryDomain,
         JSON.stringify(next.sans ?? []),
         next.sourceType,
@@ -122,11 +126,25 @@ export class PgCertificatesRepository implements CertificatesRepository {
     const result = await this.db.query<CertificateAssetRow>(
       `select * from pg_certificate_assets
         where lower(primary_domain) = lower($1)
+          and application_asset_id is null
           and status <> 'deleted'
           and ($2::text is null or tenant_id = $2)
         order by created_at asc
         limit 1`,
       [primaryDomain, effectiveTenantId(tenantId) ?? null],
+    );
+    return result.rows[0] ? toAssetEntity(result.rows[0]) : undefined;
+  }
+
+  async findAssetByApplicationAssetId(applicationAssetId: string, tenantId?: string): Promise<CertificateAssetEntity | undefined> {
+    const result = await this.db.query<CertificateAssetRow>(
+      `select * from pg_certificate_assets
+        where application_asset_id = $1
+          and status <> 'deleted'
+          and ($2::text is null or tenant_id = $2)
+        order by created_at asc
+        limit 1`,
+      [applicationAssetId, effectiveTenantId(tenantId) ?? null],
     );
     return result.rows[0] ? toAssetEntity(result.rows[0]) : undefined;
   }
@@ -546,6 +564,7 @@ export class PgCertificatesRepository implements CertificatesRepository {
 type CertificateAssetRow = {
   id: string;
   tenant_id: string;
+  application_asset_id?: string | null;
   name: string;
   primary_domain: string;
   sans: unknown;
@@ -614,6 +633,7 @@ function toAssetEntity(row: CertificateAssetRow): CertificateAssetEntity {
   return {
     id: row.id,
     tenantId: row.tenant_id,
+    ...(row.application_asset_id ? { applicationAssetId: row.application_asset_id } : {}),
     name: row.name,
     primaryDomain: row.primary_domain,
     sans: asStringArray(row.sans),
