@@ -249,9 +249,49 @@ export class TaskRepository {
                     step.payload->'inputSnapshot'->'artifact'->>'expectedFingerprintSha256',
                     step.payload->'inputSnapshot'->'executionRuntimeSnapshot'->'deploymentArtifact'->>'expectedFingerprintSha256'
                   )), '') is not null
+                  and (
+                    not (
+                      step.payload->'inputSnapshot'->>'actionType' = 'agent.plan.execute'
+                      and exists (
+                        select 1
+                          from jsonb_array_elements(coalesce(step.payload->'inputSnapshot'->'plan'->'operations', '[]'::jsonb)) operation
+                         where operation->>'operationType' in (
+                           'filesystem.atomic_replace', 'filesystem.restore', 'certificate.store.install',
+                           'service.start', 'service.stop', 'service.restart', 'service.reload',
+                           'command.execute_allowlisted'
+                         )
+                      )
+                    )
+                    or (
+                      exists (
+                        select 1
+                          from jsonb_array_elements(coalesce(
+                            step.payload->'inputSnapshot'->'resultDetail'->'operationResults',
+                            step.payload->'inputSnapshot'->'resultDetail'->'operations',
+                            '[]'::jsonb
+                          )) operation
+                         where operation->>'operationType' in (
+                           'filesystem.atomic_replace', 'filesystem.restore', 'certificate.store.install',
+                           'service.start', 'service.stop', 'service.restart', 'service.reload',
+                           'command.execute_allowlisted'
+                         )
+                           and upper(operation->>'status') = 'SUCCEEDED'
+                      )
+                      and exists (
+                        select 1
+                          from jsonb_array_elements(coalesce(
+                            step.payload->'inputSnapshot'->'resultDetail'->'operationResults',
+                            step.payload->'inputSnapshot'->'resultDetail'->'operations',
+                            '[]'::jsonb
+                          )) operation
+                         where operation->>'operationType' = 'service.reload'
+                           and upper(operation->>'status') = 'SUCCEEDED'
+                      )
+                    )
+                  )
              ) as automatic_recovery
              from task_runs task
-            where task.status in ('RETRY_WAITING', 'AWAITING_CONFIRMATION')
+            where task.status in ('RETRY_WAITING', 'WAITING_RESULT', 'AWAITING_CONFIRMATION')
               and task.task_type = 'CERTIFICATE_DEPLOY'
               and task.lease_owner is null
               ${tenantSql}
@@ -287,7 +327,7 @@ export class TaskRepository {
                 )
            from candidates
           where task.id = candidates.id
-            and (task.status = 'RETRY_WAITING' or candidates.automatic_recovery)
+            and (task.status in ('RETRY_WAITING', 'WAITING_RESULT') or candidates.automatic_recovery)
         returning task.id, task.status`,
         params,
       );
@@ -501,9 +541,31 @@ export class TaskRepository {
       await recoverExpiredLeases(tx);
       const params: unknown[] = [];
       const tenantSql = tenantId ? `and tenant_id = $${params.push(tenantId)}` : '';
+      // 中文说明：历史版本可能把 WAITING_RESULT 写成空的 next_attempt_at；领取前先补上最小退避，
+      // 避免旧任务在 Worker 热循环中反复调用同一个外部写操作。
+      await tx.query(
+        `update task_runs
+            set next_attempt_at = now() + interval '10 seconds'
+          where status = 'WAITING_RESULT'
+            and next_attempt_at is null
+            and lease_owner is null
+            ${tenantSql}`,
+        params,
+      );
       const selected = await tx.query<TaskRunRow>(
         `select * from task_runs
           where status in ('QUEUED', 'RETRY_WAITING', 'WAITING_RESULT')
+            and not (
+              nullif(coalesce(progress->>'approvalId', resource_summary->>'approvalId'), '') is not null
+              and (
+                progress->>'status' = 'waiting_approval'
+                or resource_summary->>'status' = 'waiting_approval'
+                or progress->>'approvalStatus' = 'pending'
+                or resource_summary->>'approvalStatus' = 'pending'
+                or progress->>'approvalPending' = 'true'
+                or resource_summary->>'approvalPending' = 'true'
+              )
+            )
             and available_at <= now()
             and (next_attempt_at is null or next_attempt_at <= now())
             and (lease_expires_at is null or lease_expires_at <= now())

@@ -680,3 +680,44 @@ test('部署审批占位任务只在审批决策后收敛，不会被 Worker 抢
   assert.equal(resolved?.progress?.approvalStatus, 'approved');
   assert.equal((await repository.getById(task.tenantId, executionTask.id))?.status, 'QUEUED');
 });
+
+test('带审批占位的证书任务不会被 Worker 领取', async () => {
+  const { repository, service } = await createFixture();
+  const task = await service.enqueue({
+    tenantId: 'tenant-task-approval-gate',
+    taskType: 'CERTIFICATE_DEPLOY',
+    triggerSource: 'certificate.deploy.requested',
+    initialStatus: 'RETRY_WAITING',
+    availableAt: '2000-01-01T00:00:00.000Z',
+    resourceSummary: {
+      approvalId: 'approval-cert-1',
+      approvalPending: true,
+      approvalStatus: 'pending',
+      status: 'waiting_approval',
+    },
+    initialProgress: {
+      approvalId: 'approval-cert-1',
+      approvalPending: true,
+      approvalStatus: 'pending',
+      status: 'waiting_approval',
+    },
+  });
+
+  assert.equal(await repository.claimNext(task.tenantId, 'worker-must-wait-approval', 60), undefined);
+  assert.equal((await repository.getById(task.tenantId, task.id))?.status, 'RETRY_WAITING');
+});
+
+test('历史 WAITING_RESULT 缺少退避时间时会被补成延迟轮询', async () => {
+  const { db, repository, service } = await createFixture();
+  const task = await service.enqueue({
+    tenantId: 'tenant-task-legacy-waiting',
+    taskType: 'CERTIFICATE_DEPLOY',
+    triggerSource: 'execution.apply.enqueue',
+  });
+  await db.query(`update task_runs set status = 'WAITING_RESULT', next_attempt_at = null where id = $1`, [task.id]);
+
+  assert.equal(await repository.claimNext(task.tenantId, 'worker-legacy-waiting', 60), undefined);
+  const repaired = await repository.getById(task.tenantId, task.id);
+  assert.ok(repaired?.nextAttemptAt);
+  assert.ok(Date.parse(repaired.nextAttemptAt) > Date.now() - 1000);
+});
