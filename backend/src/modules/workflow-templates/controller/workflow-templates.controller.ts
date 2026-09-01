@@ -23,6 +23,7 @@ import type {
   WorkflowRuntimeInput,
   WorkflowStepRuntimeInput,
 } from '../dto/workflow-templates.dto.js';
+import type { ApplicationExecutionCompatibilityService } from '../../assets/application/application-execution-compatibility.service.js';
 
 const tag = ['WorkflowTemplates'];
 
@@ -32,6 +33,7 @@ export class WorkflowTemplatesController {
     private readonly security?: SecurityServices,
     private readonly pluginSources?: PluginWorkflowSourceService,
     private readonly executionBindings?: WorkflowExecutionBindingsService,
+    private readonly executionCompatibility?: ApplicationExecutionCompatibilityService,
   ) {}
 
   register(router: Router): void {
@@ -201,7 +203,9 @@ export class WorkflowTemplatesController {
     const version = await this.service.getVersion(versionId);
     await assertRouteAction(security, 'workflow.publish', 'workflow', { resourceId: version.templateId });
     await this.assertWorkflowTemplateAccess(security, 'control', version.templateId);
-    return { statusCode: 200, body: await this.service.publishVersion(versionId) };
+    const published = await this.service.publishVersion(versionId);
+    await this.executionCompatibility?.recheckWorkflowTemplate(security.tenantId, published.templateId);
+    return { statusCode: 200, body: published };
   }
 
   private async preview(request: HttpRequest) {

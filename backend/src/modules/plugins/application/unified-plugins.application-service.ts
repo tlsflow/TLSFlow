@@ -190,6 +190,20 @@ export class UnifiedPluginsApplicationService {
     return this.getAccessibleVersion(tenantId, pluginVersionId);
   }
 
+  /** 运行期唯一入口：配置只给出 pluginId，精确版本在创建计划时物化。 */
+  async getCurrentEnabledVersion(tenantId: string, pluginId: string): Promise<UnifiedPluginVersionRecord> {
+    const candidates = (await this.repository.listAccessibleVersions(tenantId))
+      .filter((item) => item.pluginId === pluginId && item.status === 'ENABLED')
+      .sort((left, right) => {
+        const leftTenant = left.tenantId === tenantId ? 0 : 1;
+        const rightTenant = right.tenantId === tenantId ? 0 : 1;
+        return leftTenant - rightTenant || compareSemanticVersions(right.version, left.version);
+      });
+    const current = candidates[0];
+    if (!current) throw new AppError('CAPABILITY_MISSING', '插件没有当前启用版本', { tenantId, pluginId });
+    return current;
+  }
+
   async getUiResources(id: string, locale: string): Promise<{
     pluginVersionId: string;
     forms: ReturnType<PluginPackageResourcesService['validate']>['forms'];
@@ -304,22 +318,6 @@ export class UnifiedPluginsApplicationService {
     // 启用前按目标状态预检；目录运行时仍只允许读取已启用版本。
     // 不能直接传入 DISABLED 记录，否则带配方的插件永远无法完成 DISABLED -> ENABLED 转换。
     new ApplicationOnboardingRecipeLoader().loadOptional({ ...record, status: 'ENABLED' });
-    const enabledSibling = (await this.repository.listVersions(record.tenantId))
-      .find((item) => item.id !== record.id && item.pluginId === record.pluginId && item.status === 'ENABLED');
-    if (enabledSibling) {
-      const upgradeDiff = buildUpgradeDiff(enabledSibling, record);
-      if (upgradeDiff.bindingRecheckRequired) {
-        const references = await this.repository.countReferences(record.tenantId, enabledSibling.id);
-        if (references.total > 0) {
-          throw new AppError('RESOURCE_VERSION_CONFLICT', '已有 Binding 引用的插件能力兼容范围发生破坏性变化，必须先重新检查或迁移 Binding', {
-            fromVersionId: enabledSibling.id,
-            toVersionId: record.id,
-            capabilityCompatibilityChanges: upgradeDiff.capabilityCompatibilityChanges,
-            references,
-          });
-        }
-      }
-    }
     const updatedAt = new Date().toISOString();
     const next = {
       ...(record.source === 'USER' ? normalizeUserPluginLifecycle(record) : record),

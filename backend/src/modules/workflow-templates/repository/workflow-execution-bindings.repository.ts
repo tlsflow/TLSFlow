@@ -32,9 +32,9 @@ export class WorkflowExecutionBindingsRepository {
     const now = new Date().toISOString();
     const id = `wfeb_${randomUUID()}`;
     await this.db.query(`insert into workflow_execution_bindings
-      (id,tenant_id,plugin_version_id,capability_key,workflow_key,workflow_template_id,workflow_version_selection,workflow_version_id,runner,gateway_id,input_bindings,status,version,created_at,updated_at)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,'ACTIVE',1,$12::timestamptz,$12::timestamptz)`,
-    [id,input.tenantId,input.pluginVersionId,input.capabilityKey,input.workflowKey,input.workflowTemplateId,input.workflowVersionSelection,input.workflowVersionId,input.runner,input.gatewayId ?? null,JSON.stringify(input.inputBindings),now]);
+      (id,tenant_id,plugin_id,plugin_version_id,capability_key,workflow_key,workflow_template_id,workflow_version_selection,workflow_version_id,runner,gateway_id,input_bindings,status,version,created_at,updated_at)
+      values ($1,$2,$3,null,$4,$5,$6,'CURRENT',null,$7,$8,$9::jsonb,'ACTIVE',1,$10::timestamptz,$10::timestamptz)`,
+    [id,input.tenantId,input.pluginId,input.capabilityKey,input.workflowKey,input.workflowTemplateId,input.runner,input.gatewayId ?? null,JSON.stringify(input.inputBindings),now]);
     const created = await this.find(input.tenantId, id);
     if (!created) throw new Error(`workflow execution binding was not created: ${id}`);
     return created;
@@ -48,12 +48,21 @@ export class WorkflowExecutionBindingsRepository {
   async update(tenantId: string, id: string, input: UpdateWorkflowExecutionBindingInput): Promise<WorkflowExecutionBinding | undefined> {
     const current = await this.find(tenantId,id); if (!current || current.version !== input.expectedVersion) return undefined;
     const next = { ...current, ...input, version: current.version + 1, updatedAt: new Date().toISOString() };
-    const result = await this.db.query(`update workflow_execution_bindings set plugin_version_id=$4,capability_key=$5,workflow_key=$6,workflow_template_id=$7,workflow_version_selection=$8,workflow_version_id=$9,runner=$10,gateway_id=$11,input_bindings=$12::jsonb,status=$13,version=version+1,updated_at=$14::timestamptz where tenant_id=$1 and id=$2 and version=$3 returning id`,[tenantId,id,input.expectedVersion,next.pluginVersionId,next.capabilityKey,next.workflowKey,next.workflowTemplateId,next.workflowVersionSelection,next.workflowVersionId,next.runner,next.gatewayId ?? null,JSON.stringify(next.inputBindings),next.status,next.updatedAt]);
+    const result = await this.db.query(`update workflow_execution_bindings set plugin_id=$4,plugin_version_id=null,capability_key=$5,workflow_key=$6,workflow_template_id=$7,workflow_version_selection='CURRENT',workflow_version_id=null,runner=$8,gateway_id=$9,input_bindings=$10::jsonb,status=$11,version=version+1,updated_at=$12::timestamptz where tenant_id=$1 and id=$2 and version=$3 returning id`,[tenantId,id,input.expectedVersion,next.pluginId,next.capabilityKey,next.workflowKey,next.workflowTemplateId,next.runner,next.gatewayId ?? null,JSON.stringify(next.inputBindings),next.status,next.updatedAt]);
     if (result.rows.length === 0) return undefined;
     return this.find(tenantId, id);
   }
 
-  async findFixedWorkflowChain(input: Pick<CreateWorkflowExecutionBindingInput, 'tenantId' | 'pluginVersionId' | 'capabilityKey' | 'workflowKey' | 'workflowTemplateId' | 'workflowVersionId'>): Promise<WorkflowExecutionBindingChain | undefined> {
+  async resolvePluginId(tenantId: string, pluginVersionId: string | undefined): Promise<string | undefined> {
+    if (!pluginVersionId) return undefined;
+    const row = (await this.db.query<{ plugin_id: string }>(`
+      select plugin_id from unified_plugin_versions
+       where id=$1 and (tenant_id=$2 or source='BUILTIN')
+    `, [pluginVersionId, tenantId])).rows[0];
+    return row?.plugin_id;
+  }
+
+  async findCurrentWorkflowChain(input: Pick<WorkflowExecutionBinding, 'tenantId' | 'pluginId' | 'capabilityKey' | 'workflowKey' | 'workflowTemplateId'>): Promise<WorkflowExecutionBindingChain | undefined> {
     const row = (await this.db.query<WorkflowExecutionBindingChainRow>(`
       select
         plugin.id as plugin_version_id,
@@ -67,8 +76,7 @@ export class WorkflowExecutionBindingsRepository {
         plugin.manifest_sha256,
         plugin.resource_sha256,
         exists (
-          select 1
-            from jsonb_array_elements(coalesce(plugin.manifest->'capabilities', '[]'::jsonb)) declared
+          select 1 from jsonb_array_elements(coalesce(plugin.manifest->'capabilities', '[]'::jsonb)) declared
            where declared->>'key' = $3
         ) as capability_declared,
         workflow_binding.workflow_key,
@@ -79,22 +87,22 @@ export class WorkflowExecutionBindingsRepository {
         version.payload->>'status' as workflow_version_status,
         workflow_binding.workflow_content_sha256,
         version.payload->>'contentHash' as workflow_version_content_hash
-      from unified_plugin_workflow_bindings workflow_binding
-      join unified_plugin_versions plugin
-        on plugin.id = workflow_binding.plugin_version_id
-      left join pg_documents template
-        on template.namespace = 'workflow.templates'
-       and template.document_id = workflow_binding.workflow_template_id
-      left join pg_documents version
-        on version.namespace = 'workflow.template_versions'
-       and version.document_id = workflow_binding.workflow_version_id
-     where (plugin.tenant_id = $1 or plugin.source = 'BUILTIN')
-       and workflow_binding.plugin_version_id = $2
+      from unified_plugin_versions plugin
+      join unified_plugin_workflow_bindings workflow_binding
+        on workflow_binding.plugin_version_id = plugin.id
        and workflow_binding.capability_key = $3
        and workflow_binding.workflow_key = $4
        and workflow_binding.workflow_template_id = $5
-       and workflow_binding.workflow_version_id = $6
-    `, [input.tenantId, input.pluginVersionId, input.capabilityKey, input.workflowKey, input.workflowTemplateId, input.workflowVersionId])).rows[0];
+      left join pg_documents template
+        on template.namespace = 'workflow.templates' and template.document_id = workflow_binding.workflow_template_id
+      left join pg_documents version
+        on version.namespace = 'workflow.template_versions' and version.document_id = workflow_binding.workflow_version_id
+     where plugin.plugin_id = $2
+       and (plugin.tenant_id = $1 or plugin.source = 'BUILTIN')
+       and plugin.status = 'ENABLED'
+     order by case when plugin.tenant_id = $1 then 0 else 1 end, plugin.updated_at desc, plugin.id desc
+     limit 1
+    `, [input.tenantId, input.pluginId, input.capabilityKey, input.workflowKey, input.workflowTemplateId])).rows[0];
     return row ? mapChain(row) : undefined;
   }
 }
@@ -103,11 +111,12 @@ interface BindingRow extends Record<string, unknown> {
   id: string;
   tenant_id: string;
   plugin_version_id: string;
+  plugin_id: string;
   capability_key: string;
   workflow_key: string;
   workflow_template_id: string;
-  workflow_version_selection: 'FIXED';
-  workflow_version_id: string;
+  workflow_version_selection: WorkflowExecutionBinding['workflowVersionSelection'];
+  workflow_version_id: string | null;
   runner: 'CONTROL_PLANE' | 'GATEWAY';
   gateway_id: string | null;
   input_bindings: WorkflowExecutionBinding['inputBindings'];
@@ -143,12 +152,13 @@ function map(row: BindingRow): WorkflowExecutionBinding {
   return {
     id: row.id,
     tenantId: row.tenant_id,
-    pluginVersionId: row.plugin_version_id,
+    pluginId: row.plugin_id,
+    ...(row.plugin_version_id ? { pluginVersionId: row.plugin_version_id } : {}),
     capabilityKey: row.capability_key,
     workflowKey: row.workflow_key,
     workflowTemplateId: row.workflow_template_id,
     workflowVersionSelection: row.workflow_version_selection,
-    workflowVersionId: row.workflow_version_id,
+    ...(row.workflow_version_id ? { workflowVersionId: row.workflow_version_id } : {}),
     runner: row.runner,
     gatewayId: row.gateway_id ?? undefined,
     inputBindings: normalizeInputBindings(row.input_bindings),

@@ -14,6 +14,7 @@ import type { SecuritySubject } from '../../../shared/security-types.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import { AssetsApplicationService } from '../application/assets.application-service.js';
 import { ApplicationAssetExecutionService, type SaveStandaloneWorkflowExecutionInput } from '../application/application-asset-execution.service.js';
+import type { ApplicationExecutionCompatibilityService } from '../application/application-execution-compatibility.service.js';
 import { assetsEnumValues } from '../domain/assets.domain-service.js';
 import type {
   CreateDiscoverySnapshotDto,
@@ -38,12 +39,13 @@ import type {
 const tags = ['Assets'];
 
 export class AssetsController {
-  constructor(private readonly security?: SecurityServices, private readonly service = new AssetsApplicationService(), private readonly executionService?: ApplicationAssetExecutionService) {}
+  constructor(private readonly security?: SecurityServices, private readonly service = new AssetsApplicationService(), private readonly executionService?: ApplicationAssetExecutionService, private readonly executionCompatibility?: ApplicationExecutionCompatibilityService) {}
 
   register(router: Router): void {
-    // 新语义入口。旧 service-assets、application-assets 路径继续保留，避免破坏历史客户端。
-    router.get('/api/v1/assets', '查询统一资产入口', tags, (request) => this.listServiceAssets(request));
-    router.get('/api/v1/applications', '查询 Application 列表', tags, (request) => this.listServiceAssets(request, 'APPLICATION'));
+    // 统一资产入口聚合设备资产、Agent 关联资产和云服务资产；应用入口严格只返回 APPLICATION。
+    router.get('/api/v1/assets', '查询统一资产列表', tags, (request) => this.listServiceAssets(request));
+    router.get('/api/v1/applications', '查询应用列表', tags, (request) => this.listServiceAssets(request, 'APPLICATION'));
+    router.get('/api/v1/applications/edit-detail', '查询 Application 编辑详情', tags, (request) => this.getApplicationEditDetail(request));
     router.get('/api/v1/applications/detail', '查询 Application 详情', tags, (request) => this.getApplicationDetail(request));
     router.get('/api/v1/applications/:applicationAssetId/linkage-status', '查询插件 Agent 联动状态', tags, (request) => this.getLinkageStatus(request));
     router.post('/api/v1/applications/:applicationAssetId/rescan', '重扫应用关联资产', tags, (request) => this.rescanApplicationAsset(request));
@@ -66,6 +68,8 @@ export class AssetsController {
     router.patch('/api/v1/service-assets/:id/deployment-strategy', '按 ID 更新 ServiceAsset 证书部署策略', tags, (request) => this.updateServiceAssetDeploymentStrategy(request));
     router.patch('/api/v1/service-assets/deployment-strategy', '更新 ServiceAsset 证书部署策略', tags, (request) => this.updateServiceAssetDeploymentStrategy(request));
     router.put('/api/v1/application-assets/:applicationAssetId/standalone-workflow', '保存非受管工作流执行配置', tags, (request) => this.saveStandaloneWorkflowExecution(request));
+    router.get('/api/v1/application-assets/:applicationAssetId/execution-compatibility', '读取应用执行兼容性', tags, (request) => this.getExecutionCompatibility(request));
+    router.post('/api/v1/application-assets/:applicationAssetId/execution-compatibility/recheck', '重新检查应用执行兼容性', tags, (request) => this.recheckExecutionCompatibility(request));
     router.post('/api/v1/service-assets/delete', '软删除 ServiceAsset', tags, (request) => this.deleteServiceAsset(request));
     router.get('/api/v1/application-asset-targets', '查询 ApplicationAssetTarget 列表', tags, (request) => this.listApplicationAssetTargets(request));
     router.get('/api/v1/application-targets', '查询 ApplicationTarget 列表', tags, (request) => this.listApplicationAssetTargets(request));
@@ -381,6 +385,19 @@ export class AssetsController {
     await this.assertCan(subject, 'application.read', 'service_asset', request, applicationId);
     return this.service.getServiceAssetDetail(tenantId(request), applicationId).then((detail) => {
       if (!detail) throw new AppError('RESOURCE_NOT_FOUND', 'Application 不存在', { applicationId });
+      return this.executionCompatibility
+        ? this.executionCompatibility.getForApplication(tenantId(request), applicationId).then((executionCompatibility) => ({ ...detail, executionCompatibility }))
+        : detail;
+    });
+  }
+
+  private async getApplicationEditDetail(request: HttpRequest) {
+    const applicationId = String(request.query.applicationId ?? request.query.id ?? '').trim();
+    if (!applicationId) throw new AppError('VALIDATION_FAILED', 'applicationId 不能为空', { field: 'applicationId' });
+    const subject = this.subjectFromRequest(request);
+    await this.assertCan(subject, 'application.read', 'service_asset', request, applicationId);
+    return this.service.getServiceAssetEditDetail(tenantId(request), applicationId).then((detail) => {
+      if (!detail) throw new AppError('RESOURCE_NOT_FOUND', 'Application 不存在', { applicationId });
       return detail;
     });
   }
@@ -415,6 +432,22 @@ export class AssetsController {
     if (!applicationAssetId) throw new AppError('VALIDATION_FAILED', '非受管工作流路径无效');
     const body = validateObject(request.body, { workflowExecution: { type: 'object', required: true }, expectedAssetVersion: { type: 'number' } }) as unknown as SaveStandaloneWorkflowExecutionInput;
     return this.executionService.saveStandaloneWorkflowExecution(tenantId(request), decodeURIComponent(applicationAssetId), body);
+  }
+
+  private async getExecutionCompatibility(request: HttpRequest) {
+    if (!this.executionCompatibility) throw new AppError('SYSTEM_INTERNAL_ERROR', '应用执行兼容性服务未接入');
+    const applicationAssetId = readPathId(request, 'applicationAssetId');
+    const subject = this.subjectFromRequest(request);
+    await this.assertCan(subject, 'application.read', 'service_asset', request, applicationAssetId);
+    return { items: await this.executionCompatibility.getForApplication(tenantId(request), applicationAssetId) };
+  }
+
+  private async recheckExecutionCompatibility(request: HttpRequest) {
+    if (!this.executionCompatibility) throw new AppError('SYSTEM_INTERNAL_ERROR', '应用执行兼容性服务未接入');
+    const applicationAssetId = readPathId(request, 'applicationAssetId');
+    const subject = this.subjectFromRequest(request);
+    await this.assertCan(subject, 'application.update', 'service_asset', request, applicationAssetId);
+    return { items: await this.executionCompatibility.recheckApplication(tenantId(request), applicationAssetId) };
   }
 
   private async deleteServiceAsset(request: HttpRequest) {
@@ -927,6 +960,7 @@ export function getAssetsRouteContracts(): RouteContract[] {
   return [
     { method: 'GET', path: '/api/v1/assets', operationId: 'listAssets', summary: '查询统一资产入口', tags, responseSchema: pageSchema() },
     { method: 'GET', path: '/api/v1/applications', operationId: 'listApplications', summary: '查询 Application 列表', tags, responseSchema: pageSchema() },
+    { method: 'GET', path: '/api/v1/applications/edit-detail', operationId: 'getApplicationEditDetail', summary: '查询 Application 编辑详情', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/applications/detail', operationId: 'getApplicationDetail', summary: '查询 Application 详情', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/applications/:applicationAssetId/linkage-status', operationId: 'getApplicationAssetLinkageStatus', summary: '查询插件 Agent 联动状态', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/applications/:applicationAssetId/rescan', operationId: 'rescanApplicationAsset', summary: '重扫应用关联资产', tags, responseSchema: objectSchema() },

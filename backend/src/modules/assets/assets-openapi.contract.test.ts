@@ -25,3 +25,11 @@ test('SiteAsset OpenAPI 请求合同声明 configPath 且不承载密码', () =>
   const operation = (document.paths['/api/v1/site-assets'] as Record<string, any>).post;
   assert.equal(operation.requestBody.content['application/json'].schema.properties.configPath.type, 'string');
 });
+
+test('Application 编辑使用独立轻量详情路由', () => {
+  const routes = getAssetsRouteContracts();
+  const editDetail = routes.find((route) => route.operationId === 'getApplicationEditDetail');
+  assert.equal(editDetail?.method, 'GET');
+  assert.equal(editDetail?.path, '/api/v1/applications/edit-detail');
+  assert.equal(routes.some((route) => route.operationId === 'getApplicationDetail'), true);
+});

@@ -1,38 +1,46 @@
 import { AppError } from '../../../common/errors/app-error.js';
-import type { CreateWorkflowExecutionBindingInput, UpdateWorkflowExecutionBindingInput } from '../dto/workflow-execution-bindings.dto.js';
+import type { CreateWorkflowExecutionBindingInput, UpdateWorkflowExecutionBindingInput, WorkflowExecutionBinding } from '../dto/workflow-execution-bindings.dto.js';
 import { WorkflowExecutionBindingsRepository, type WorkflowExecutionBindingChain } from '../repository/workflow-execution-bindings.repository.js';
 import { emptyInputBindingsV1, INPUT_BINDINGS_API_VERSION, type InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
 
 export class WorkflowExecutionBindingsService {
   constructor(private readonly repository: WorkflowExecutionBindingsRepository) {}
   async create(input: CreateWorkflowExecutionBindingInput) {
-    const normalized = normalizeInputBindingInput(input);
+    const normalized = await this.normalizeIdentity(normalizeInputBindingInput(input));
     await validate(this.repository, normalized);
     return this.repository.create(normalized);
   }
   async get(tenantId:string,id:string) {
     const binding=await this.repository.find(tenantId,id);
     if(!binding) throw new AppError('RESOURCE_NOT_FOUND','工作流执行绑定不存在',{id});
-    const normalized = normalizeInputBindingInput(binding);
-    await validate(this.repository, normalized);
-    return normalized;
+    return normalizeInputBindingInput(binding);
   }
   async getExecutionIdentity(tenantId: string, id: string): Promise<{ binding: Awaited<ReturnType<WorkflowExecutionBindingsRepository['find']>> extends infer T ? Exclude<T, undefined> : never; chain: WorkflowExecutionBindingChain }> {
     const binding = await this.get(tenantId, id);
-    const chain = await this.repository.findFixedWorkflowChain(binding);
-    if (!chain) throw new AppError('VALIDATION_FAILED', '工作流执行绑定缺少固定发布链', { code: 'WORKFLOW_EXECUTION_BINDING_CHAIN_MISSING', bindingId: id });
+    const chain = await this.repository.findCurrentWorkflowChain(binding);
+    if (!chain) throw new AppError('VALIDATION_FAILED', '工作流执行绑定缺少当前发布链', { code: 'WORKFLOW_EXECUTION_BINDING_CURRENT_CHAIN_MISSING', bindingId: id, pluginId: binding.pluginId });
+    assertCurrentWorkflowChain(binding, chain);
     return { binding, chain };
   }
   async update(tenantId:string,id:string,input:UpdateWorkflowExecutionBindingInput) {
     const current=await this.get(tenantId,id);
     const normalized=normalizeUpdate(current,input);
-    const merged=normalizeInputBindingInput({...current,...normalized,tenantId});
+    const merged=await this.normalizeIdentity(normalizeInputBindingInput({...current,...normalized,tenantId}));
     await validate(this.repository, merged);
-    const updated=await this.repository.update(tenantId,id,normalized);
+    const updated=await this.repository.update(tenantId,id,{ ...merged, expectedVersion: input.expectedVersion });
     if(!updated) throw new AppError('RESOURCE_VERSION_CONFLICT','工作流执行绑定版本冲突',{id,expectedVersion:input.expectedVersion});
     return updated;
   }
   async disable(tenantId:string,id:string,expectedVersion:number) { return this.update(tenantId,id,{expectedVersion,status:'DISABLED'}); }
+
+  private async normalizeIdentity<T extends CreateWorkflowExecutionBindingInput>(input: T): Promise<T> {
+    if (input.workflowVersionSelection && input.workflowVersionSelection !== 'CURRENT' && input.workflowVersionSelection !== 'FIXED') {
+      throw new AppError('VALIDATION_FAILED', '工作流执行绑定版本策略无效', { code: 'WORKFLOW_VERSION_SELECTION_INVALID' });
+    }
+    const pluginId = input.pluginId?.trim() || await this.repository.resolvePluginId(input.tenantId, input.pluginVersionId);
+    if (!pluginId) throw new AppError('VALIDATION_FAILED', '工作流执行绑定必须指定插件身份', { code: 'WORKFLOW_EXECUTION_BINDING_PLUGIN_ID_REQUIRED' });
+    return { ...input, pluginId, pluginVersionId: undefined, workflowVersionId: undefined, workflowVersionSelection: 'CURRENT' } as T;
+  }
 }
 
 function normalizeUpdate(current: CreateWorkflowExecutionBindingInput, input: UpdateWorkflowExecutionBindingInput): UpdateWorkflowExecutionBindingInput {
@@ -46,9 +54,9 @@ function normalizeUpdate(current: CreateWorkflowExecutionBindingInput, input: Up
 }
 
 async function validate(repository: WorkflowExecutionBindingsRepository, input: CreateWorkflowExecutionBindingInput) {
-  if (input.workflowVersionSelection !== 'FIXED') throw new AppError('VALIDATION_FAILED','工作流执行绑定只支持 FIXED 固定版本策略', { code: 'WORKFLOW_VERSION_SELECTION_INVALID' });
-  if (!input.pluginVersionId?.trim() || !input.capabilityKey?.trim() || !input.workflowKey?.trim() || !input.workflowTemplateId?.trim() || !input.workflowVersionId?.trim()) {
-    throw new AppError('VALIDATION_FAILED','工作流执行绑定必须指定 PluginVersion、Capability、Workflow、WorkflowTemplate 和 WorkflowVersion', { code: 'WORKFLOW_EXECUTION_BINDING_IDENTITY_REQUIRED' });
+  if (input.workflowVersionSelection !== 'CURRENT') throw new AppError('VALIDATION_FAILED','工作流执行绑定只支持 CURRENT 当前版本策略', { code: 'WORKFLOW_VERSION_SELECTION_INVALID' });
+  if (!input.pluginId?.trim() || !input.capabilityKey?.trim() || !input.workflowKey?.trim() || !input.workflowTemplateId?.trim()) {
+    throw new AppError('VALIDATION_FAILED','工作流执行绑定必须指定 Plugin、Capability、Workflow 和 WorkflowTemplate', { code: 'WORKFLOW_EXECUTION_BINDING_IDENTITY_REQUIRED' });
   }
   if (input.runner === 'GATEWAY' && !input.gatewayId) throw new AppError('VALIDATION_FAILED','GATEWAY Runner 必须指定 Gateway');
   if (input.runner === 'CONTROL_PLANE' && input.gatewayId) throw new AppError('VALIDATION_FAILED','CONTROL_PLANE Runner 不得指定 Gateway');
@@ -58,8 +66,15 @@ async function validate(repository: WorkflowExecutionBindingsRepository, input: 
   }
   rejectPlainSecrets(inputBindings.connections, []);
   rejectPlainSecrets(inputBindings.variables, []);
-  const chain = await repository.findFixedWorkflowChain(input);
-  assertFixedWorkflowChain(input, chain);
+  const identity: Pick<WorkflowExecutionBinding, 'tenantId' | 'pluginId' | 'capabilityKey' | 'workflowKey' | 'workflowTemplateId'> = {
+    tenantId: input.tenantId,
+    pluginId: input.pluginId,
+    capabilityKey: input.capabilityKey,
+    workflowKey: input.workflowKey,
+    workflowTemplateId: input.workflowTemplateId,
+  };
+  const chain = await repository.findCurrentWorkflowChain(identity);
+  assertCurrentWorkflowChain(identity, chain);
 }
 
 function normalizeInputBindingInput<T extends CreateWorkflowExecutionBindingInput>(input: T): T {
@@ -85,19 +100,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function assertFixedWorkflowChain(input: CreateWorkflowExecutionBindingInput, chain: WorkflowExecutionBindingChain | undefined): asserts chain is WorkflowExecutionBindingChain {
-  if (!chain) throw new AppError('VALIDATION_FAILED', '工作流执行绑定缺少 Manifest 到 WorkflowVersion 的固定发布链', {
-    code: 'WORKFLOW_EXECUTION_BINDING_CHAIN_MISSING',
-    pluginVersionId: input.pluginVersionId,
+function assertCurrentWorkflowChain(input: Pick<WorkflowExecutionBinding, 'pluginId' | 'capabilityKey' | 'workflowKey' | 'workflowTemplateId'>, chain: WorkflowExecutionBindingChain | undefined): asserts chain is WorkflowExecutionBindingChain {
+  if (!chain) throw new AppError('VALIDATION_FAILED', '工作流执行绑定缺少当前发布链', {
+    code: 'WORKFLOW_EXECUTION_BINDING_CURRENT_CHAIN_MISSING',
+    pluginId: input.pluginId,
     capabilityKey: input.capabilityKey,
     workflowKey: input.workflowKey,
     workflowTemplateId: input.workflowTemplateId,
-    workflowVersionId: input.workflowVersionId,
   });
   if (chain.pluginStatus !== 'ENABLED' || chain.pluginRuntime !== 'WORKFLOW_DSL') {
     throw new AppError('VALIDATION_FAILED', '工作流执行绑定只能引用已启用的 Workflow DSL PluginVersion', {
       code: 'WORKFLOW_EXECUTION_BINDING_PLUGIN_UNAVAILABLE',
-      pluginVersionId: input.pluginVersionId,
+      pluginId: input.pluginId,
       status: chain.pluginStatus,
       runtime: chain.pluginRuntime,
     });
@@ -105,18 +119,16 @@ function assertFixedWorkflowChain(input: CreateWorkflowExecutionBindingInput, ch
   if (!chain.capabilityDeclared) {
     throw new AppError('VALIDATION_FAILED', '工作流执行绑定的 Capability 未在 PluginVersion Manifest 中声明', {
       code: 'WORKFLOW_EXECUTION_BINDING_CAPABILITY_MISSING',
-      pluginVersionId: input.pluginVersionId,
+      pluginId: input.pluginId,
       capabilityKey: input.capabilityKey,
     });
   }
-  if (chain.workflowKey !== input.workflowKey || chain.workflowTemplateId !== input.workflowTemplateId || chain.workflowVersionId !== input.workflowVersionId || chain.workflowVersionTemplateId !== input.workflowTemplateId) {
-    throw new AppError('VALIDATION_FAILED', '工作流执行绑定的 Template、WorkflowVersion 和插件绑定不一致', {
-      code: 'WORKFLOW_EXECUTION_BINDING_VERSION_MISMATCH',
+  if (chain.workflowKey !== input.workflowKey || chain.workflowTemplateId !== input.workflowTemplateId || chain.workflowVersionTemplateId !== input.workflowTemplateId) {
+    throw new AppError('VALIDATION_FAILED', '工作流执行绑定的当前 Template 与插件绑定不一致', {
+      code: 'WORKFLOW_EXECUTION_BINDING_CURRENT_WORKFLOW_MISMATCH',
       workflowTemplateId: input.workflowTemplateId,
-      workflowVersionId: input.workflowVersionId,
       workflowKey: input.workflowKey,
       boundWorkflowTemplateId: chain.workflowTemplateId,
-      boundWorkflowVersionId: chain.workflowVersionId,
       workflowVersionTemplateId: chain.workflowVersionTemplateId,
     });
   }
@@ -130,7 +142,7 @@ function assertFixedWorkflowChain(input: CreateWorkflowExecutionBindingInput, ch
   if (chain.workflowVersionStatus !== 'published' || chain.workflowVersionContentHash !== chain.workflowContentSha256) {
     throw new AppError('VALIDATION_FAILED', '工作流执行绑定的 WorkflowVersion 未发布或内容摘要不一致', {
       code: 'WORKFLOW_EXECUTION_BINDING_HASH_MISMATCH',
-      workflowVersionId: input.workflowVersionId,
+      workflowVersionId: chain.workflowVersionId,
       status: chain.workflowVersionStatus,
     });
   }

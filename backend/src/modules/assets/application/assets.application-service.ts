@@ -245,6 +245,11 @@ export class AssetsApplicationService {
     return asset ? this.hydrateServiceAssetStrategy(tenantId, asset) : undefined;
   }
 
+  /** 中文说明：编辑首屏使用轻量读取，诊断信息由详情页单独加载。 */
+  async getServiceAssetEditDetail(tenantId: string, serviceAssetId: string) {
+    return this.repository.getServiceAssetEditDetail(tenantId, serviceAssetId);
+  }
+
   async getServiceAssetDetail(tenantId: string, serviceAssetId: string) {
     const detail = await this.repository.getServiceAssetDetail(tenantId, serviceAssetId);
     if (!detail) return detail;
@@ -898,11 +903,10 @@ export class AssetsApplicationService {
         throw new AppError('SYSTEM_INTERNAL_ERROR', '工作流版本服务未接入，不能保存 WORKFLOW 部署策略', { code: 'WORKFLOW_VERSION_VALIDATOR_MISSING' });
       }
       if (!workflow.workflowId) throw new AppError('VALIDATION_FAILED', 'WORKFLOW 策略缺少 workflowId', { code: 'WORKFLOW_ID_REQUIRED' });
-      if (workflow.workflowVersionSelection !== 'FIXED' || !workflow.workflowVersionId) {
-        throw new AppError('VALIDATION_FAILED', 'WORKFLOW 策略必须指定 FIXED workflowVersionId', {
-          code: 'WORKFLOW_VERSION_REQUIRED',
+      if (workflow.workflowVersionSelection !== 'CURRENT') {
+        throw new AppError('VALIDATION_FAILED', 'WORKFLOW 策略必须使用 CURRENT 当前版本策略', {
+          code: 'WORKFLOW_VERSION_SELECTION_INVALID',
           workflowId: workflow.workflowId,
-          workflowVersionId: workflow.workflowVersionId,
         });
       }
       const currentVersion = await this.workflowTemplates.getRuntimePublishedVersion(workflow.workflowId);
@@ -912,23 +916,12 @@ export class AssetsApplicationService {
           workflowId: workflow.workflowId,
         });
       }
-      // 用户不再提交可回切版本；历史请求也在保存时收口到当前指针，执行绑定随后保存精确快照 ID。
-      workflow.workflowVersionId = currentVersion.id;
-      const version = currentVersion;
-      if (version.templateId !== workflow.workflowId) {
-        throw new AppError('VALIDATION_FAILED', 'WORKFLOW 策略引用的 workflowId 与 workflowVersionId 不匹配', {
-          code: 'DEPLOYMENT_STRATEGY_INVALID',
-          workflowId: workflow.workflowId,
-          workflowVersionId: workflow.workflowVersionId,
-          actualWorkflowId: version.templateId,
-        });
-      }
-      if (version.status !== 'published') {
+      if (currentVersion.status !== 'published') {
         throw new AppError('VALIDATION_FAILED', 'WORKFLOW 策略只能引用已发布的工作流版本', {
           code: 'WORKFLOW_VERSION_NOT_PUBLISHED',
-          workflowId: workflow.workflowId,
-          workflowVersionId: workflow.workflowVersionId,
-          status: version.status,
+          workflowId: currentVersion.templateId,
+          workflowVersionId: currentVersion.id,
+          status: currentVersion.status,
         });
       }
       if (workflow.rollbackWorkflowVersionId) {

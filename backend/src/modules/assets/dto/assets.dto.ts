@@ -29,7 +29,8 @@ export type ApplicationAssetTargetStatus = 'ACTIVE' | 'INACTIVE' | 'PENDING' | '
 export type ManagedTargetSnapshotType = 'PRE_DEPLOY' | 'POST_DEPLOY' | 'ROLLBACK_POINT' | 'POST_ROLLBACK' | 'ERROR_STATE';
 export type DeploymentStrategyType = 'MANAGED_TARGET' | 'WORKFLOW';
 export type WorkflowRunnerType = 'CONTROL_PLANE' | 'GATEWAY';
-export type WorkflowVersionSelection = 'FIXED';
+/** 应用资产配置始终解析当前发布版本；FIXED 仅用于读取历史计划快照。 */
+export type WorkflowVersionSelection = 'CURRENT' | 'FIXED';
 export type DeploymentStrategyCompatibilityMode = 'UNIFIED';
 export type ManagedTargetExecutionMode = 'PLUGIN' | 'WORKFLOW_OVERRIDE';
 
@@ -50,10 +51,13 @@ export interface ManagedTargetDeploymentStrategyDto {
 export interface WorkflowDeploymentStrategyDto {
   workflowExecutionBindingId?: string;
   pluginBindingId?: string;
+  pluginId?: string;
+  /** 历史配置读取兼容字段，新资产不再写入。 */
   pluginVersionId?: string;
   capabilityKey?: string;
   workflowId?: string;
   workflowVersionSelection?: WorkflowVersionSelection;
+  /** 历史配置读取兼容字段，新资产不再写入。 */
   workflowVersionId?: string;
   runner?: WorkflowRunnerType;
   gatewayId?: string;

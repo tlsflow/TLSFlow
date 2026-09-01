@@ -6,6 +6,7 @@ import type { ServiceAssetDto } from '../../assets/dto/assets.dto.js';
 import type { CreateWorkflowExecutionBindingInput, WorkflowExecutionBinding } from '../../workflow-templates/dto/workflow-execution-bindings.dto.js';
 import type { WorkflowTemplate, WorkflowTemplateVersion } from '../../workflow-templates/dto/workflow-templates.dto.js';
 import { WorkflowTemplatesDomainService } from '../../workflow-templates/domain/workflow-templates.domain-service.js';
+import { WorkflowExecutionBindingsRepository } from '../../workflow-templates/repository/workflow-execution-bindings.repository.js';
 import { emptyInputBindingsV1 } from '../dto/input-bindings.dto.js';
 import { deploymentAssetContextBuilder } from './deployment-asset-context.builder.js';
 import { DeploymentInputBindingSaveService } from './deployment-input-binding-save.service.js';
@@ -15,12 +16,14 @@ export class WorkflowDeploymentInputSaveService {
   private readonly workflows: WorkflowTemplatesDomainService;
   private readonly contracts = new DeploymentInputContractLoader();
   private readonly saves = new DeploymentInputBindingSaveService();
+  private readonly executionBindings: WorkflowExecutionBindingsRepository;
 
   constructor(db: DatabasePort) {
     this.workflows = new WorkflowTemplatesDomainService(
       new PgDocumentRepository<WorkflowTemplate>(db, 'workflow.templates'),
       new PgDocumentRepository<WorkflowTemplateVersion>(db, 'workflow.template_versions'),
     );
+    this.executionBindings = new WorkflowExecutionBindingsRepository(db);
   }
 
   async validate(input: {
@@ -29,13 +32,15 @@ export class WorkflowDeploymentInputSaveService {
     workflowExecution: CreateWorkflowExecutionBindingInput;
     currentBinding?: WorkflowExecutionBinding;
   }) {
-    const version = await this.resolveVersion(input.workflowExecution);
-    const currentVersion = input.currentBinding ? await this.resolveVersion(input.currentBinding) : undefined;
+    const identity = await this.resolveCurrentVersion(input.workflowExecution);
+    const version = identity.version;
+    const currentIdentity = input.currentBinding ? await this.resolveCurrentVersion(input.currentBinding) : undefined;
+    const currentVersion = currentIdentity?.version;
     const currentAssetOverride = input.currentBinding && currentVersion?.id === version.id
-      ? { pluginVersionId: input.currentBinding.pluginVersionId, inputBindings: input.currentBinding.inputBindings }
+      ? { pluginVersionId: currentIdentity!.pluginVersionId, inputBindings: input.currentBinding.inputBindings }
       : undefined;
     return this.saves.validate({
-      pluginVersionId: input.workflowExecution.pluginVersionId,
+      pluginVersionId: identity.pluginVersionId,
       contract: this.contracts.fromWorkflowVersion(version),
       assetContext: deploymentAssetContextBuilder.build({ applicationAsset: input.applicationAsset, managedTargetContext: input.managedTargetContext }),
       currentAssetOverride,
@@ -43,13 +48,19 @@ export class WorkflowDeploymentInputSaveService {
     });
   }
 
-  private async resolveVersion(input: CreateWorkflowExecutionBindingInput): Promise<WorkflowTemplateVersion> {
-    if (input.workflowVersionSelection !== 'FIXED' || !input.workflowVersionId) {
-      throw new AppError('VALIDATION_FAILED', '工作流输入绑定必须引用 FIXED WorkflowVersion', {
-        code: 'WORKFLOW_VERSION_REQUIRED',
-        workflowTemplateId: input.workflowTemplateId,
-      });
-    }
-    return this.workflows.getVersion(input.workflowVersionId);
+  private async resolveCurrentVersion(input: Pick<CreateWorkflowExecutionBindingInput, 'tenantId' | 'pluginId' | 'pluginVersionId' | 'capabilityKey' | 'workflowKey' | 'workflowTemplateId'>): Promise<{ version: WorkflowTemplateVersion; pluginVersionId: string }> {
+    const pluginId = input.pluginId?.trim() || await this.executionBindings.resolvePluginId(input.tenantId, input.pluginVersionId);
+    if (!pluginId) throw new AppError('VALIDATION_FAILED', '工作流输入绑定缺少插件身份', { code: 'WORKFLOW_EXECUTION_BINDING_PLUGIN_ID_REQUIRED' });
+    const chain = await this.executionBindings.findCurrentWorkflowChain({
+      tenantId: input.tenantId,
+      pluginId,
+      capabilityKey: input.capabilityKey,
+      workflowKey: input.workflowKey,
+      workflowTemplateId: input.workflowTemplateId,
+    });
+    if (!chain) throw new AppError('VALIDATION_FAILED', '工作流输入绑定缺少当前发布链', {
+      code: 'WORKFLOW_EXECUTION_BINDING_CURRENT_CHAIN_MISSING', pluginId, workflowKey: input.workflowKey,
+    });
+    return { version: await this.workflows.getVersion(chain.workflowVersionId), pluginVersionId: chain.pluginVersionId };
   }
 }

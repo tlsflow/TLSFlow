@@ -94,7 +94,7 @@ export class PluginBindingsApplicationService {
       });
     }
     const now = new Date().toISOString();
-    return this.repository.saveAssignment({ ...input, id: newId('capa'), tenantId, status: 'ACTIVE', createdAt: now, updatedAt: now });
+    return this.repository.saveAssignment({ ...input, pluginId: binding.pluginId, id: newId('capa'), tenantId, status: 'ACTIVE', createdAt: now, updatedAt: now });
   }
 
   async disableOwnerAssignment(tenantId: string, input: { ownerType: CapabilityAssignmentV1['ownerType']; ownerId: string; capabilityKey: string }): Promise<void> {

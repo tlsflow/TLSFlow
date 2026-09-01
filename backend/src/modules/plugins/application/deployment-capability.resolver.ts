@@ -7,6 +7,7 @@ import { isUnifiedPluginVersionAccessibleToTenant } from './unified-plugins.appl
 
 export interface UnifiedPluginVersionReader {
   getVersion(pluginVersionId: string): Promise<UnifiedPluginVersionRecord>;
+  getCurrentEnabledVersion?(tenantId: string, pluginId: string): Promise<UnifiedPluginVersionRecord>;
 }
 
 export interface ResolvedDeploymentCapability {
@@ -47,7 +48,7 @@ export class DeploymentCapabilityResolver {
     const rejected: Array<{ assignmentId: string; pluginBindingId: string; reason: string }> = [];
     for (const assignment of candidates) {
       const binding = await this.bindings.getTenantBinding(input.tenantId, assignment.pluginBindingId);
-      if (binding.status !== 'ACTIVE' || binding.pluginVersionId !== assignment.pluginVersionId) {
+      if (binding.status !== 'ACTIVE' || (binding.pluginId && assignment.pluginId && binding.pluginId !== assignment.pluginId)) {
         rejected.push({ assignmentId: assignment.id, pluginBindingId: binding.id, reason: '绑定状态或插件版本不一致' });
         continue;
       }
@@ -55,7 +56,10 @@ export class DeploymentCapabilityResolver {
         rejected.push({ assignmentId: assignment.id, pluginBindingId: binding.id, reason: '绑定上下文不属于当前受管目标' });
         continue;
       }
-      const plugin = await this.plugins.getVersion(assignment.pluginVersionId);
+      const pluginId = assignment.pluginId ?? binding.pluginId;
+      const plugin = pluginId && this.plugins.getCurrentEnabledVersion
+        ? await this.plugins.getCurrentEnabledVersion(input.tenantId, pluginId)
+        : await this.plugins.getVersion(assignment.pluginVersionId);
       const capability = plugin.manifest.capabilities.find((item) => item.key === input.capabilityKey);
       // 已退休版本仍可被已有 Binding 精确引用，用于历史执行和回滚；目录和新指派仍只暴露 ENABLED。
       if (!isUnifiedPluginVersionAccessibleToTenant(plugin, input.tenantId) || ['DISABLED', 'QUARANTINED', 'IMPORTED', 'PENDING_APPROVAL'].includes(plugin.status) || !capability) {

@@ -27,6 +27,7 @@ import { createPersistedSecurityServices } from './modules/security/security-ser
 import { AssetsApplicationService } from './modules/assets/application/assets.application-service.js';
 import { PluginResourceOnboardingApplicationService } from './modules/assets/application/plugin-resource-onboarding.application-service.js';
 import { ApplicationAssetExecutionService } from './modules/assets/application/application-asset-execution.service.js';
+import { ApplicationExecutionCompatibilityService } from './modules/assets/application/application-execution-compatibility.service.js';
 import { AssetsController, getAssetsRouteContracts } from './modules/assets/controller/assets.controller.js';
 import { PgAssetsRepository } from './modules/assets/repository/assets.repository.js';
 import { DeviceAssetsApplicationService, DeviceAssetsController, getDeviceAssetRouteContracts, PgDeviceAssetsRepository, SecurityServicesDeviceAssetPort } from './modules/device-assets/index.js';
@@ -1240,7 +1241,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const automationExternalApi = new AutomationExternalApiService(new AutomationExternalApiKeyRepository(appDb));
   app.setResource('automationScheduler', automationScheduler);
   app.setResource('automationEventDelivery', automationEventDelivery);
-  new AssetsController(security, assetsService, new ApplicationAssetExecutionService(appDb)).register(app.router);
+  const applicationExecutionCompatibility = new ApplicationExecutionCompatibilityService(appDb);
+  new AssetsController(security, assetsService, new ApplicationAssetExecutionService(appDb), applicationExecutionCompatibility).register(app.router);
   const applicationCertificateSupplyService = new ApplicationCertificateSupplyApplicationService(
     new ApplicationCertificateSupplyRepository(appDb),
     internalCaService,
@@ -1391,6 +1393,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     security,
     cloudAccountAssetsService,
     pluginWorkflowPublisher,
+    applicationExecutionCompatibility,
   ).register(app.router);
   new GlobalSearchController(globalSearchService, security).register(app.router);
   new WorkflowTemplatesController(
@@ -1402,6 +1405,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
       workflowTemplatesService,
     ),
     new WorkflowExecutionBindingsService(new WorkflowExecutionBindingsRepository(appDb)),
+    applicationExecutionCompatibility,
   ).register(app.router);
   new AutomationsController(automationsService, security, automationCoordinator, automationExternalApi, certificateServices.certificates).register(app.router);
   new DashboardController(new DashboardApplicationService({

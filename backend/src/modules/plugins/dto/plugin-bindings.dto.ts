@@ -3,6 +3,9 @@ import type { InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings
 export interface PluginBindingV1 {
   id: string;
   tenantId: string;
+  /** 应用配置的稳定插件身份。 */
+  pluginId?: string;
+  /** 历史兼容字段；计划创建时不再用它决定运行版本。 */
   pluginVersionId: string;
   mode: 'MANAGED' | 'STANDALONE';
   inputBindings: InputBindingsV1;
@@ -28,6 +31,9 @@ export interface CapabilityAssignmentV1 {
   ownerType: 'DEVICE' | 'MANAGED_TARGET' | 'APPLICATION_ASSET' | 'SERVICE_ASSET' | 'CLOUD_ACCOUNT_ASSET';
   ownerId: string;
   capabilityKey: string;
+  /** 应用配置的稳定插件身份。 */
+  pluginId?: string;
+  /** 历史兼容字段；仅为旧记录读取保留。 */
   pluginVersionId: string;
   pluginBindingId: string;
   precedence: 'DEVICE_DEFAULT' | 'TARGET_OVERRIDE' | 'ASSET_OVERRIDE';

@@ -81,13 +81,14 @@ export class StandardDeviceDiscoveryProjector {
         if (latestSucceeded?.normalized_sha256 === normalizedSha256 && sameProjectionSource) return latestSucceeded.summary;
         summary = await this.previewValidated(tx, context, discovery);
         if (context.deviceAssetId) await tx.query(
-          `update pg_device_assets set product_family=$1, product_name=$2, software_version=$3,
-             plugin_version_id=$4, plugin_binding_id=$5, capability_profile=$6::jsonb, metadata=$7::jsonb,
-             last_discovered_at=$8, last_error_code=null, updated_at=$8, version=version+1
-           where tenant_id=$9 and service_asset_id=$10`,
+          `update pg_device_assets set product_family=$1, product_name=$2, software_version=$3, software_build=$4,
+             plugin_version_id=$5, plugin_binding_id=$6, capability_profile=$7::jsonb, metadata=$8::jsonb,
+             last_discovered_at=$9, last_error_code=null, updated_at=$9, version=version+1
+           where tenant_id=$10 and service_asset_id=$11`,
           [discovery.device.productFamily, discovery.device.productFamily, discovery.device.softwareVersion ?? null,
-            context.pluginVersionId ?? null, context.pluginBindingId ?? null, JSON.stringify(capabilityProfile(discovery)),
-            JSON.stringify(discovery.device.metadata ?? {}), discoveredAt, context.tenantId, context.deviceAssetId],
+            discovery.device.softwareBuild ?? null, context.pluginVersionId ?? null, context.pluginBindingId ?? null,
+            JSON.stringify(capabilityProfile(discovery)), JSON.stringify(discovery.device.metadata ?? {}), discoveredAt,
+            context.tenantId, context.deviceAssetId],
         );
         if (context.deviceAssetId) await tx.query(
           `update pg_service_assets

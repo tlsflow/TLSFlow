@@ -12,6 +12,7 @@ import { WorkflowTemplatesDomainService } from './domain/workflow-templates.doma
 import { WorkflowTemplatesApplicationService } from './application/workflow-templates.application-service.js';
 import { PluginWorkflowBindingsRepository } from '../plugins/repository/plugin-workflow-bindings.repository.js';
 import { insertCanonicalPluginVersion } from '../plugins/plugin-test-fixtures.js';
+import { canonicalPluginId } from '../plugins/plugin-test-fixtures.js';
 
 const tenantId = 'tenant_workflow_binding_test';
 const pluginVersionId = 'plugin-version-workflow-binding';
@@ -67,6 +68,7 @@ async function createFixture(): Promise<WorkflowExecutionBindingFixture> {
 
   const base: CreateWorkflowExecutionBindingInput = {
     tenantId,
+    pluginId: canonicalPluginId,
     pluginVersionId,
     capabilityKey: 'certificate.deploy',
     workflowKey: 'certificate.deploy',
@@ -93,24 +95,25 @@ async function assertRejectedWithCode(action: () => Promise<unknown>, code: stri
   });
 }
 
-test('工作流执行绑定支持创建、乐观锁更新和停用', async () => {
+test('工作流执行绑定保存稳定身份、乐观锁更新和停用', async () => {
   const fixture = await createFixture();
   const created = await fixture.target.create(fixture.base);
 
   assert.equal(created.version, 1);
-  assert.equal(created.workflowVersionSelection, 'FIXED');
-  assert.equal(created.pluginVersionId, fixture.pluginVersionId);
+  assert.equal(created.workflowVersionSelection, 'CURRENT');
+  assert.equal(created.pluginId, canonicalPluginId);
+  assert.equal(created.pluginVersionId, undefined);
   assert.equal(created.capabilityKey, 'certificate.deploy');
   assert.equal(created.workflowTemplateId, fixture.workflowTemplateId);
-  assert.equal(created.workflowVersionId, fixture.workflowVersionId);
+  assert.equal(created.workflowVersionId, undefined);
 
   const updated = await fixture.target.update(fixture.base.tenantId, created.id, {
     expectedVersion: 1,
     inputBindings: { ...emptyInputBindingsV1(), variables: { path: '/etc/cert' } },
   });
   assert.equal(updated.version, 2);
-  assert.equal(updated.pluginVersionId, fixture.pluginVersionId);
-  assert.equal(updated.workflowVersionId, fixture.workflowVersionId);
+  assert.equal(updated.pluginId, canonicalPluginId);
+  assert.equal(updated.workflowVersionId, undefined);
   await assertRejectedWithCode(
     () => fixture.target.update(fixture.base.tenantId, created.id, { expectedVersion: 1, inputBindings: emptyInputBindingsV1() }),
     'RESOURCE_VERSION_CONFLICT',
@@ -121,18 +124,21 @@ test('工作流执行绑定支持创建、乐观锁更新和停用', async () =>
   assert.equal(disabled.version, 3);
 });
 
-test('缺少固定发布链时失败关闭', async () => {
+test('缺少当前发布链时失败关闭', async () => {
   const fixture = await createFixture();
   await fixture.db.query('delete from unified_plugin_workflow_bindings where plugin_version_id=$1', [fixture.pluginVersionId]);
 
   await assertRejectedWithCode(
     () => fixture.target.create(fixture.base),
-    'WORKFLOW_EXECUTION_BINDING_CHAIN_MISSING',
+    'WORKFLOW_EXECUTION_BINDING_CURRENT_CHAIN_MISSING',
   );
 });
 
-test('只接受 FIXED 工作流版本策略', async () => {
+test('旧 FIXED 输入会被转换为 CURRENT，非法策略仍失败关闭', async () => {
   const fixture = await createFixture();
+
+  const created = await fixture.target.create(fixture.base);
+  assert.equal(created.workflowVersionSelection, 'CURRENT');
 
   await assertRejectedWithCode(
     () => fixture.target.create({ ...fixture.base, workflowVersionSelection: 'PINNED' as never }),
@@ -142,6 +148,25 @@ test('只接受 FIXED 工作流版本策略', async () => {
     () => fixture.target.create({ ...fixture.base, workflowVersionSelection: 'LATEST_PUBLISHED' as never }),
     'WORKFLOW_VERSION_SELECTION_INVALID',
   );
+});
+
+test('启用新插件版本后，同一稳定绑定解析新版本并保留历史绑定不变', async () => {
+  const fixture = await createFixture();
+  const created = await fixture.target.create(fixture.base);
+  await fixture.db.query(`insert into unified_plugin_versions
+    (id,tenant_id,plugin_id,plugin_version,source,runtime,scope,trust,support,manifest,package_sha256,manifest_sha256,resource_sha256,status,permission_approval_status,approved_permissions,validation_report,created_at,updated_at)
+    select 'plugin-version-workflow-binding-v2',tenant_id,plugin_id,'2.0.0',source,runtime,scope,trust,support,manifest,package_sha256,manifest_sha256,resource_sha256,'ENABLED',permission_approval_status,approved_permissions,validation_report,now(),now()
+      from unified_plugin_versions where id=$1`, [fixture.pluginVersionId]);
+  await fixture.db.query("update unified_plugin_versions set status='RETIRED' where id=$1", [fixture.pluginVersionId]);
+  await fixture.db.query(`insert into unified_plugin_workflow_bindings
+    (plugin_version_id,owner_type,owner_id,capability_key,workflow_key,workflow_resource_path,workflow_template_id,workflow_version_id,workflow_content_sha256,created_at)
+    select 'plugin-version-workflow-binding-v2',owner_type,owner_id,capability_key,workflow_key,workflow_resource_path,workflow_template_id,workflow_version_id,workflow_content_sha256,now()
+      from unified_plugin_workflow_bindings where plugin_version_id=$1`, [fixture.pluginVersionId]);
+
+  const identity = await fixture.target.getExecutionIdentity(tenantId, created.id);
+  assert.equal(identity.chain.pluginVersionId, 'plugin-version-workflow-binding-v2');
+  assert.equal(identity.chain.workflowVersionId, fixture.workflowVersionId);
+  assert.equal((await fixture.target.get(tenantId, created.id)).pluginId, canonicalPluginId);
 });
 
 test('PluginVersion 未启用或运行时错误时失败关闭', async () => {

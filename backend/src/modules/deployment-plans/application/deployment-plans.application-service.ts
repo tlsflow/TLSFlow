@@ -912,7 +912,13 @@ export class DeploymentPlansApplicationService {
       return { ...asset, deploymentStrategy: validated };
     }
     if (!this.pluginWorkflows) throw new AppError('SYSTEM_INTERNAL_ERROR', '插件 Workflow 发布服务未接入', { code: 'PLUGIN_WORKFLOW_RESOLVER_MISSING' });
-    const workflowBinding = await this.pluginWorkflows.require(binding.pluginVersionId, 'certificate.deploy');
+    const plugin = binding.pluginId && this.unifiedPlugins?.getCurrentEnabledVersion
+      ? await this.unifiedPlugins.getCurrentEnabledVersion(tenantId, binding.pluginId)
+      : this.unifiedPlugins
+        ? await this.unifiedPlugins.getVersion(binding.pluginVersionId)
+        : undefined;
+    if (!plugin) throw new AppError('SYSTEM_INTERNAL_ERROR', '当前插件版本解析服务未接入', { code: 'CURRENT_PLUGIN_RESOLVER_MISSING' });
+    const workflowBinding = await this.pluginWorkflows.require(plugin.id, 'certificate.deploy');
     const credentials = await this.snapshotCredentials(tenantId, binding.inputBindings.credentials);
     return {
       ...asset,
@@ -920,6 +926,7 @@ export class DeploymentPlansApplicationService {
         ...validated,
         workflow: {
           ...validated.workflow,
+          pluginVersionId: plugin.id,
           workflowId: workflowBinding.workflowTemplateId,
           workflowVersionSelection: 'FIXED',
           workflowVersionId: workflowBinding.workflowVersionId,
@@ -938,7 +945,11 @@ export class DeploymentPlansApplicationService {
     if (!pluginBindingId || !this.pluginBindings) return resolved;
     const binding = await this.pluginBindings.getBinding(pluginBindingId);
     if (!binding) throw new AppError('RESOURCE_NOT_FOUND', '部署策略引用的 PluginBinding 不存在', { pluginBindingId });
-    const plugin = this.unifiedPlugins ? await this.unifiedPlugins.getVersion(binding.pluginVersionId) : undefined;
+    const plugin = this.unifiedPlugins
+      ? binding.pluginId && this.unifiedPlugins.getCurrentEnabledVersion
+        ? await this.unifiedPlugins.getCurrentEnabledVersion(asset.tenantId, binding.pluginId)
+        : await this.unifiedPlugins.getVersion(binding.pluginVersionId)
+      : undefined;
     const workflowRequest = readRecord(resolved.payload.workflowRequest);
     return {
       ...resolved,
@@ -946,7 +957,7 @@ export class DeploymentPlansApplicationService {
         ...resolved.payload,
         workflowRequest: workflowRequest ? {
           ...workflowRequest,
-          pluginVersionId: binding.pluginVersionId,
+          pluginVersionId: plugin?.id ?? binding.pluginVersionId,
           ...(plugin ? { pluginId: plugin.pluginId, pluginVersion: plugin.version } : {}),
           pluginBindingId,
           capabilityKey: 'certificate.deploy',
@@ -986,25 +997,26 @@ export class DeploymentPlansApplicationService {
     if (mode === 'WORKFLOW_OVERRIDE' && context && !context.availableExecutionLocations.includes(expectedLocation)) {
       throw new AppError('WORKFLOW_RUNNER_INCOMPATIBLE', '工作流 Runner 与 ManagedTarget 可执行位置不兼容', { expectedLocation, availableExecutionLocations: context.availableExecutionLocations });
     }
-    const workflowVersionId = await this.resolveWorkflowExecutionVersion(binding);
+    // 当前配置只保存稳定身份；这里是首次物化精确版本，后续计划执行绝不重新解析。
+    const workflowVersionId = executionIdentity.chain.workflowVersionId;
     const executionSource = this.executionSourceResolver.resolveWorkflow({ mode, binding, workflowVersionId });
     const effectiveBinding = this.deploymentInputResolver.resolveProjectionResult({
       phase: 'configure',
       contract: new DeploymentInputContractLoader().fromWorkflowVersion(await this.workflows!.getVersion(workflowVersionId)),
       assetContext: deploymentAssetContextBuilder.build({ applicationAsset: asset, managedTargetContext: context, certificateBinding }),
-      bindingLayers: { assetOverride: { pluginVersionId: binding.pluginVersionId, inputBindings: binding.inputBindings } },
+      bindingLayers: { assetOverride: { pluginVersionId: executionIdentity.chain.pluginVersionId, inputBindings: binding.inputBindings } },
       credentialSnapshots: await this.snapshotCredentials(tenantId, binding.inputBindings.credentials),
     }).effectiveBinding;
-    const resolvedInput = (await this.resolveWorkflowBindingDeploymentInput('configure', tenantId, binding, workflowVersionId, asset, context, undefined, certificateBinding)).resolvedInput;
+    const resolvedInput = (await this.resolveWorkflowBindingDeploymentInput('configure', tenantId, binding, workflowVersionId, executionIdentity.chain.pluginVersionId, asset, context, undefined, certificateBinding)).resolvedInput;
     const materializedAsset: ServiceAssetDto = {
       ...asset,
       deploymentStrategy: {
         type: 'WORKFLOW',
         workflow: {
           workflowId: binding.workflowTemplateId,
-          pluginVersionId: binding.pluginVersionId,
+          pluginVersionId: executionIdentity.chain.pluginVersionId,
           capabilityKey: binding.capabilityKey,
-          workflowVersionSelection: 'FIXED',
+          workflowVersionSelection: 'CURRENT',
           workflowVersionId,
           runner: binding.runner,
           gatewayId: binding.gatewayId,
@@ -1031,7 +1043,7 @@ export class DeploymentPlansApplicationService {
           bindingVersion: executionSource.binding.version,
           pluginId: executionIdentity.chain.pluginId,
           pluginVersion: executionIdentity.chain.pluginVersion,
-          pluginVersionId: executionSource.binding.pluginVersionId,
+          pluginVersionId: executionIdentity.chain.pluginVersionId,
           capabilityKey: executionSource.binding.capabilityKey,
           workflowTemplateId: executionSource.binding.workflowTemplateId,
           workflowVersionSelection: executionSource.binding.workflowVersionSelection,
@@ -1049,15 +1061,6 @@ export class DeploymentPlansApplicationService {
     };
   }
 
-  private async resolveWorkflowExecutionVersion(binding: WorkflowExecutionBinding): Promise<string> {
-    if (binding.workflowVersionSelection !== 'FIXED' || !binding.workflowVersionId) {
-      throw new AppError('VALIDATION_FAILED', 'WorkflowExecutionBinding 缺少 FIXED WorkflowVersion', {
-        code: 'WORKFLOW_VERSION_REQUIRED',
-        bindingId: binding.id,
-      });
-    }
-    return binding.workflowVersionId;
-  }
 
   private async compileManagedPluginRuntime(
     tenantId: string,
@@ -1222,9 +1225,9 @@ export class DeploymentPlansApplicationService {
     // 设备和受管目标是可继承的事实层，旧版本按当前契约迁移；应用资产层必须严格匹配当前版本。
     for (const assignment of assignments) {
       const binding = await this.pluginBindings.getTenantBinding(tenantId, assignment.pluginBindingId);
-      if (binding.status !== 'ACTIVE' || binding.pluginVersionId !== assignment.pluginVersionId) continue;
-      if (assignment.ownerType === 'APPLICATION_ASSET' && assignment.pluginVersionId !== capability.pluginVersionId) continue;
-      const inputBindings = assignment.ownerType !== 'APPLICATION_ASSET' && assignment.pluginVersionId !== capability.pluginVersionId
+      if (binding.status !== 'ACTIVE' || (binding.pluginId && assignment.pluginId && binding.pluginId !== assignment.pluginId)) continue;
+      if (assignment.ownerType === 'APPLICATION_ASSET' && assignment.pluginId && assignment.pluginId !== capability.plugin.pluginId) continue;
+      const inputBindings = assignment.ownerType !== 'APPLICATION_ASSET' && assignment.pluginId && assignment.pluginId !== capability.plugin.pluginId
         ? migrateInputBindingsToContract(contract, binding.inputBindings)
         : binding.inputBindings;
       const layer = { pluginVersionId: capability.pluginVersionId, inputBindings };
@@ -1278,7 +1281,10 @@ export class DeploymentPlansApplicationService {
         ? await this.managedTargetContextResolver.resolve(tenantId, managedTargetId)
         : undefined;
       const binding = await this.workflowExecutionBindings.get(tenantId, workflowBindingId);
-      return this.resolveWorkflowBindingDeploymentInput(phase, tenantId, binding, workflowVersionId, applicationAsset, context, artifact, certificateBinding);
+      const pluginVersionId = readOptionalString(executionSource?.pluginVersionId)
+        ?? readOptionalString(workflowRequest.pluginVersionId);
+      if (!pluginVersionId) throw new AppError('VALIDATION_FAILED', 'Workflow 部署快照缺少插件版本', { code: 'DEPLOYMENT_INPUT_IDENTITY_REQUIRED', workflowBindingId });
+      return this.resolveWorkflowBindingDeploymentInput(phase, tenantId, binding, workflowVersionId, pluginVersionId, applicationAsset, context, artifact, certificateBinding);
     }
     if (!this.pluginBindings || !this.unifiedPlugins || !this.managedTargetContextResolver) {
       throw new AppError('SYSTEM_INTERNAL_ERROR', '统一部署输入解析依赖未完整接入', {
@@ -1333,9 +1339,9 @@ export class DeploymentPlansApplicationService {
     // 运行时重放必须与投影阶段使用同一套跨版本父级 Binding 规则。
     for (const assignment of assignments) {
       const candidate = await this.pluginBindings.getTenantBinding(tenantId, assignment.pluginBindingId);
-      if (candidate.status !== 'ACTIVE' || candidate.pluginVersionId !== assignment.pluginVersionId) continue;
-      if (assignment.ownerType === 'APPLICATION_ASSET' && assignment.pluginVersionId !== pluginVersionId) continue;
-      const inputBindings = assignment.ownerType !== 'APPLICATION_ASSET' && assignment.pluginVersionId !== pluginVersionId
+      if (candidate.status !== 'ACTIVE' || (candidate.pluginId && assignment.pluginId && candidate.pluginId !== assignment.pluginId)) continue;
+      if (assignment.ownerType === 'APPLICATION_ASSET' && assignment.pluginId && assignment.pluginId !== plugin.pluginId) continue;
+      const inputBindings = assignment.ownerType !== 'APPLICATION_ASSET' && assignment.pluginId && assignment.pluginId !== plugin.pluginId
         ? migrateInputBindingsToContract(contract, candidate.inputBindings)
         : candidate.inputBindings;
       const layer = { pluginVersionId, inputBindings };
@@ -1384,6 +1390,7 @@ export class DeploymentPlansApplicationService {
     tenantId: string,
     binding: WorkflowExecutionBinding,
     workflowVersionId: string,
+    pluginVersionId: string,
     asset: ServiceAssetDto,
     context?: Awaited<ReturnType<ManagedTargetContextResolver['resolve']>>,
     artifact?: DeploymentArtifactSnapshotDto,
@@ -1398,7 +1405,7 @@ export class DeploymentPlansApplicationService {
       assetContext: deploymentAssetContextBuilder.build({ applicationAsset: asset, managedTargetContext: context, certificateBinding }),
       bindingLayers: {
         assetOverride: {
-          pluginVersionId: binding.pluginVersionId,
+          pluginVersionId,
           inputBindings: binding.inputBindings,
         },
       },

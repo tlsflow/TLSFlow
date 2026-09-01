@@ -5,6 +5,7 @@ export interface StandardDeviceDiscoveryV2 {
     displayName: string;
     productFamily: string;
     softwareVersion?: string;
+    softwareBuild?: string;
     managementAddress?: string;
     metadata?: Record<string, unknown>;
   };

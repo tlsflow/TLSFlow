@@ -5,6 +5,7 @@ import type { CreateWorkflowExecutionBindingInput } from '../../workflow-templat
 import { WorkflowExecutionBindingsRepository } from '../../workflow-templates/repository/workflow-execution-bindings.repository.js';
 import { WorkflowExecutionBindingsService } from '../../workflow-templates/application/workflow-execution-bindings.service.js';
 import { WorkflowDeploymentInputSaveService } from '../../deployment-inputs/application/workflow-deployment-input-save.service.js';
+import { ApplicationExecutionCompatibilityService } from './application-execution-compatibility.service.js';
 
 export interface SaveStandaloneWorkflowExecutionInput {
   workflowExecution: CreateWorkflowExecutionBindingInput & { bindingId?: string; expectedVersion?: number };
@@ -38,7 +39,8 @@ export class ApplicationAssetExecutionService {
         const updated = await assets.updateServiceAsset(tenantId, applicationAssetId, {
           deploymentStrategy: { type: 'WORKFLOW', approvalRequired, workflow: { workflowExecutionBindingId: currentBinding.id } },
         });
-        return { asset: updated, executionMode: 'WORKFLOW' as const, workflowExecutionBinding: currentBinding };
+        const compatibility = await new ApplicationExecutionCompatibilityService(tx).checkWorkflowBinding(tenantId, applicationAssetId, currentBinding.id);
+        return { asset: updated, executionMode: 'WORKFLOW' as const, workflowExecutionBinding: currentBinding, compatibility };
       }
       const validation = await new WorkflowDeploymentInputSaveService(tx).validate({ applicationAsset: asset, workflowExecution: bindingInput, currentBinding });
       if (!validation.saveable) throw new AppError('VALIDATION_FAILED', '应用资产部署输入校验失败', { issues: validation.issues });
@@ -49,7 +51,8 @@ export class ApplicationAssetExecutionService {
       const updated = await assets.updateServiceAsset(tenantId, applicationAssetId, {
         deploymentStrategy: { type: 'WORKFLOW', approvalRequired, workflow: { workflowExecutionBindingId: binding.id } },
       });
-      return { asset: updated, executionMode: 'WORKFLOW' as const, workflowExecutionBinding: binding };
+      const compatibility = await new ApplicationExecutionCompatibilityService(tx).checkWorkflowBinding(tenantId, applicationAssetId, binding.id);
+      return { asset: updated, executionMode: 'WORKFLOW' as const, workflowExecutionBinding: binding, compatibility };
     });
   }
 }

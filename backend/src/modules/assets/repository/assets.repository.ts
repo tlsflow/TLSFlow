@@ -67,6 +67,7 @@ export interface AssetsRepository {
   deleteServiceAsset(tenantId: string, serviceAssetId: string): Promise<ServiceAssetDto>;
   listServiceAssets(tenantId: string, query: PageQuery): Promise<PageResult<ServiceAssetDto>>;
   getServiceAsset(tenantId: string, serviceAssetId: string): Promise<ServiceAssetDto | undefined>;
+  getServiceAssetEditDetail(tenantId: string, serviceAssetId: string): Promise<ServiceAssetDetailDto | undefined>;
   getServiceAssetDetail(tenantId: string, serviceAssetId: string): Promise<ServiceAssetDetailDto | undefined>;
   getServiceAssetIncludingDeleted(tenantId: string, serviceAssetId: string): Promise<ServiceAssetDto | undefined>;
   findServiceAssetByIdentity(tenantId: string, input: { address: string; port: number; protocol: string }): Promise<ServiceAssetDto | undefined>;
@@ -310,6 +311,19 @@ export class PgAssetsRepository implements AssetsRepository {
   }
 
   async listFrameworkInstances(tenantId: string, query: PageQuery): Promise<PageResult<FrameworkInstanceDto>> {
+    if (canUseSqlPage(query, ['deviceId', 'status'])) {
+      const deviceId = query.filter.deviceId ?? null;
+      const status = query.filter.status ?? null;
+      const where = `tenant_id = $1 and deleted_at is null
+        and ($2::text is null or lower(coalesce(device_id, '')) like '%' || lower($2) || '%')
+        and ($3::text is null or lower(coalesce(status, '')) like '%' || lower($3) || '%')`;
+      const countResult = await this.db.query<{ count: string }>(`select count(*)::text as count from pg_framework_instances where ${where}`, [tenantId, deviceId, status]);
+      const sortColumn = frameworkInstanceSortColumn(query.sort?.field);
+      const direction = query.sort?.direction === 'asc' ? 'asc' : 'desc';
+      const offset = Math.max(0, (query.page - 1) * query.pageSize);
+      const rows = (await this.db.query<ServiceInstanceRow>(`select * from pg_framework_instances where ${where} order by ${sortColumn} ${direction}, id desc limit $4 offset $5`, [tenantId, deviceId, status, query.pageSize, offset])).rows.map(toServiceInstance);
+      return { items: rows, page: query.page, pageSize: query.pageSize, total: Number(countResult.rows[0]?.count ?? 0) };
+    }
     const rows = (await this.db.query<ServiceInstanceRow>(`select * from pg_framework_instances where tenant_id = $1 and deleted_at is null`, [tenantId])).rows.map(toServiceInstance);
     return page(rows, query, serviceInstanceFilter);
   }
@@ -432,6 +446,22 @@ export class PgAssetsRepository implements AssetsRepository {
   }
 
   async listServiceAssets(tenantId: string, query: PageQuery): Promise<PageResult<ServiceAssetDto>> {
+    if (canUseSqlPage(query, ['assetKind', 'status', 'address'])) {
+      const assetKind = query.filter.assetKind ?? null;
+      const status = query.filter.status ?? null;
+      const address = query.filter.address ?? null;
+      const where = `tenant_id = $1 and deleted_at is null and asset_kind <> 'DEVICE'
+        and ($2::text is null or asset_kind = $2)
+        and ($3::text is null or lower(coalesce(status, '')) like '%' || lower($3) || '%')
+        and ($4::text is null or lower(coalesce(address, '')) like '%' || lower($4) || '%')`;
+      const countResult = await this.db.query<{ count: string }>(`select count(*)::text as count from pg_service_assets where ${where}`, [tenantId, assetKind, status, address]);
+      const sortColumn = serviceAssetSortColumn(query.sort?.field);
+      const direction = query.sort?.direction === 'asc' ? 'asc' : 'desc';
+      const offset = Math.max(0, (query.page - 1) * query.pageSize);
+      const rows = (await this.db.query<ServiceAssetRow>(`select * from pg_service_assets where ${where} order by ${sortColumn} ${direction}, id desc limit $5 offset $6`, [tenantId, assetKind, status, address, query.pageSize, offset])).rows.map(toServiceAsset);
+      const enriched = await Promise.all(rows.map((row) => this.attachTargetBindingSummary(tenantId, row)));
+      return { items: enriched, page: query.page, pageSize: query.pageSize, total: Number(countResult.rows[0]?.count ?? 0) };
+    }
     const rows = (await this.db.query<ServiceAssetRow>(`select * from pg_service_assets where tenant_id = $1 and deleted_at is null and asset_kind <> 'DEVICE'`, [tenantId])).rows.map(toServiceAsset);
     const enriched = await Promise.all(rows.map((row) => this.attachTargetBindingSummary(tenantId, row)));
     return page(enriched, query, serviceAssetFilter);
@@ -440,6 +470,47 @@ export class PgAssetsRepository implements AssetsRepository {
   async getServiceAsset(tenantId: string, serviceAssetId: string): Promise<ServiceAssetDto | undefined> {
     const asset = await this.getServiceAssetIncludingDeleted(tenantId, serviceAssetId);
     return asset?.deletedAt ? undefined : asset;
+  }
+
+  /**
+   * 编辑表单只需要资产字段和目标选择上下文。
+   * 这里刻意不读取快照、证书绑定明细或插件投影，避免把详情诊断路径带入编辑首屏。
+   */
+  async getServiceAssetEditDetail(tenantId: string, serviceAssetId: string): Promise<ServiceAssetDetailDto | undefined> {
+    const row = (await this.db.query<ServiceAssetRow>(
+      `select * from pg_service_assets
+        where id = $1 and tenant_id = $2 and deleted_at is null`,
+      [serviceAssetId, tenantId],
+    )).rows[0];
+    if (!row) return undefined;
+
+    const asset = toServiceAsset(row);
+    const target = await this.getApplicationAssetTargetByApplicationAssetId(tenantId, serviceAssetId);
+    if (!target) return asset;
+
+    const managedTarget = await this.getManagedTargetIncludingDeleted(tenantId, target.managedTargetId);
+    const [host, siteAsset, frameworkFromTarget] = await Promise.all([
+      managedTarget?.deviceId ? this.getHostIncludingDeleted(tenantId, managedTarget.deviceId) : Promise.resolve(undefined),
+      managedTarget?.siteId ? this.getSiteAssetIncludingDeleted(tenantId, managedTarget.siteId) : Promise.resolve(undefined),
+      managedTarget?.frameworkInstanceId ? this.getFrameworkInstanceIncludingDeleted(tenantId, managedTarget.frameworkInstanceId) : Promise.resolve(undefined),
+    ]);
+    // 历史 ManagedTarget 可能没有回填 framework_instance_id，使用站点关联值兼容旧数据。
+    const frameworkInstance = frameworkFromTarget
+      ?? (siteAsset?.frameworkInstanceId
+        ? await this.getFrameworkInstanceIncludingDeleted(tenantId, siteAsset.frameworkInstanceId)
+        : undefined);
+
+    return {
+      ...asset,
+      targetBindingDetail: {
+        ...target,
+        host,
+        frameworkInstance,
+        siteAsset,
+        managedTarget,
+        certificateBindings: [],
+      },
+    };
   }
 
   async getServiceAssetDetail(tenantId: string, serviceAssetId: string): Promise<ServiceAssetDetailDto | undefined> {
@@ -632,6 +703,19 @@ export class PgAssetsRepository implements AssetsRepository {
   }
 
   async listSiteAssets(tenantId: string, query: PageQuery): Promise<PageResult<SiteAssetDto>> {
+    if (canUseSqlPage(query, ['frameworkInstanceId', 'status'])) {
+      const frameworkInstanceId = query.filter.frameworkInstanceId ?? null;
+      const status = query.filter.status ?? null;
+      const where = `tenant_id = $1 and deleted_at is null
+        and ($2::text is null or lower(coalesce(framework_instance_id, '')) like '%' || lower($2) || '%')
+        and ($3::text is null or lower(coalesce(status, '')) like '%' || lower($3) || '%')`;
+      const countResult = await this.db.query<{ count: string }>(`select count(*)::text as count from pg_site_assets where ${where}`, [tenantId, frameworkInstanceId, status]);
+      const sortColumn = siteAssetSortColumn(query.sort?.field);
+      const direction = query.sort?.direction === 'asc' ? 'asc' : 'desc';
+      const offset = Math.max(0, (query.page - 1) * query.pageSize);
+      const rows = (await this.db.query<SiteAssetRow>(`select * from pg_site_assets where ${where} order by ${sortColumn} ${direction}, id desc limit $4 offset $5`, [tenantId, frameworkInstanceId, status, query.pageSize, offset])).rows.map(toSiteAsset);
+      return { items: rows, page: query.page, pageSize: query.pageSize, total: Number(countResult.rows[0]?.count ?? 0) };
+    }
     const rows = (await this.db.query<SiteAssetRow>(`select * from pg_site_assets where tenant_id = $1 and deleted_at is null`, [tenantId])).rows.map(toSiteAsset);
     return page(rows, query, siteAssetFilter);
   }
@@ -750,6 +834,19 @@ export class PgAssetsRepository implements AssetsRepository {
   }
 
   async listManagedTargets(tenantId: string, query: PageQuery): Promise<PageResult<ManagedTargetDto>> {
+    if (canUseSqlPage(query, ['siteId', 'status'])) {
+      const siteId = query.filter.siteId ?? null;
+      const status = query.filter.status ?? null;
+      const where = `tenant_id = $1 and deleted_at is null
+        and ($2::text is null or lower(coalesce(site_id, '')) like '%' || lower($2) || '%')
+        and ($3::text is null or lower(coalesce(status, '')) like '%' || lower($3) || '%')`;
+      const countResult = await this.db.query<{ count: string }>(`select count(*)::text as count from pg_managed_targets where ${where}`, [tenantId, siteId, status]);
+      const sortColumn = managedTargetSortColumn(query.sort?.field);
+      const direction = query.sort?.direction === 'asc' ? 'asc' : 'desc';
+      const offset = Math.max(0, (query.page - 1) * query.pageSize);
+      const rows = (await this.db.query<ManagedTargetRow>(`select * from pg_managed_targets where ${where} order by ${sortColumn} ${direction}, id desc limit $4 offset $5`, [tenantId, siteId, status, query.pageSize, offset])).rows.map(toManagedTarget);
+      return { items: rows, page: query.page, pageSize: query.pageSize, total: Number(countResult.rows[0]?.count ?? 0) };
+    }
     const rows = (await this.db.query<ManagedTargetRow>(`select * from pg_managed_targets where tenant_id = $1 and deleted_at is null`, [tenantId])).rows.map(toManagedTarget);
     return page(rows, query, managedTargetFilter);
   }
@@ -938,6 +1035,23 @@ export class PgAssetsRepository implements AssetsRepository {
   }
 
   async listManagedTargetSnapshots(tenantId: string, query: PageQuery): Promise<PageResult<ManagedTargetSnapshotDto>> {
+    if (canUseSqlPage(query, [])) {
+      const countResult = await this.db.query<{ count: string }>(
+        `select count(*)::text as count from pg_managed_target_snapshots where tenant_id = $1`,
+        [tenantId],
+      );
+      const sortColumn = managedTargetSnapshotSortColumn(query.sort?.field);
+      const direction = query.sort?.direction === 'asc' ? 'asc' : 'desc';
+      const offset = Math.max(0, (query.page - 1) * query.pageSize);
+      const rows = (await this.db.query<ManagedTargetSnapshotRow>(
+        `select * from pg_managed_target_snapshots
+          where tenant_id = $1
+          order by ${sortColumn} ${direction}, id desc
+          limit $2 offset $3`,
+        [tenantId, query.pageSize, offset],
+      )).rows.map(toManagedTargetSnapshot);
+      return { items: rows, page: query.page, pageSize: query.pageSize, total: Number(countResult.rows[0]?.count ?? 0) };
+    }
     const rows = (await this.db.query<ManagedTargetSnapshotRow>(`select * from pg_managed_target_snapshots where tenant_id = $1`, [tenantId])).rows.map(toManagedTargetSnapshot);
     return page(rows, query, managedTargetSnapshotFilter);
   }
@@ -1739,6 +1853,84 @@ function touch<T extends { updatedAt: string; version: number }>(item: T): T {
 function softDelete<T extends { deletedAt?: string; updatedAt: string; version: number }>(item: T): T {
   const now = nowIso();
   return { ...item, deletedAt: now, updatedAt: now, version: item.version + 1 };
+}
+
+function managedTargetSnapshotSortColumn(field?: string): string {
+  const columns: Record<string, string> = {
+    capturedAt: 'captured_at',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+    snapshotType: 'snapshot_type',
+    status: 'status',
+    applicationAssetId: 'application_asset_id',
+    managedTargetId: 'managed_target_id',
+    executionRunId: 'execution_run_id',
+  };
+  return columns[field ?? ''] ?? 'captured_at';
+}
+
+function canUseSqlPage(query: PageQuery, exactFilterFields: readonly string[]): boolean {
+  if (Object.keys(query.filter).some((field) => !exactFilterFields.includes(field))) return false;
+  const authorization = query.authorization;
+  if (!authorization) return true;
+  return authorization.unrestricted === true
+    && !authorization.empty
+    && !(authorization.objectIds?.length)
+    && !(authorization.dynamicConditions?.length)
+    && !(authorization.deniedObjectIds?.length)
+    && !(authorization.deniedDynamicConditions?.length);
+}
+
+function frameworkInstanceSortColumn(field?: string): string {
+  const columns: Record<string, string> = {
+    displayName: 'display_name',
+    frameworkType: 'framework_type',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+    status: 'status',
+    deviceId: 'device_id',
+  };
+  return columns[field ?? ''] ?? 'updated_at';
+}
+
+function serviceAssetSortColumn(field?: string): string {
+  const columns: Record<string, string> = {
+    address: 'address',
+    port: 'port',
+    protocol: 'protocol',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+    status: 'status',
+    serviceInstanceId: 'service_instance_id',
+    hostId: 'host_id',
+  };
+  return columns[field ?? ''] ?? 'updated_at';
+}
+
+function siteAssetSortColumn(field?: string): string {
+  const columns: Record<string, string> = {
+    siteName: 'site_name',
+    siteType: 'site_type',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+    status: 'status',
+    frameworkInstanceId: 'framework_instance_id',
+  };
+  return columns[field ?? ''] ?? 'updated_at';
+}
+
+function managedTargetSortColumn(field?: string): string {
+  const columns: Record<string, string> = {
+    targetType: 'target_type',
+    targetKey: 'target_key',
+    bindingKey: 'binding_key',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+    status: 'status',
+    siteId: 'site_id',
+    deviceId: 'device_id',
+  };
+  return columns[field ?? ''] ?? 'updated_at';
 }
 
 function page<T extends object>(items: T[], query: PageQuery, filterFn: (item: T, field: string, expected: string) => boolean): PageResult<T> {

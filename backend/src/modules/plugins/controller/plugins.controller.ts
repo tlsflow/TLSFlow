@@ -29,6 +29,7 @@ import type { CloudAccountAssetsApplicationService } from '../../providers/appli
 import type { PluginRefreshResult } from '../dto/plugin-refresh-result.dto.js';
 import type { ApplicationOnboardingDeploymentDefaultsV1 } from '../onboarding/application-onboarding-recipe.dto.js';
 import type { PluginWorkflowPublisherService } from '../application/plugin-workflow-publisher.service.js';
+import type { ApplicationExecutionCompatibilityService } from '../../assets/application/application-execution-compatibility.service.js';
 
 export interface BuiltinPluginCatalogRefresher {
   refresh(tenantId?: string): Promise<PluginRefreshResult>;
@@ -49,6 +50,7 @@ export class PluginsController {
     private readonly security?: SecurityServices,
     private readonly cloudAccounts?: CloudAccountAssetsApplicationService,
     private readonly pluginWorkflowPublisher?: Pick<PluginWorkflowPublisherService, 'publishPlugin'>,
+    private readonly executionCompatibility?: ApplicationExecutionCompatibilityService,
   ) {}
 
   register(router: Router): void {
@@ -185,7 +187,9 @@ export class PluginsController {
     await assertRouteAction(security, 'plugin.manage', 'plugin');
     const body = validateObject(request.body, { pluginVersionId: { type: 'string', required: true } });
     const version = await this.requirePluginVersion(security, String(body.pluginVersionId), 'control');
-    return this.unifiedPlugins.enableVersion(version.id).then(withPluginVersionIdentity);
+    const enabled = await this.unifiedPlugins.enableVersion(version.id);
+    await this.executionCompatibility?.recheckPlugin(security.tenantId, enabled.pluginId);
+    return withPluginVersionIdentity(enabled);
   }
 
   private async disableUnifiedPluginVersion(request: HttpRequest) {
