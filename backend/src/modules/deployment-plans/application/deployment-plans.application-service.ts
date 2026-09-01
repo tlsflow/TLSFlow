@@ -83,6 +83,7 @@ import { DEFAULT_DEPLOYMENT_TASK_SETTINGS, type DeploymentTaskSettings } from '.
 import { buildPluginActionBindings } from '../../executions/application/plugin-action-binding.service.js';
 import type { WorkflowStep } from '../../workflow-templates/dto/workflow-templates.dto.js';
 import { GCAC_VERSION } from '../../../common/version.js';
+import type { ApplicationExecutionCompatibilityService } from '../../assets/application/application-execution-compatibility.service.js';
 
 type ResolvedCreateTarget = CreateDeploymentPlanInput['targets'][number] & {
   certificateBindingId?: string;
@@ -163,6 +164,7 @@ export interface DeploymentPlansApplicationDependencies {
   deploymentInputSnapshots?: DeploymentInputSnapshotsRepository;
   tasks?: TaskEnqueuer;
   tenantHierarchy?: Pick<TenantHierarchyService, 'getDeploymentTaskSettings'>;
+  applicationExecutionCompatibility?: ApplicationExecutionCompatibilityService;
 }
 
 export class DeploymentPlansApplicationService {
@@ -196,6 +198,7 @@ export class DeploymentPlansApplicationService {
   private readonly certificateTrustPlans?: CertificateTrustPlanService;
   private readonly tasks?: TaskEnqueuer;
   private readonly tenantHierarchy?: Pick<TenantHierarchyService, 'getDeploymentTaskSettings'>;
+  private applicationExecutionCompatibility?: ApplicationExecutionCompatibilityService;
 
   constructor(dependencies: DeploymentPlansApplicationDependencies = {}) {
     this.repository = dependencies.repository ?? new DeploymentPlansRepository();
@@ -233,6 +236,7 @@ export class DeploymentPlansApplicationService {
       ?? (dependencies.database ? new DeploymentInputSnapshotsRepository(dependencies.database) : undefined);
     this.tasks = dependencies.tasks;
     this.tenantHierarchy = dependencies.tenantHierarchy;
+    this.applicationExecutionCompatibility = dependencies.applicationExecutionCompatibility;
     this.workflowExecutionBindings = dependencies.database
       ? new WorkflowExecutionBindingsService(new WorkflowExecutionBindingsRepository(dependencies.database))
       : undefined;
@@ -248,6 +252,10 @@ export class DeploymentPlansApplicationService {
 
   getExecutionsService(): ExecutionsApplicationService {
     return this.executions;
+  }
+
+  setApplicationExecutionCompatibilityService(service?: ApplicationExecutionCompatibilityService): void {
+    this.applicationExecutionCompatibility = service;
   }
 
   async list(input: { tenantId?: string } = {}): Promise<DeploymentPlanDto[]> {
@@ -353,6 +361,32 @@ export class DeploymentPlansApplicationService {
     return this.deploymentInputSnapshots.listByPlan(tenantId, planId);
   }
 
+  private async assertApplicationExecutionReady(tenantId: string, applicationAssetIds: Array<string | undefined>): Promise<void> {
+    if (!this.applicationExecutionCompatibility) return;
+    for (const applicationAssetId of [...new Set(applicationAssetIds.filter((id): id is string => Boolean(id)))]) {
+      const results = await this.applicationExecutionCompatibility.recheckApplication(tenantId, applicationAssetId);
+      const issue = results.find((item) => item.status !== 'READY');
+      if (!issue) continue;
+      const errorCode = issue.status === 'UPDATE_REQUIRED'
+        ? 'APPLICATION_EXECUTION_UPDATE_REQUIRED'
+        : 'APPLICATION_EXECUTION_UNSUPPORTED';
+      throw new AppError(errorCode, undefined, {
+        applicationAssetId,
+        sourceType: issue.sourceType,
+        sourceId: issue.sourceId,
+        issues: issue.issues,
+        referenceVersion: issue.referenceVersion,
+        scanGeneration: issue.scanGeneration,
+      });
+    }
+  }
+
+  private async assertStoredPlanApplicationExecutionReady(planId: string, tenantId: string): Promise<void> {
+    if (!this.applicationExecutionCompatibility) return;
+    const targets = await this.repository.listTargetsByPlan(planId, tenantId);
+    await this.assertApplicationExecutionReady(tenantId, targets.map((target) => target.applicationAssetId ?? target.serviceAssetId));
+  }
+
   async create(input: CreateDeploymentPlanInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
     return this.createInternal(input, context, false);
   }
@@ -364,6 +398,8 @@ export class DeploymentPlansApplicationService {
   private async createInternal(input: CreateDeploymentPlanInput, context: RequestContext, deferPreflight: boolean): Promise<DeploymentPlanDto> {
     assertDeploymentExecutorTypes(input.targets, 'create');
     this.domain.assertCreateInput(input);
+    if (!input.tenantId) throw new AppError('VALIDATION_FAILED', 'tenantId 不能为空');
+    await this.assertApplicationExecutionReady(input.tenantId, input.targets.map((target) => target.applicationAssetId ?? target.serviceAssetId));
     const resolved = deferPreflight ? this.resolveDeferredCreateInput(input) : await this.resolveCreateInput(input);
     const normalizedInput: CreateDeploymentPlanInput = {
       ...input,
@@ -1522,9 +1558,11 @@ export class DeploymentPlansApplicationService {
   }
 
   async submit(input: SubmitDeploymentPlanInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
+    if (!input.tenantId) throw new AppError('VALIDATION_FAILED', 'tenantId 不能为空');
     const storedPlan = await this.repository.getPlanOrThrow(input.planId, input.tenantId);
     const settings = await this.getDeploymentTaskSettings(input.tenantId);
     await this.assertPersistedDeploymentExecutors(storedPlan.id, input.tenantId, 'submit');
+    await this.assertStoredPlanApplicationExecutionReady(storedPlan.id, input.tenantId);
     const plan = await this.synchronizeApprovalState(storedPlan);
     if (plan.status === 'READY') return this.toDto(plan);
     if (settings.dryRunEnabled) {
@@ -1556,9 +1594,11 @@ export class DeploymentPlansApplicationService {
   }
 
   async execute(input: ExecuteDeploymentPlanInput, context: RequestContext = {}): Promise<{ plan: DeploymentPlanDto; run: ExecutionRunDto; steps: ExecutionStepDto[]; jobId: string }> {
+    if (!input.tenantId) throw new AppError('VALIDATION_FAILED', 'tenantId 不能为空');
     const storedPlan = await this.repository.getPlanOrThrow(input.planId, input.tenantId);
     const settings = await this.getDeploymentTaskSettings(input.tenantId);
     await this.assertPersistedDeploymentExecutors(storedPlan.id, input.tenantId, 'execute');
+    await this.assertStoredPlanApplicationExecutionReady(storedPlan.id, input.tenantId);
     let plan = await this.synchronizeApprovalState(storedPlan);
     const executionApproved = false;
     this.assertInternalApprovalFrozen(plan);

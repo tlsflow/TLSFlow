@@ -25,6 +25,7 @@ import { PluginLocaleService } from '../locales/plugin-locale.service.js';
 import { PluginCapabilityRegistry } from '../capabilities/plugin-capability.registry.js';
 import { ApplicationOnboardingRecipeLoader } from '../../application-onboarding/recipe/application-onboarding-recipe.loader.js';
 import { structuredLogger } from '../../../common/logging/structured-logger.js';
+import { currentApplicationExecutionResolver } from '../../assets/application/current-application-execution-resolver.js';
 
 export class UnifiedPluginsApplicationService {
   constructor(
@@ -192,14 +193,7 @@ export class UnifiedPluginsApplicationService {
 
   /** 运行期唯一入口：配置只给出 pluginId，精确版本在创建计划时物化。 */
   async getCurrentEnabledVersion(tenantId: string, pluginId: string): Promise<UnifiedPluginVersionRecord> {
-    const candidates = (await this.repository.listAccessibleVersions(tenantId))
-      .filter((item) => item.pluginId === pluginId && item.status === 'ENABLED')
-      .sort((left, right) => {
-        const leftTenant = left.tenantId === tenantId ? 0 : 1;
-        const rightTenant = right.tenantId === tenantId ? 0 : 1;
-        return leftTenant - rightTenant || compareSemanticVersions(right.version, left.version);
-      });
-    const current = candidates[0];
+    const current = currentApplicationExecutionResolver.resolvePluginVersion(tenantId, pluginId, await this.repository.listAccessibleVersions(tenantId));
     if (!current) throw new AppError('CAPABILITY_MISSING', '插件没有当前启用版本', { tenantId, pluginId });
     return current;
   }

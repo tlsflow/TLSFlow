@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { DatabasePort } from '../../../database/database-port.js';
 import type { CreateWorkflowExecutionBindingInput, UpdateWorkflowExecutionBindingInput, WorkflowExecutionBinding } from '../dto/workflow-execution-bindings.dto.js';
 import { emptyInputBindingsV1, INPUT_BINDINGS_API_VERSION, type InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
+import { currentApplicationExecutionResolver } from '../../assets/application/current-application-execution-resolver.js';
 
 export interface WorkflowExecutionBindingChain {
   pluginVersionId: string;
@@ -78,12 +79,13 @@ export class WorkflowExecutionBindingsRepository {
   }
 
   async findCurrentWorkflowChain(input: Pick<WorkflowExecutionBinding, 'tenantId' | 'pluginId' | 'capabilityKey' | 'workflowKey' | 'workflowTemplateId'>): Promise<WorkflowExecutionBindingChain | undefined> {
-    const row = (await this.db.query<WorkflowExecutionBindingChainRow>(`
+    const rows = (await this.db.query<WorkflowExecutionBindingChainRow>(`
       select
         plugin.id as plugin_version_id,
         plugin.plugin_id,
         plugin.plugin_version,
         plugin.tenant_id as plugin_tenant_id,
+        plugin.updated_at as plugin_updated_at,
         plugin.source as plugin_source,
         plugin.runtime as plugin_runtime,
         plugin.status as plugin_status,
@@ -115,9 +117,14 @@ export class WorkflowExecutionBindingsRepository {
      where plugin.plugin_id = $2
        and (plugin.tenant_id = $1 or plugin.source = 'BUILTIN')
        and plugin.status = 'ENABLED'
-     order by case when plugin.tenant_id = $1 then 0 else 1 end, plugin.updated_at desc, plugin.id desc
-     limit 1
-    `, [input.tenantId, input.pluginId, input.capabilityKey, input.workflowKey, input.workflowTemplateId])).rows[0];
+     order by plugin.updated_at desc, plugin.id desc
+    `, [input.tenantId, input.pluginId, input.capabilityKey, input.workflowKey, input.workflowTemplateId])).rows;
+    const row = currentApplicationExecutionResolver.select(input.tenantId, rows.map((item) => ({
+      ...item,
+      tenant_id: item.plugin_tenant_id,
+      updated_at: item.plugin_updated_at,
+      id: item.plugin_version_id,
+    })));
     return row ? mapChain(row) : undefined;
   }
 }
@@ -146,6 +153,7 @@ interface WorkflowExecutionBindingChainRow extends Record<string, unknown> {
   plugin_id: string;
   plugin_version: string;
   plugin_tenant_id: string;
+  plugin_updated_at: string | Date;
   plugin_source: 'BUILTIN' | 'USER';
   plugin_runtime: 'AGENT_PLAN' | 'WORKFLOW_DSL';
   plugin_status: string;

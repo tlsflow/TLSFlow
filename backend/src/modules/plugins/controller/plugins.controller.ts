@@ -508,7 +508,7 @@ export class PluginsController {
     await this.assertObjectAccess(security, 'application_asset', resolvedApplicationAssetId, 'edit');
     await this.assertObjectAccess(security, 'managed_target', String(body.managedTargetId), 'edit');
     if (body.pluginOverride) {
-      await this.requirePluginVersion(security, body.pluginOverride.pluginVersionId, 'read');
+      if (body.pluginOverride.pluginVersionId) await this.requirePluginVersion(security, body.pluginOverride.pluginVersionId, 'read');
       if (body.pluginOverride.pluginBindingId) {
         const binding = await this.pluginBindings.getTenantBinding(security.tenantId, body.pluginOverride.pluginBindingId);
         await assertRouteObjectAccess(security, 'edit', {

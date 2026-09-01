@@ -1243,6 +1243,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('automationScheduler', automationScheduler);
   app.setResource('automationEventDelivery', automationEventDelivery);
   const applicationExecutionCompatibility = new ApplicationExecutionCompatibilityService(appDb);
+  deploymentPlans.getApplicationService().setApplicationExecutionCompatibilityService(applicationExecutionCompatibility);
   new AssetsController(
     security,
     assetsService,

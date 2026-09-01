@@ -49,7 +49,8 @@ export interface SaveManagedTargetPluginOverrideInput {
   expectedTargetVersion?: number;
   capabilityKey?: string;
   pluginOverride?: {
-    pluginVersionId: string;
+    pluginId?: string;
+    pluginVersionId?: string;
     pluginBindingId?: string;
     expectedBindingVersion?: number;
     inputBindings?: InputBindingsV1;
@@ -141,7 +142,11 @@ export class ManagedTargetPluginQueryService {
 
       const capabilityKey = input.value.capabilityKey ?? 'certificate.deploy';
       const overridePlugin = input.value.pluginOverride
-        ? await services.plugins.getVersion(input.value.pluginOverride.pluginVersionId)
+        ? input.value.pluginOverride.pluginId && services.plugins.getCurrentEnabledVersion
+          ? await services.plugins.getCurrentEnabledVersion(input.tenantId, input.value.pluginOverride.pluginId)
+          : input.value.pluginOverride.pluginVersionId
+            ? await services.plugins.getVersion(input.value.pluginOverride.pluginVersionId)
+            : undefined
         : undefined;
       const overrideContract = overridePlugin
         ? this.contractLoader.fromPlugin(overridePlugin, capabilityKey)
@@ -297,7 +302,8 @@ export class ManagedTargetPluginQueryService {
         });
         return { target, executionMode: 'PLUGIN', effectiveCapability: summarizeCapability(resolved) };
       }
-      const plugin = overridePlugin ?? await services.plugins.getVersion(input.value.pluginOverride.pluginVersionId);
+      const plugin = overridePlugin;
+      if (!plugin) throw new AppError('APPLICATION_CURRENT_PLUGIN_UNAVAILABLE', '应用当前插件不可用', { applicationAssetId: input.applicationAssetId, capabilityKey });
       const requestedInputBindings = input.value.pluginOverride.inputBindings ?? emptyInputBindingsV1();
       const contract = overrideContract ?? this.contractLoader.fromPlugin(plugin, capabilityKey);
       const preparedInput = preparedDefaults ?? {
@@ -344,7 +350,7 @@ export class ManagedTargetPluginQueryService {
       const hasAssetOverride = hasBindingValues(validation.assetOverride);
       const inheritedSameVersion = layers.target?.pluginVersionId === plugin.id || layers.device?.pluginVersionId === plugin.id;
       const binding = hasAssetOverride || !inheritedSameVersion
-        ? await this.saveBinding(services.bindings, input.tenantId, context, { ...input.value.pluginOverride, inputBindings: validation.assetOverride })
+        ? await this.saveBinding(services.bindings, input.tenantId, context, { ...input.value.pluginOverride, pluginVersionId: plugin.id, inputBindings: validation.assetOverride })
         : undefined;
       if (!binding) {
         await services.bindings.disableOwnerAssignment(input.tenantId, { ownerType: 'APPLICATION_ASSET', ownerId: input.applicationAssetId, capabilityKey });
@@ -539,6 +545,7 @@ export class ManagedTargetPluginQueryService {
     context: ResolvedManagedTargetContext,
     input: NonNullable<SaveManagedTargetPluginOverrideInput['pluginOverride']>,
   ): Promise<PluginBindingV1> {
+    if (!input.pluginVersionId) throw new AppError('APPLICATION_CURRENT_PLUGIN_UNAVAILABLE', '应用当前插件版本未解析');
     const managedContext = managedTargetBindingContext(context);
     if (input.pluginBindingId) {
       const current = await bindings.getTenantBinding(tenantId, input.pluginBindingId);

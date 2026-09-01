@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
+import { readFile } from 'node:fs/promises';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { WorkflowExecutionBindingsService } from './application/workflow-execution-bindings.service.js';
@@ -235,4 +236,60 @@ test('WorkflowVersion 内容摘要不匹配时失败关闭', async () => {
     () => fixture.target.create(fixture.base),
     'WORKFLOW_EXECUTION_BINDING_HASH_MISMATCH',
   );
+});
+
+test('NULL plugin_id 绑定会幂等物化为 UNSUPPORTED 并保留原始版本 ID', async () => {
+  const fixture = await createFixture();
+  const bindingId = 'wfeb-null-plugin-fallback';
+  const assetId = 'asset-null-plugin-fallback';
+  await fixture.db.query(`insert into workflow_execution_bindings
+    (id, tenant_id, workflow_template_id, workflow_version_selection, workflow_version_id, runner,
+     status, version, input_bindings, plugin_version_id, capability_key, workflow_key, plugin_id)
+    values ($1,$2,$3,'CURRENT',null,'CONTROL_PLANE','ACTIVE',1,$4::jsonb,$5,$6,$7,null)`, [
+    bindingId,
+    tenantId,
+    fixture.workflowTemplateId,
+    JSON.stringify(emptyInputBindingsV1()),
+    fixture.pluginVersionId,
+    'certificate.deploy',
+    'certificate.deploy',
+  ]);
+  await fixture.db.query(`insert into pg_service_assets
+    (id, tenant_id, address, address_type, port, protocol, discovery_source, status, tags, metadata, asset_kind, version)
+    values ($1,$2,'fallback.example.com','DNS',443,'HTTPS','MANUAL','ACTIVE','[]'::jsonb,$3::jsonb,'APPLICATION',7)`, [
+    assetId,
+    tenantId,
+    JSON.stringify({ deploymentStrategy: { type: 'WORKFLOW', workflow: { workflowExecutionBindingId: bindingId } } }),
+  ]);
+
+  const migration = await readFile(new URL('../../database/migrations/20260830130000_application_execution_compatibility_unsupported_fallback.sql', import.meta.url), 'utf8');
+  await fixture.db.exec(migration);
+  const first = (await fixture.db.query<{
+    status: string;
+    issues: unknown;
+    checked_plugin_version_id: string | null;
+    reference_version: number;
+    version: number;
+  }>(`select status, issues, checked_plugin_version_id, reference_version, version
+      from application_execution_compatibility
+     where tenant_id=$1 and application_asset_id=$2 and source_id=$3`, [tenantId, assetId, bindingId])).rows[0];
+  assert.equal(first?.status, 'UNSUPPORTED');
+  assert.deepEqual(first?.issues, [{ code: 'APPLICATION_EXECUTION_REFERENCE_INVALID', path: 'deploymentStrategy.workflow.workflowExecutionBindingId', category: 'REFERENCE' }]);
+  assert.equal(first?.checked_plugin_version_id, fixture.pluginVersionId);
+  assert.equal(first?.reference_version, 7);
+  assert.equal(first?.version, 1);
+
+  await fixture.db.query(`update application_execution_compatibility
+    set status='READY', scan_generation=2, reference_version=99, version=9
+    where tenant_id=$1 and application_asset_id=$2 and source_id=$3`, [tenantId, assetId, bindingId]);
+  await fixture.db.exec(migration);
+  const second = (await fixture.db.query<{ status: string; version: number; scan_generation: number; reference_version: number }>(
+    `select status, version, scan_generation, reference_version from application_execution_compatibility
+      where tenant_id=$1 and application_asset_id=$2 and source_id=$3`,
+    [tenantId, assetId, bindingId],
+  )).rows[0];
+  assert.equal(second?.status, 'READY');
+  assert.equal(second?.version, 9);
+  assert.equal(second?.scan_generation, 2);
+  assert.equal(second?.reference_version, 99);
 });
