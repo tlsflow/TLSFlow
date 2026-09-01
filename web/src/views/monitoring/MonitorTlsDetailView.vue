@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
-import { listAssets } from '@/api/modules/assets.api'
+import { listApplications } from '@/api/modules/assets.api'
 import { listMonitorTargets } from '@/api/modules/monitors.api'
 import {
   createTlsInspectorTarget,
@@ -485,7 +485,7 @@ async function loadDetail() {
   try {
     const [monitorResult, assetResult, inspectorResult] = await Promise.all([
       listMonitorTargets({ page: 1, pageSize: 200 }),
-      listAssets({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
+      listApplications({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
       listTlsInspectorTargets({ page: 1, pageSize: 200 }).catch(() => null),
     ])
     monitorTargets.value = [...(monitorResult.data?.items ?? [])]

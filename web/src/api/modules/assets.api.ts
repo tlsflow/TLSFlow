@@ -16,10 +16,10 @@ const AGENTS_PATH = '/api/v1/agents'
 const APPLICATION_CERTIFICATE_SUPPLY_POLICY_PATH = '/api/v1/application-assets'
 
 export function listAssets(query?: BusinessListQuery) {
-  return listRecords(APPLICATIONS_PATH, query)
+  return listRecords('/api/v1/assets', query)
 }
 
-/** 查询统一资产列表中的云服务资产；设备资产仍由设备模块查询。 */
+/** 查询统一资产列表中的云服务资产。 */
 export function listCloudServiceAssets(query: BusinessListQuery = {}) {
   return listRecords('/api/v1/assets', {
     ...query,
@@ -33,6 +33,11 @@ export function listApplications(query?: BusinessListQuery) {
 
 export function getApplicationDetail(applicationId: string): Promise<ApiRecordResult> {
   return apiClient.get<ApiRecord>(`${toClientPath(`${APPLICATIONS_PATH}/detail`)}?applicationId=${encodeURIComponent(applicationId)}`)
+}
+
+/** 编辑首屏专用轻量详情，不包含证书投影、联动诊断和执行兼容性。 */
+export function getApplicationEditDetail(applicationId: string): Promise<ApiRecordResult> {
+  return apiClient.get<ApiRecord>(`${toClientPath(`${APPLICATIONS_PATH}/edit-detail`)}?applicationId=${encodeURIComponent(applicationId)}`)
 }
 
 export function getApplicationAssetLinkageStatus(applicationAssetId: string): Promise<ApiRecordResult> {
@@ -74,10 +79,6 @@ export function updateServiceAsset(serviceAssetId: string, payload: ApiBody) {
 
 export function deleteServiceAsset(serviceAssetId: string) {
   return postAction(`${APPLICATIONS_PATH}/delete`, { id: serviceAssetId }, 'application_delete')
-}
-
-export function getAssetDetail(serviceAssetId: string): Promise<ApiRecordResult> {
-  return apiClient.get<ApiRecord>(`${toClientPath(`${APPLICATIONS_PATH}/detail`)}?applicationId=${encodeURIComponent(serviceAssetId)}`)
 }
 
 export function createHost(payload: ApiBody) {

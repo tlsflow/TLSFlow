@@ -11,7 +11,7 @@ const assetMocks = vi.hoisted(() => ({
   updateHost: vi.fn(),
   deleteHost: vi.fn(),
   deleteFrameworkInstance: vi.fn(),
-  listAssets: vi.fn(),
+  listApplications: vi.fn(),
   listCapabilities: vi.fn(),
   matchCapabilityRequirement: vi.fn(),
   evaluateCapabilityCompatibility: vi.fn(),
@@ -23,7 +23,7 @@ const assetMocks = vi.hoisted(() => ({
   createServiceAsset: vi.fn(),
   updateServiceAsset: vi.fn(),
   deleteServiceAsset: vi.fn(),
-  getAssetDetail: vi.fn(),
+  getApplicationDetail: vi.fn(),
   listAgents: vi.fn(),
   listSiteAssets: vi.fn(),
   createSiteAsset: vi.fn(),
@@ -92,7 +92,7 @@ vi.mock('@/api/modules/devices.api', () => deviceMocks)
 vi.mock('@/api/modules/deployment-inputs.api', () => deploymentInputMocks)
 vi.mock('@/api/modules/plugins.api', () => pluginMocks)
 
-import AssetsView from '@/views/assets/AssetsView.vue'
+import AssetsView from '@/views/applications/ApplicationsView.vue'
 import BindingsView from '@/views/bindings/BindingsView.vue'
 
 function okPage(items: readonly Record<string, unknown>[]) {
@@ -154,7 +154,7 @@ async function setInputElementValue(input: HTMLInputElement, value: string) {
   await flushPromises()
 }
 
-describe('资产与证书产物视图', () => {
+describe('应用与证书产物视图', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     document.body.innerHTML = ''
@@ -166,7 +166,7 @@ describe('资产与证书产物视图', () => {
       'certificate.format.create',
     ])
 
-    assetMocks.listAssets.mockResolvedValue(okPage([
+    assetMocks.listApplications.mockResolvedValue(okPage([
       {
         id: 'asset-1',
         address: 'www.example.com',
@@ -194,7 +194,7 @@ describe('资产与证书产物视图', () => {
     assetMocks.listManagedTargetCompatiblePlugins.mockResolvedValue(okRecord({ items: [] }))
     assetMocks.saveApplicationAssetManagedTarget.mockResolvedValue(okRecord({ target: { id: 'target-binding-1' } }))
     assetMocks.listManagedTargetSnapshots.mockResolvedValue(okPage([]))
-    assetMocks.getAssetDetail.mockResolvedValue(okRecord({ id: 'asset-1' }))
+    assetMocks.getApplicationDetail.mockResolvedValue(okRecord({ id: 'asset-1' }))
     deploymentInputMocks.projectDeploymentInputs.mockResolvedValue(okRecord({
       contractVersion: 'gcac.deployment-input-contract/v1',
       requiredVariables: [], advancedVariables: [], connections: [], credentials: [], artifacts: [], fixedValues: [], runtimeValues: [], issues: [], saveable: true,
@@ -342,7 +342,7 @@ describe('资产与证书产物视图', () => {
       'certificate.format.create',
       'deployment.plan.execute',
     ])
-    assetMocks.listAssets.mockResolvedValue(okPage([
+    assetMocks.listApplications.mockResolvedValue(okPage([
       {
         id: 'asset-card-1',
         address: 'card.example.com',
@@ -395,14 +395,14 @@ describe('资产与证书产物视图', () => {
 
     await wrapper.get('[data-testid="asset-card-detail-asset-card-1"]').trigger('click')
     await flushPromises()
-    expect(assetMocks.getAssetDetail).toHaveBeenCalledWith('asset-card-1')
+    expect(assetMocks.getApplicationDetail).toHaveBeenCalledWith('asset-card-1')
 
     expect(wrapper.find('[data-testid="asset-professional-view-tabs"]').exists()).toBe(false)
     expect(wrapper.find('.business-page').exists()).toBe(false)
   })
 
   it('专业应用页支持切换表格视图并按表头稳定排序', async () => {
-    assetMocks.listAssets.mockResolvedValue(okPage([
+    assetMocks.listApplications.mockResolvedValue(okPage([
       { id: 'asset-sort-b', address: 'b.example.com', displayName: 'b.example.com', port: 8443, protocol: 'HTTPS', platform: 'WINDOWS', targetBinding: { deviceDisplayName: 'device-b' }, status: 'ACTIVE', currentCertificate: { updateAvailable: true } },
       { id: 'asset-sort-a', address: 'a.example.com', displayName: 'a.example.com', port: 443, protocol: 'HTTPS', platform: 'LINUX', targetBinding: { deviceDisplayName: 'device-a' }, status: 'ACTIVE', currentCertificate: { notAfter: '2099-06-15T23:59:59.000Z' } },
     ]))
@@ -451,7 +451,7 @@ describe('资产与证书产物视图', () => {
       'service_asset.manage',
       'deployment.plan.execute',
     ])
-    assetMocks.listAssets.mockResolvedValue(okPage([
+    assetMocks.listApplications.mockResolvedValue(okPage([
       {
         id: 'asset-bulk-same-1',
         address: 'first.example.com',
@@ -483,7 +483,7 @@ describe('资产与证书产物视图', () => {
       'service_asset.manage',
       'deployment.plan.execute',
     ])
-    assetMocks.listAssets.mockResolvedValue(okPage([
+    assetMocks.listApplications.mockResolvedValue(okPage([
       {
         id: 'asset-bulk-different-1',
         address: 'first.example.com',
@@ -515,7 +515,7 @@ describe('资产与证书产物视图', () => {
       'service_asset.manage',
       'deployment.plan.execute',
     ])
-    assetMocks.listAssets.mockResolvedValue(okPage([
+    assetMocks.listApplications.mockResolvedValue(okPage([
       {
         id: 'asset-update-available',
         address: 'update.example.com',
@@ -548,7 +548,7 @@ describe('资产与证书产物视图', () => {
       'service_asset.manage',
       'deployment.plan.execute',
     ])
-    assetMocks.listAssets.mockResolvedValue(okPage([
+    assetMocks.listApplications.mockResolvedValue(okPage([
       {
         id: 'asset-expired',
         address: 'expired.example.com',
@@ -575,7 +575,7 @@ describe('资产与证书产物视图', () => {
   })
 
   it('绑定证书是证书资产当前版本时显示正常状态', async () => {
-    assetMocks.listAssets.mockResolvedValue(okPage([
+    assetMocks.listApplications.mockResolvedValue(okPage([
       {
         id: 'asset-current-version',
         address: 'current.example.com',
@@ -601,7 +601,7 @@ describe('资产与证书产物视图', () => {
   })
 
   it('卡片工作台按服务端分页和筛选条件加载资产', async () => {
-    assetMocks.listAssets.mockImplementation(async (query?: { readonly page?: number }) => {
+    assetMocks.listApplications.mockImplementation(async (query?: { readonly page?: number }) => {
       const page = query?.page ?? 1
       return {
         data: {
@@ -620,7 +620,7 @@ describe('资产与证书产物视图', () => {
     const wrapper = mountBusinessView(AssetsView)
     await flushPromises()
 
-    expect(assetMocks.listAssets).toHaveBeenLastCalledWith({
+    expect(assetMocks.listApplications).toHaveBeenLastCalledWith({
       page: 1,
       pageSize: 20,
       sort: 'address:asc',
@@ -631,7 +631,7 @@ describe('资产与证书产物视图', () => {
     await wrapper.get('[data-testid="asset-overview-pagination"]').get('button[aria-label="下一页"]').trigger('click')
     await flushPromises()
 
-    expect(assetMocks.listAssets).toHaveBeenLastCalledWith({
+    expect(assetMocks.listApplications).toHaveBeenLastCalledWith({
       page: 2,
       pageSize: 20,
       sort: 'address:asc',
@@ -643,7 +643,7 @@ describe('资产与证书产物视图', () => {
     await wrapper.get('[data-testid="asset-overview-status-filter"]').setValue('ACTIVE')
     await flushPromises()
 
-    expect(assetMocks.listAssets).toHaveBeenLastCalledWith({
+    expect(assetMocks.listApplications).toHaveBeenLastCalledWith({
       page: 1,
       pageSize: 20,
       sort: 'address:asc',
@@ -675,7 +675,7 @@ describe('资产与证书产物视图', () => {
   })
 
   it('编辑应用资产时允许修改平台标识', async () => {
-    assetMocks.getAssetDetail.mockResolvedValue(okRecord({
+    assetMocks.getApplicationDetail.mockResolvedValue(okRecord({
       id: 'asset-1',
       address: 'www.example.com',
       port: 443,
@@ -703,7 +703,7 @@ describe('资产与证书产物视图', () => {
     const wrapper = mountBusinessView(AssetsView)
     await flushPromises()
 
-    expect(assetMocks.listAssets).toHaveBeenCalled()
+    expect(assetMocks.listApplications).toHaveBeenCalled()
     expect(wrapper.text()).toContain('www.example.com')
     expect(wrapper.find('[data-testid="asset-professional-workspace"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="asset-professional-card-grid"]').exists()).toBe(true)
@@ -725,11 +725,11 @@ describe('资产与证书产物视图', () => {
     await flushPromises()
 
     expect(assetMocks.deleteServiceAsset).toHaveBeenCalledWith('asset-1')
-    expect(assetMocks.listAssets).toHaveBeenCalledTimes(2)
+    expect(assetMocks.listApplications).toHaveBeenCalledTimes(2)
   })
 
   it('应用资产卡片显示所属设备，并继续隐藏框架和站点元数据', async () => {
-    assetMocks.listAssets.mockResolvedValue(okPage([
+    assetMocks.listApplications.mockResolvedValue(okPage([
       {
         id: 'asset-name-1',
         address: 'named.example.com',
@@ -995,7 +995,7 @@ describe('资产与证书产物视图', () => {
         compatible: true,
       }],
     }))
-    assetMocks.getAssetDetail.mockResolvedValue(okRecord({
+    assetMocks.getApplicationDetail.mockResolvedValue(okRecord({
       id: 'asset-1',
       address: '10.255.0.41',
       displayName: 'test',
@@ -1086,7 +1086,7 @@ describe('资产与证书产物视图', () => {
   })
 
   it('插件部署输入变更后重新投影，布尔值 true 不再保留旧的缺失错误', async () => {
-    assetMocks.getAssetDetail.mockResolvedValue(okRecord({
+    assetMocks.getApplicationDetail.mockResolvedValue(okRecord({
       id: 'asset-1',
       address: '10.255.0.41',
       displayName: 'test',
@@ -1170,7 +1170,7 @@ describe('资产与证书产物视图', () => {
   })
 
   it('编辑插件 Host 时在后台投影期间保留输入框和焦点', async () => {
-    assetMocks.getAssetDetail.mockResolvedValue(okRecord({
+    assetMocks.getApplicationDetail.mockResolvedValue(okRecord({
       id: 'asset-1',
       address: '10.255.0.41',
       displayName: 'test',
@@ -1431,7 +1431,7 @@ describe('资产与证书产物视图', () => {
   })
 
   it('工作流投影中的 credential 必须渲染为凭据选择器', async () => {
-    assetMocks.getAssetDetail.mockResolvedValue(okRecord({
+    assetMocks.getApplicationDetail.mockResolvedValue(okRecord({
       id: 'asset-1', address: 'cloud.jacksonz.cn', port: 443, protocol: 'HTTPS', platform: 'LINUX',
       deploymentStrategy: { type: 'WORKFLOW', workflow: { workflowId: 'workflow-1', workflowVersionSelection: 'PINNED', workflowVersionId: 'workflow-version-1', runner: 'CONTROL_PLANE', inputBindings: { apiVersion: 'gcac.input-bindings/v1', variables: {}, connections: {}, credentials: {}, artifacts: {} } } },
     }))
@@ -1511,7 +1511,7 @@ describe('资产与证书产物视图', () => {
       artifacts: [{ slot: 'serverCert', kind: 'certificate', required: true, configurationMode: 'required', outputs: { certFile: { role: 'public_certificate', required: true }, keyFile: { role: 'private_key', required: true } }, binding: { certificateFormatId: 'certfmt-1', outputBindings: { certFile: 'fullchain', keyFile: 'private' } } }],
       fixedValues: [], runtimeValues: [], issues: [], saveable: true,
     }))
-    assetMocks.getAssetDetail.mockResolvedValue(okRecord({
+    assetMocks.getApplicationDetail.mockResolvedValue(okRecord({
       id: 'asset-1',
       address: 'app.example.com',
       port: 443,

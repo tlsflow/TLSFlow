@@ -679,6 +679,8 @@ export default {
     assetManagement: '应用管理',
     assets: '应用',
     assetsDesc: '域名/IP 维度的应用入口与证书部署目标',
+    applications: '应用',
+    applicationsDesc: '管理需要证书保护和部署的业务应用端点',
     devices: '设备',
     agents: 'Agent',
     agentsDesc: '在线状态、心跳和能力集合',

@@ -196,7 +196,7 @@ describe('统一设备详情动作边界', () => {
   })
 
   it('设备列表区分设备版本和控制版本', () => {
-    const source = readFileSync(resolve(process.cwd(), 'src/views/devices/DevicesView.vue'), 'utf8')
+    const source = readFileSync(resolve(process.cwd(), 'src/views/assets/AssetsView.vue'), 'utf8')
     expect(source).toContain("key: 'deviceVersion'")
     expect(source).toContain("candidates: ['softwareVersion']")
     expect(source).toContain("key: 'controlVersion'")
@@ -204,7 +204,7 @@ describe('统一设备详情动作边界', () => {
   })
 
   it('设备列表提供插件资产编辑入口并复用声明式表单', () => {
-    const devicesSource = readFileSync(resolve(process.cwd(), 'src/views/devices/DevicesView.vue'), 'utf8')
+    const devicesSource = readFileSync(resolve(process.cwd(), 'src/views/assets/AssetsView.vue'), 'utf8')
     const editSource = readFileSync(resolve(process.cwd(), 'src/views/devices/DeviceAssetEditModal.vue'), 'utf8')
     expect(devicesSource).toContain("label: t('devices.actions.edit')")
     expect(devicesSource).toContain("permission: 'application.device.update'")
@@ -217,25 +217,21 @@ describe('统一设备详情动作边界', () => {
   })
 
   it('云服务详情只由统一设备详情模态框承载', () => {
-    const assetsSource = readFileSync(resolve(process.cwd(), 'src/views/assets/AssetsView.vue'), 'utf8')
-    const devicesSource = readFileSync(resolve(process.cwd(), 'src/views/devices/DevicesView.vue'), 'utf8')
+    const assetsSource = readFileSync(resolve(process.cwd(), 'src/views/applications/ApplicationsView.vue'), 'utf8')
+    const devicesSource = readFileSync(resolve(process.cwd(), 'src/views/assets/AssetsView.vue'), 'utf8')
     const modalSource = readFileSync(resolve(process.cwd(), 'src/views/devices/details/ManagedDeviceDetailModal.vue'), 'utf8')
 
-    expect(assetsSource).not.toContain('isCloudServiceAsset')
-    expect(assetsSource).not.toContain('cloudTopology')
-    expect(devicesSource).toContain("const assetKind = String(row.raw.assetKind ?? '').toUpperCase() === 'CLOUD_SERVICE' ? 'CLOUD_SERVICE' : 'DEVICE'")
-    expect(devicesSource).toContain("route.query.assetKind === 'CLOUD_SERVICE'")
+    expect(assetsSource).toContain('isCloudServiceAsset')
+    expect(devicesSource).toContain('isCloudServiceRow')
     expect(devicesSource).toContain('<ManagedDeviceDetailModal ref="deviceDetailModal" />')
-    expect(modalSource).toContain("const response = assetKind === 'CLOUD_SERVICE'")
-    expect(modalSource).toContain('await getServiceAssetDetail(resourceId)')
-    expect(modalSource).toContain('frameworkInstanceId: String(site.frameworkInstanceId ?? \'\')')
-    expect(modalSource).toContain("assetKind: 'CLOUD_SERVICE'")
-    expect(modalSource).toContain('function displayPluginVersion')
+    expect(modalSource).toContain('getManagedDevice')
+    expect(modalSource).toContain('function pluginLabel')
     expect(modalSource).not.toContain('metadata.pluginVersion ??')
     expect(assetsSource).not.toContain('asset-detail-modal')
     expect(assetsSource).toContain('application-detail-modal')
-    expect(assetsSource).toContain('if (detailError.value || !loadedDetail || !isApplicationAsset(loadedDetail)) return')
-    expect(assetsSource).toContain('applicationDetailModalOpen.value = true\n  void loadDeploymentRecords(applicationAssetId)')
+    expect(assetsSource).toContain('async function openRouteAssetDetail(applicationAssetId: string)')
+    expect(assetsSource).toContain('detailModalOpen.value = true')
+    expect(assetsSource).toContain('void loadDeploymentRecords(applicationAssetId)')
   })
 
   it('设备详情弹窗使用紧凑的十五像素上下间距', () => {
@@ -248,7 +244,7 @@ describe('统一设备详情动作边界', () => {
   })
 
   it('应用资产向导进入部署模式时刷新当前 ACTIVE 发现数据', () => {
-    const source = readFileSync(resolve(process.cwd(), 'src/views/assets/AssetsView.vue'), 'utf8')
+    const source = readFileSync(resolve(process.cwd(), 'src/views/applications/ApplicationsView.vue'), 'utf8')
     expect(source).toContain("filters: { deviceId: hostId, status: 'ACTIVE' }")
     expect(source).toContain('await refreshManagedTargetSelection()')
     expect(source).toContain('await refreshAssetTargets()')

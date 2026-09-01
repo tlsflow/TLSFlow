@@ -657,6 +657,8 @@ export default {
     assetManagement: 'Gestion des applications',
     assets: 'Applications',
     assetsDesc: 'Application entry points and certificate deployment targets by domain/IP',
+    applications: 'Applications',
+    applicationsDesc: 'Gérer les points de terminaison applicatifs nécessitant une protection et un déploiement de certificats',
     devices: 'Devices',
     agents: 'Agents',
     agentsDesc: 'Online status, heartbeat, and capability set',

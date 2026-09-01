@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
-import { getAssetDetail, listAssets, listManagedTargets } from '@/api/modules/assets.api'
+import { getApplicationDetail, listApplications, listManagedTargets } from '@/api/modules/assets.api'
 import type { ApiRecord } from '@/api/modules/common'
 import { listCertificates, listCertificateFormats, listCertificateVersions } from '@/api/modules/certificates.api'
 import { useExecutionDetail } from '@/composables/useExecutionDetail'
@@ -310,7 +310,7 @@ async function loadDeploymentPlansPage(query: { page: number; pageSize: number }
   const [plansResult, versions, assetsResult, observationsResult] = await Promise.all([
     listDeploymentPlans({ ...query, sort: 'updatedAt:desc' }),
     fetchAllPages((page, pageSize) => listCertificateVersions({ page, pageSize, sort: 'createdAt:desc' })),
-    fetchAllPages((page, pageSize) => listAssets({ page, pageSize, sort: 'updatedAt:desc' })),
+    fetchAllPages((page, pageSize) => listApplications({ page, pageSize, sort: 'updatedAt:desc' })),
     listMonitorCertificateObservations({ page: 1, pageSize: 200 }),
   ])
   const page = plansResult.data ?? { items: [], page: 1, pageSize: 20, total: 0 }
@@ -364,7 +364,7 @@ async function loadApplicationAssetDetailMap(
   ))
   const entries = await Promise.all(applicationAssetIds.map(async (applicationAssetId) => {
     try {
-      const detail = await getAssetDetail(applicationAssetId)
+      const detail = await getApplicationDetail(applicationAssetId)
       return [applicationAssetId, detail.data ?? null] as const
     } catch {
       return [applicationAssetId, null] as const
@@ -387,10 +387,10 @@ function navigateUserFlow(stepId: string) {
     return
   }
   if (stepId === 'applications') {
-    void router.push({ name: 'asset.list' })
+    void router.push({ name: 'application.list' })
     return
   }
-  void router.push({ name: 'asset.list' })
+  void router.push({ name: 'application.list' })
 }
 
 async function openEditDialog(row: ViewRow) {
@@ -537,7 +537,7 @@ async function loadWizardOptions() {
   errorIssues.value = []
   try {
     const [assetsResult, targetsResult, certificatesResult, versionsResult, formatsResult] = await Promise.all([
-      listAssets({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
+      listApplications({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
       fetchAllPages((page, pageSize) => listManagedTargets({ page, pageSize, sort: 'updatedAt:desc' })),
       listCertificates({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
       fetchAllPages((page, pageSize) => listCertificateVersions({ page, pageSize, sort: 'createdAt:desc' })),

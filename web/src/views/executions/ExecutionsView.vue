@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { GcEmptyState, GcExecutionDetailModal, GcPageHeader, GcPageToolbar, GcStatusTag } from '@/design-system/components'
-import { listAssets } from '@/api/modules/assets.api'
+import { listApplications } from '@/api/modules/assets.api'
 import type { ApiRecord } from '@/api/modules/common'
 import { listDeploymentPlans } from '@/api/modules/deployments.api'
 import { listExecutions, recoverExecution } from '@/api/modules/executions.api'
@@ -97,7 +97,7 @@ async function loadExecutions() {
     const executionResult = await listExecutions({ page: 1, pageSize: 200, sort: 'startedAt:desc' })
     const [planResult, assetResult] = await Promise.allSettled([
       listDeploymentPlans({ page: 1, pageSize: 200 }),
-      listAssets({ page: 1, pageSize: 200 }),
+      listApplications({ page: 1, pageSize: 200 }),
     ])
     const executions = executionResult.data?.items ?? []
     const plans = planResult.status === 'fulfilled' ? planResult.value.data?.items ?? [] : []

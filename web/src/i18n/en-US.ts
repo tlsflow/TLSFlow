@@ -679,6 +679,8 @@ export default {
     assetManagement: 'Application management',
     assets: 'Applications',
     assetsDesc: 'Application entry points and certificate deployment targets by domain or IP',
+    applications: 'Applications',
+    applicationsDesc: 'Manage business application endpoints that need certificate protection and deployment',
     devices: 'Devices',
     agents: 'Agents',
     agentsDesc: 'Online status, heartbeat, and capability set',

@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import type { ApiRecord } from '@/api/modules/common'
-import { listAssets } from '@/api/modules/assets.api'
+import { listApplications } from '@/api/modules/assets.api'
 import { listCertificates } from '@/api/modules/certificates.api'
 import {
   createAccessGrant,
@@ -120,7 +120,7 @@ const permissionPresets: readonly PermissionPresetOption[] = [
 
 const assignableCategories: readonly AssignableObjectCategory[] = [
   { key: 'certificate', labelKey: 'settings.roles.categories.certificate', objectType: 'certificate', load: () => loadPageItems(listCertificates) },
-  { key: 'application', labelKey: 'settings.roles.categories.application', objectType: 'service_asset', load: () => loadPageItems(listAssets) },
+  { key: 'application', labelKey: 'settings.roles.categories.application', objectType: 'service_asset', load: () => loadPageItems(listApplications) },
   { key: 'audit', labelKey: 'settings.roles.categories.auditLog', objectType: 'audit_log' },
   { key: 'settings', labelKey: 'settings.roles.categories.systemSetting', objectType: 'system_setting' }
 ]

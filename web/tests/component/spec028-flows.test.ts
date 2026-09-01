@@ -10,7 +10,7 @@ import { usePermissionStore } from '@/stores/permission.store'
 const deploymentMocks = vi.hoisted(() => ({
   listAssets: vi.fn(),
   listManagedTargets: vi.fn(),
-  getAssetDetail: vi.fn(),
+  getApplicationDetail: vi.fn(),
   listCertificates: vi.fn(),
   listCertificateVersions: vi.fn(),
   listCertificateFormats: vi.fn(),
@@ -83,7 +83,7 @@ const workflowMocks = vi.hoisted(() => ({
 vi.mock('@/api/modules/assets.api', () => ({
   listAssets: deploymentMocks.listAssets,
   listManagedTargets: deploymentMocks.listManagedTargets,
-  getAssetDetail: deploymentMocks.getAssetDetail,
+  getApplicationDetail: deploymentMocks.getApplicationDetail,
 }))
 
 vi.mock('@/api/modules/certificates.api', () => ({
@@ -256,7 +256,7 @@ describe('spec028 前端闭环', () => {
         executionLocations: ['AGENT'],
       },
     ]))
-    deploymentMocks.getAssetDetail.mockResolvedValue({
+    deploymentMocks.getApplicationDetail.mockResolvedValue({
       data: {},
       requestId: 'req_asset_detail',
       timestamp: '2026-06-08T00:00:00.000Z',

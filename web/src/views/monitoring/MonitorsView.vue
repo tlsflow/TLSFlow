@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { listAssets } from '@/api/modules/assets.api'
+import { listApplications } from '@/api/modules/assets.api'
 import { listBindings } from '@/api/modules/bindings.api'
 import { listCertificates, listCertificateVersions } from '@/api/modules/certificates.api'
 import type { ApiRecord } from '@/api/modules/common'
@@ -311,7 +311,7 @@ async function refreshAll(options: { scanRisks?: boolean; silent?: boolean } = {
     // 第一批：监控目标列表（完整加载）与列表渲染所需的基础数据。
     const [targetResult, assetResult, riskResult, bindingResult, certificateAssetResult, certificateVersionResult, tlsInspectorResult] = await Promise.all([
       listMonitorTargets({ page: 1, pageSize: MONITOR_TARGETS_PAGE_SIZE, sort: 'createdAt:desc', includeRemoved: true }),
-      listAssets({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
+      listApplications({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
       listRiskEvents({ page: 1, pageSize: 200, sort: 'lastDetectedAt:desc' }),
       listBindings({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
       listCertificates({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),

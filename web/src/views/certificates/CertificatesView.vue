@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { listAssets } from '@/api/modules/assets.api'
+import { listApplications } from '@/api/modules/assets.api'
 import { listAutomations } from '@/api/modules/automations.api'
 import {
   deleteCertificateVersion,
@@ -745,7 +745,7 @@ async function loadGuideContext() {
 
   if (canReadApplicationAssets.value) {
     tasks.push(
-      listAssets({ page: 1, pageSize: 1, sort: 'updatedAt:desc' })
+      listApplications({ page: 1, pageSize: 1, sort: 'updatedAt:desc' })
         .then((result) => {
           applicationAssetCount.value = Number(result.data?.total ?? 0)
         })
@@ -779,7 +779,7 @@ function formatGuideCount(value: number | null) {
 }
 
 function openApplicationWorkspace() {
-  void router.push({ name: 'asset.list', query: { entry: 'certificate-user-view', action: 'create' } })
+  void router.push({ name: 'application.list', query: { entry: 'certificate-user-view', action: 'create' } })
 }
 
 function navigateUserFlow(stepId: string) {
@@ -788,10 +788,10 @@ function navigateUserFlow(stepId: string) {
     return
   }
   if (stepId === 'applications') {
-    void router.push({ name: 'asset.list' })
+    void router.push({ name: 'application.list' })
     return
   }
-  void router.push({ name: 'asset.list' })
+  void router.push({ name: 'application.list' })
 }
 
 async function handleImported(id: string): Promise<void> {

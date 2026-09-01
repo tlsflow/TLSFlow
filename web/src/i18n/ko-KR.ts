@@ -661,6 +661,8 @@ export default {
     assetManagement: '애플리케이션 관리',
     assets: '애플리케이션',
     assetsDesc: '도메인/IP 차원의 애플리케이션 포털과 인증서 배포 대상',
+    applications: '애플리케이션',
+    applicationsDesc: '인증서 보호 및 배포가 필요한 업무 애플리케이션 엔드포인트 관리',
     devices: '장비',
     agents: 'Agent',
     agentsDesc: '온라인 상태, 심장 박동, 능력 집합입니다',

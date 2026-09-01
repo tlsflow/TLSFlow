@@ -661,6 +661,8 @@ export default {
     assetManagement: 'アプリケーション管理',
     assets: 'アプリケーション',
     assetsDesc: 'ドメイン名/IP 単位のアプリケーションエントリと証明書デプロイ先',
+    applications: 'アプリケーション',
+    applicationsDesc: '証明書の保護とデプロイが必要な業務アプリケーションのエンドポイントを管理',
     devices: 'デバイス',
     agents: 'Agent',
     agentsDesc: 'オンラインステータス、ハートビートと機能セット',

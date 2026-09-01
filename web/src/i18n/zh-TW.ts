@@ -660,6 +660,8 @@ export default {
     assetManagement: "應用管理",
     assets: "應用程式",
     assetsDesc: "域名/IP 維度的應用入口與憑證部署目標",
+    applications: "應用程式",
+    applicationsDesc: "管理需要憑證保護與部署的業務應用端點",
     devices: "設備",
     agents: "Agent",
     agentsDesc: "線上狀態、心跳和能力集合",

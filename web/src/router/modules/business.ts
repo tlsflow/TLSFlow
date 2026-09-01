@@ -181,18 +181,18 @@ export const businessRoutes: GcRouteRecord[] = [
   },
   {
     path: '/applications',
-    name: 'asset.list',
-    component: () => import('@/views/assets/AssetsView.vue'),
+    name: 'application.list',
+    component: () => import('@/views/applications/ApplicationsView.vue'),
     meta: {
       title: 'Applications',
-      titleKey: 'nav.assets',
+      titleKey: 'nav.applications',
       heroTitle: true,
       module: 'asset',
       requiresAuth: true,
       permission: 'service_asset.read',
       resourceType: 'service_asset',
       riskLevel: 'low',
-      breadcrumbKeys: ['nav.assets'],
+      breadcrumbKeys: ['nav.applications'],
       keepAlive: true
     }
   },
@@ -226,14 +226,14 @@ export const businessRoutes: GcRouteRecord[] = [
     },
     meta: {
       title: 'Applications',
-      titleKey: 'nav.assets',
+      titleKey: 'nav.applications',
       heroTitle: true,
       module: 'asset',
       requiresAuth: true,
       permission: 'service_asset.read',
       resourceType: 'service_asset',
       riskLevel: 'low',
-      breadcrumbKeys: ['nav.assets'],
+      breadcrumbKeys: ['nav.applications'],
       keepAlive: true
     }
   },
@@ -256,8 +256,8 @@ export const businessRoutes: GcRouteRecord[] = [
   },
   {
     path: '/assets',
-    name: 'asset.device.list',
-    component: () => import('@/views/devices/DevicesView.vue'),
+    name: 'asset.list',
+    component: () => import('@/views/assets/AssetsView.vue'),
     meta: {
       title: 'Assets',
       titleKey: 'devices.page.title',
@@ -268,23 +268,6 @@ export const businessRoutes: GcRouteRecord[] = [
       resourceType: 'host',
       riskLevel: 'medium',
       breadcrumbKeys: ['nav.assetCenter', 'devices.page.title'],
-      keepAlive: true
-    }
-  },
-  {
-    path: '/devices',
-    name: 'device.list',
-    redirect: (to) => ({ path: '/assets', query: to.query, hash: to.hash }),
-    meta: {
-      title: 'Assets',
-      titleKey: 'devices.page.title',
-      heroTitle: true,
-      module: 'device',
-      requiresAuth: true,
-      permission: 'host.read',
-      resourceType: 'host',
-      riskLevel: 'medium',
-      breadcrumbKeys: ['devices.page.title'],
       keepAlive: true
     }
   },

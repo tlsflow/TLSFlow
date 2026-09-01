@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { listCertificates, listCertificateVersions } from '@/api/modules/certificates.api'
-import { listAssets } from '@/api/modules/assets.api'
+import { listApplications } from '@/api/modules/assets.api'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
 import {
   automationAction,
@@ -707,7 +707,7 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
   const pageSize = 200
 
   while (true) {
-    const result = await listAssets({ page, pageSize, sort: 'updatedAt:desc' })
+    const result = await listApplications({ page, pageSize, sort: 'updatedAt:desc' })
     const response = result.data
     const items = [...(response?.items ?? [])]
     records.push(...items)

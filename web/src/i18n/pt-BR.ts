@@ -661,6 +661,8 @@ export default {
     assetManagement: 'Gerenciamento de aplicativos',
     assets: 'Aplicativos',
     assetsDesc: 'Entradas de aplicação e alvos de implantação de certificado por domínio/IP',
+    applications: 'Aplicações',
+    applicationsDesc: 'Gerenciar endpoints de aplicações de negócio que exigem proteção e implantação de certificados',
     devices: 'Dispositivos',
     agents: 'Agents',
     agentsDesc: 'Status online, heartbeat e conjunto de capacidades',

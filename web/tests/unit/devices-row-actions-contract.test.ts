@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const source = readFileSync(resolve(process.cwd(), 'src/views/devices/DevicesView.vue'), 'utf8')
+const source = readFileSync(resolve(process.cwd(), 'src/views/assets/AssetsView.vue'), 'utf8')
 const businessPageSource = readFileSync(resolve(process.cwd(), 'src/views/BusinessResourcePage.vue'), 'utf8')
 const devicesLocaleSource = readFileSync(resolve(process.cwd(), 'src/i18n/devices.locale.ts'), 'utf8')
 

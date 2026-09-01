@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const source = readFileSync(resolve(process.cwd(), 'src/views/assets/AssetsView.vue'), 'utf8')
+const source = readFileSync(resolve(process.cwd(), 'src/views/applications/ApplicationsView.vue'), 'utf8')
 
 describe('应用资产卡片契约', () => {
   it('使用证书卡片的 285px 最小宽度令牌', () => {
@@ -88,5 +88,21 @@ describe('应用资产卡片契约', () => {
     expect(source).not.toContain('const blockingChecks')
     expect(source).toContain('deploymentDialogOpen.value = false')
     expect(source).toContain("'deploymentPlans.feedback.executeTaskStarted'")
+  })
+
+  it('编辑入口先打开模态框，再异步加载轻量详情', () => {
+    expect(source).toContain('createDialogOpen.value = true\n  editInitializationLoading.value = true')
+    expect(source).toContain("getApplicationEditDetail(editingServiceAssetId.value)")
+    expect(source).toContain('v-if="editInitializationLoading"')
+    expect(source).toContain('v-else-if="editInitializationError"')
+    expect(source).toContain('Promise.all([')
+    expect(source).toContain('loadServiceInstances(assetDraft.deviceId)')
+    expect(source).toContain('loadManagedTargets(assetDraft.siteAssetId, contextManagedTarget ?? undefined)')
+  })
+
+  it('编辑初始化期间 watcher 不重复发起关联投影请求', () => {
+    expect(source).toContain('if (editInitializationLoading.value || targetSelectionInitializing.value) return')
+    expect(source).toContain('function closeCreateDialog()')
+    expect(source).toContain('editInitializationError.value = \'\'')
   })
 })
