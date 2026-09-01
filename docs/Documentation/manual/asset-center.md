@@ -9,19 +9,21 @@ specRefs: []
 codeRefs:
   - web/src/router/menu.ts
   - web/src/router/modules/business.ts
+  - web/src/views/devices/DevicesView.vue
+  - backend/src/modules/assets/controller/assets.controller.ts
 testRefs: []
-lastVerified: 2026-08-22
+lastVerified: 2026-08-28
 ---
 
 # 资产中心
 
-资产中心用于准备部署所需的业务对象，包含“应用资产”“设备”和“Gateway（网络转发入口）”；云账号通过“添加资产”动作作为云服务资产接入，不再作为独立二级菜单页面。它们分别回答三个问题：要维护哪项业务、在哪台设备执行、是否需要跨网络转发；云服务账号是资产接入过程中的独立领域对象。
+资产中心用于管理统一资产、设备和 Gateway（网络转发入口）。应用资产和云服务资产都从“添加资产”进入各自的现行接入链路，不增加云服务独立二级菜单。云服务资产本身是 `ServiceAsset(assetKind=CLOUD_SERVICE)`，不是设备或 Host。
 
 > 【截图占位：资产中心首页，显示应用资产、设备、Gateway 和“添加资产”动作】
 
-云服务资产从资产中心的“添加资产”或统一服务向导进入，两者使用同一五步流程 `Platform → Resource → Site → Certificate → Complete`；云账号仍是独立资产对象，第二步可选择或在通用资源状态中新建 `CloudAccountAsset`，第三步选择发现得到的真实 SiteAsset，第四步选择证书版本。`/providers` 不再作为二级菜单，迁移期间旧地址只跳转到统一入口。
+阿里云 CDN 从资产中心的“添加资产”进入，复用 `DeviceOnboardingWizard.vue` 和 `POST /api/v1/devices/onboarding`；后端识别云服务能力后创建 `ServiceAsset(CLOUD_SERVICE)`，再执行连接测试和发现。它不使用应用资产的五步会话，不选择证书或创建部署计划。`/providers` 不再作为二级菜单，但旧 CloudAccount API 仍保留兼容实现。
 
-开始部署前，建议按“添加云服务资产（如需要）→ 设备 → 发现 → 应用资产”的顺序准备。
+需要云资源发现时，先在同一“添加资产”入口完成云服务接入；证书部署准备仍只针对设备和应用资产。
 
 ## 四类资源如何区分
 
@@ -34,11 +36,11 @@ lastVerified: 2026-08-22
 
 ## 推荐准备顺序
 
-1. Platform：选择已启用的 Provider 插件。
-2. Resource：选择或按对应的标准资源流程新建云账号、设备等真实资源，并完成连接测试；云账号不使用 Provider 专用账号表单。
-3. Site：运行发现并选择真实站点资源。
-4. Certificate：选择证书资产和精确版本。
-5. Complete：提交应用关系；部署能力不足时只保存“已配置”状态，不伪造部署计划。
+1. 选择已启用的云服务插件。
+2. 填写插件声明的显示名称和凭据引用。
+3. 提交到兼容设备接入 API，由后端创建 `ServiceAsset(CLOUD_SERVICE)`。
+4. 执行只读连接测试和资源发现，写入 Framework/Site。
+5. 返回资产中心查看资产；当前阿里云 CDN 不创建证书部署计划。
 
 ## 选择目标时的判断
 

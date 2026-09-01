@@ -54,7 +54,7 @@ lastVerified: 2026-08-26
 
 - **插件版本**：Manifest（插件清单）和资源组成的不可变包，唯一由 `pluginId + version` 标识。任何资源变更都必须递增版本。
 - **Binding（绑定）**：把一个插件版本与连接、凭据、证书制品和受管上下文关联起来。Binding 保存引用，不保存密码、私钥或明文 Token。
-- **Capability Assignment（能力指派）**：把某项能力分配给设备、ManagedTarget（受管目标）、应用资产或云账号。宿主按“应用资产 → 云账号 → 受管目标 → 设备”的顺序解析。
+- **Capability Assignment（能力指派）**：把某项能力分配给设备、ManagedTarget（受管目标）、应用资产或 ServiceAsset。新云服务能力使用 `ownerType=SERVICE_ASSET`；旧 CloudAccount API 仍在兼容注册，不能当作只读接口。
 - **Grant（授权票据）**：某一次执行、某一个步骤的临时授权。它绑定租户、操作者、插件版本、目标和有效期，插件不能转交或长期保存。
 
 执行链始终是：
@@ -212,7 +212,7 @@ Manifest 固定根字段：
 | `locales` | Locale 文案资源 |
 | `discoveryMappings` | 控制面发现映射 |
 | `agentDiscoveryMappings` | Agent 发现映射 |
-| `onboarding` | 统一五步接入配方；云账号声明 `assetKind=CLOUD_ACCOUNT`、资源选择/创建、SiteAsset 目标、证书格式和完成能力，提供 Credential Contract、连接测试、发现和 CloudAccountAsset 提交目标，不提供账号专用表单 |
+| `onboarding` | 应用资产统一接入配方。当前阿里云 CDN 不声明此资源；它从 `/assets` 的添加资产界面复用 `DeviceOnboardingWizard.vue`，通过插件表单提交并由后端创建 `ServiceAsset(CLOUD_SERVICE)` |
 
 包最多 500 个资源文件、总大小最多 20 MB。资源路径必须是包内相对路径；普通资源禁止 `.js/.mjs/.cjs/.ts/.tsx/.vue/.ps1/.sh/.bat/.cmd/.exe/.dll/.so/.dylib` 等可执行文件，只有固定 `runtime/index.js` 例外。Logo 禁止脚本、动画、外链、`foreignObject` 和外部图片。
 
@@ -285,7 +285,7 @@ Manifest 固定根字段：
 
 ## 7. 接入配方和证书制品
 
-接入配方使用版本化的 `gcac.application-onboarding` 合同，由插件声明平台名称、资源选择/创建方式、连接测试、发现、目标引用类型、接受的证书格式和完成能力。设备资源使用 `MANAGED_TARGET`，云账号资源使用 `CLOUD_ACCOUNT_ASSET` 并将发现结果绑定为 `SITE_ASSET`；云账号创建由通用资源状态收集显示名称和 CredentialRef，不渲染 Provider 专用账号表单。宿主只执行统一五步向导，不按厂商名称写分支。
+接入配方使用版本化的 `gcac.application-onboarding` 合同，用于应用资产接入。设备资源使用 `MANAGED_TARGET`。当前阿里云 CDN 不使用该会话或配方；它由 `/assets` 的添加资产界面提交到兼容设备接入 API，后端创建 `ServiceAsset(CLOUD_SERVICE)`，并按 `serviceAssetId` 绑定 Framework/Site。插件不负责证书选择、部署、验证或回滚，也不得增加厂商专用入口。
 
 证书部署输入合同按变量、连接、凭据和 Artifact Slot 分组。证书 Artifact 的标准输出角色包括 `leafPem`、`privateKeyPem`、`orderedChainPem`、`fingerprintSha256`、`pfxBase64` 和 `pfxPassword`。插件声明所需格式和输出角色，宿主负责制品生成、密码、链顺序、指纹和 Grant；插件只负责目标侧上传、切换、刷新和回读。
 
@@ -323,7 +323,7 @@ Tomcat `KEYSTORE` 插件的 `keystorePassword` 是可选 Credential Slot，只�
 | `POST/GET/PATCH /api/v1/plugin-bindings` | 创建、查询和更新 Binding |
 | `POST /api/v1/capability-assignments` | 设置能力指派 |
 | `POST /api/v1/capability-assignments/resolve` | 查看某个目标最终采用的能力来源 |
-| `POST /api/v1/cloud-account-assets/:id/capability-binding` | 为云账号固定连接测试或资源发现能力 |
+| `/api/v1/cloud-account-assets/*` | 历史 CloudAccountAsset 兼容接口；当前仍注册读写、连接测试和发现，不得作为新云服务接入路径 |
 | `GET /api/v1/managed-targets/:id/deployment-capabilities/:capabilityKey` | 查看受管目标生效能力 |
 | `GET /api/v1/managed-targets/:id/compatible-plugins` | 查询兼容插件 |
 | `POST /api/v1/managed-targets/:id/deployment-input-projection` | 生成应用资产部署输入投影 |
@@ -333,22 +333,22 @@ Tomcat `KEYSTORE` 插件的 `keystorePassword` 是可选 Credential Slot，只�
 
 浏览器凭据会话接口见 [`credential.acquire` 合同](#credentialacquire-manifest-合同)；它们使用 `credential.create` / `credential.read` RBAC，不属于插件 Runner Host API。
 
-云账号至少绑定 `cloud.service.connection-test` 和 `cloud.service.discover`；证书签发、续期、吊销等能力必须按 CA 能力合同或 V1 DSL Workflow 使用，不能把证书生命周期偷偷挂到云账号识别绑定上。云账号从资产中心的“添加资产”或统一服务向导进入统一五步流程，服务端保存独立的 CloudAccountAsset，并把站点选择保存为真实 SiteAsset；只有声明并通过执行合同的 Provider 才能创建部署计划。`/providers` 不再作为二级菜单，迁移期旧地址只跳转到统一入口。
+云服务至少绑定 `cloud.service.connection-test` 和 `cloud.service.discover`，且 `ownerType=SERVICE_ASSET`；证书签发、续期、吊销等能力必须按 CA 能力合同或 V1 DSL Workflow 使用，不能把证书生命周期偷偷挂到云服务识别绑定上。阿里云 CDN 从资产中心的“添加资产”动作复用 `DeviceOnboardingWizard.vue` 和 `/api/v1/devices/onboarding`，服务端保存 `ServiceAsset(assetKind=CLOUD_SERVICE)`，发现结果投影为 Framework/Site。当前插件不声明可执行管理端点，不能据此生成证书 ManagedTarget。`/providers` 不再作为二级菜单，但旧 CloudAccount 接口仍存在。
 
-## 10. 统一五步接入会话
+## 10. 应用资产统一接入会话
 
-声明 `resources.onboarding` 后，插件可以接入统一五步向导。设备和云账号都使用同一会话；第二步的资源类型、第三步的目标类型和完成能力由配方声明，宿主不按厂商写分支：
+声明 `resources.onboarding` 后，插件可以接入应用资产统一会话。该会话用于应用资产和设备目标；当前阿里云 CDN 云服务不使用这套会话，不能把下面步骤套用到云服务资产：
 
 1. `GET /api/v1/application-onboarding/platforms`：列出当前租户可用的平台和插件版本。
 2. `POST /api/v1/application-onboarding/sessions`：以 `platformKey` 创建会话，必须带 `X-Idempotency-Key`。
-3. `GET /api/v1/application-onboarding/sessions/:id/resources`：读取可用资源；设备配方返回设备，云账号配方返回 `CloudAccountAsset`。
-4. `POST /api/v1/application-onboarding/sessions/:id/resource-selection`：提交 `ResourceRef(kind,id)` 和通用资源字段，并带 `expectedStateVersion`；设备新资源进入标准设备接入，云账号新资源进入通用云资源创建状态。
+3. `GET /api/v1/application-onboarding/sessions/:id/resources`：读取可用设备资源。
+4. `POST /api/v1/application-onboarding/sessions/:id/resource-selection`：提交 `ResourceRef(kind,id)` 和通用资源字段，并带 `expectedStateVersion`；新设备进入标准设备接入。
 5. `POST /api/v1/application-onboarding/sessions/:id/test`：执行连接测试。
 6. `POST /api/v1/application-onboarding/sessions/:id/discover`：执行身份识别和发现，得到可选目标。
-7. `POST /api/v1/application-onboarding/sessions/:id/target-selection`：提交 `TargetRef(kind,id,fingerprint)` 以及可选访问域名和验证地址；云资源使用 `SITE_ASSET`，设备资源使用 `MANAGED_TARGET`。
+7. `POST /api/v1/application-onboarding/sessions/:id/target-selection`：提交 `TargetRef(kind,id,fingerprint)` 以及可选访问域名和验证地址。
 8. `GET /api/v1/application-onboarding/sessions/:id/certificate-options`：读取符合配方格式的证书选项。
 9. `POST /api/v1/application-onboarding/sessions/:id/certificate-selection`：精确提交 `certificateId` 和 `certificateVersionId`，或使用配方允许的最新有效版本。
-10. `POST /api/v1/application-onboarding/sessions/:id/complete`：提交接入，按配方能力生成配置结果或 V1 DSL 部署计划；Discovery-only 不得伪造部署成功。
+10. `POST /api/v1/application-onboarding/sessions/:id/complete`：提交接入，按配方能力生成配置结果或 V1 DSL 部署计划。
 
 所有写步骤都必须携带 `expectedStateVersion`，旧版本会被拒绝，防止用户在发现结果过期后误选目标。会话默认 30 分钟过期；提交中和已生成计划的会话不能取消。`DIRECT_WORKFLOW` 配方还必须同时存在同一插件版本的连接、发现和执行 Workflow，且目标必须是 ACTIVE 并提供真实端点；云资源若没有执行能力只能保存“已配置”，宿主不会接受绕过发现的地址、账号或密码。
 

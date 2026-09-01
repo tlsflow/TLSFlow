@@ -39,7 +39,7 @@ docs/插件开发/<pluginId>/
 └── 迭代说明/
 ```
 
-`README.md` 写清支持的平台、能力组合、凭据要求和已验证版本；`测试文档/` 保存导入、连接、发现、部署、验证和回滚证据；每一轮修复必须在 `迭代说明/` 记录现象、原因、修改和验证结果后才能开始下一轮。
+`README.md` 写清支持的平台、能力组合、凭据要求和已验证版本；`测试文档/` 按插件实际声明的能力保存导入、连接、发现或证书部署/验证/回滚证据，云服务插件不要求也不得伪造证书部署证据。迭代记录一旦不再符合当前实现，必须删除或由现行文档替代，不能保留为“已废止”但可被误用的事实来源。
 
 ## 2. 选择插件形态
 
@@ -110,7 +110,7 @@ docs/插件开发/<pluginId>/
 
 - `version` 使用合法 SemVer；改能力、合同、工作流、表单或 Logo 都要递增版本。
 - `source=BUILTIN` 只用于随代码发布的内置插件；用户包使用 `source=USER`。
-- `scope` 为 `MANAGED`、`STANDALONE` 或 `BOTH`；Managed Binding 必须有 `hostId` 或 `cloudAccountAssetId`，Standalone Binding 不得保存 managedContext。
+- `scope` 为 `MANAGED`、`STANDALONE` 或 `BOTH`；Managed Binding 必须有 `hostId`、`serviceAssetId` 或历史兼容的 `cloudAccountAssetId`，Standalone Binding 不得保存 managedContext。旧 CloudAccount API 仍可能存在，不能因此描述为只读或已退役。
 - `trust` 和 `support` 是包的治理声明，不是执行授权。`source=BUILTIN` 的内置包按内置策略处理权限；Agent Plan 形态使用 `runtime=AGENT_PLAN`，或在 `runtime=WORKFLOW_DSL` 下通过 `resources.agentPlans` 路由到 Agent 策略，不能把它写成额外的 Manifest `source`。USER 插件导入后保持 `DISABLED + NOT_REQUIRED`，不创建权限审批记录，只允许管理员显式启用。
 - Manifest 至少声明一项能力，并为该能力提供对应 Workflow 或 Agent Plan 资源。
 - `WORKFLOW_DSL` 至少声明一个非空 `resources.workflows`；`AGENT_PLAN` 至少声明一个非空 `resources.agentPlans`。两类资源可以同时存在。
@@ -128,7 +128,7 @@ Tomcat KeyStore 插件的密码字段必须声明为可选 Credential：优先�
 
 ### 5.2 设备表单与凭据
 
-设备优先复用标准字段。云账号接入不提供 Provider 专用表单，资源创建由统一向导的通用资源状态承载。敏感信息使用 `credential_ref` 或 `secret_ref`，并声明允许的凭据种类、Secret 类型、作用域和目的。不要把密码设计成普通文本字段，也不要把 Token 放进默认值或占位符。
+设备优先复用标准字段。云服务资源从 `/assets` 的添加资产界面创建，Provider 可以在插件 Manifest 中声明 `resources.forms.cloud` 以提供凭据字段和校验规则；该表单由当前资产添加界面承载，不得新增独立云服务入口或 Provider CRUD。敏感信息使用 `credential_ref` 或 `secret_ref`，并声明允许的凭据种类、Secret 类型、作用域和目的。不要把密码设计成普通文本字段，也不要把 Token 放进默认值或占位符。
 
 表单的动态选项只能调用低风险只读能力；条件显示和条件启用必须形成无环依赖。标准字段目录可以通过 `GET /api/v1/plugin-form/standard-fields` 查询。
 
@@ -142,7 +142,7 @@ Tomcat KeyStore 插件的密码字段必须声明为可选 Credential：优先�
 
 应用接入配方使用 `gcac.application-onboarding/v1`，完整字段和校验规则见[宿主插件能力清单](./host-plugin-capabilities.md#应用接入配方-schema)。
 
-云 Provider 必须声明 `assetKind=CLOUD_ACCOUNT` 的接入配方，并接入统一五步 `Platform → Resource → Site → Certificate → Complete`。配方提供资源选择/创建方式、Credential Contract、连接测试、发现能力、CloudAccountAsset 提交目标、目标类型和完成能力声明，不提供账号专用表单。Resource 步骤可选择或在通用资源状态中新建云账号，设备资源仍按标准设备接入流程处理；Site 步骤必须选择真实 SiteAsset，Certificate 步骤必须选择精确版本。发现型 Provider 完成后只能保存“已配置”，证书部署仍由 V1 DSL 负责。两个入口共用同一会话和提交服务，不得实现独立模态框或 Provider CRUD 旁路。
+当前阿里云 CDN 不使用 `gcac.application-onboarding/v2` 接入配方。它从 `/assets` 复用 `DeviceOnboardingWizard.vue`，经 `POST /api/v1/devices/onboarding` 提交插件表单；后端创建 `ServiceAsset(assetKind=CLOUD_SERVICE)`，以 `SERVICE_ASSET` 执行连接测试和资源发现。发现结果为 Framework 与 Site；插件不创建 Device/Host，不负责证书部署、验证或回滚，也不得实现独立模态框或 Provider CRUD 旁路。
 
 ## 6. 编写 Workflow 或 Agent Plan
 
@@ -189,13 +189,13 @@ POST /api/v1/plugin-bindings
 POST /api/v1/capability-assignments
 ```
 
-Managed Binding 还要提供 `managedContext.hostId` 或 `managedContext.cloudAccountAssetId`；可选 `managedTargetId` 用于限定目标。Standalone Binding 不能携带 managedContext。更新 Binding 时必须带 `expectedVersion`，遇到版本冲突应重新读取后再编辑。
+Managed Binding 还要提供 `managedContext.hostId`、`managedContext.serviceAssetId` 或历史兼容的 `managedContext.cloudAccountAssetId`；可选 `managedTargetId` 用于限定目标。Standalone Binding 不能携带 managedContext。更新 Binding 时必须带 `expectedVersion`，遇到版本冲突应重新读取后再编辑。
 
-能力指派的 `pluginBindingId` 和 `pluginVersionId` 必须相互匹配。云账号只能使用 `cloud.service.connection-test` 或 `cloud.service.discover`，并且插件 ID 必须等于云账号资产的 `providerKey`。
+能力指派的 `pluginBindingId` 和 `pluginVersionId` 必须相互匹配。云服务资产只能使用 `cloud.service.connection-test` 或 `cloud.service.discover`，并且插件 ID 必须等于云服务资产的 `providerKey`；能力所有者为 `SERVICE_ASSET`。
 
 接入设备或应用资产后，用 `POST /api/v1/capability-assignments/resolve` 验证最终来源；部署前再用受管目标能力接口确认插件版本已启用、执行位置支持且兼容性通过。
 
-### 应用资产向导的完整顺序
+### 设备/应用资产向导的完整顺序
 
 如果插件声明了 `resources.onboarding`，开发者应按以下顺序验收真实接入：
 
@@ -210,6 +210,12 @@ Managed Binding 还要提供 `managedContext.hostId` 或 `managedContext.cloudAc
 9. 调用 `/complete` 生成计划或执行记录；用户主动退出时调用 `/cancel`，不能把已提交或已完成会话伪装成可取消。
 
 每个写步骤都要带 `expectedStateVersion`；会话默认 30 分钟过期，过期或版本冲突必须重新读取状态后再操作。DIRECT_WORKFLOW 只有在连接、发现和执行三个 Workflow 都已发布且目标 ACTIVE 时才可进入接入流程。
+
+### 云服务资产接入顺序
+
+当前阿里云 CDN 的顺序为：`/assets → 添加资产 → DeviceOnboardingWizard.vue → 插件表单 → /api/v1/devices/onboarding → ServiceAsset → 连接测试 → 资源发现`。
+
+云服务根对象是 `ServiceAsset(assetKind=CLOUD_SERVICE)`，发现结果按 `ServiceAsset → FrameworkInstance → SiteAsset` 投影；当前阿里云 CDN 不生成 Device、Host、证书绑定、部署计划或证书工作流。
 
 ## 9. 按能力类型验收
 
