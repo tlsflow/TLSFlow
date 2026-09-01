@@ -129,11 +129,57 @@ test('通过外部 API 创建的统一任务记录独立触发来源', async () 
     },
   };
   const service = new AutomationsApplicationService(repository, undefined, () => new Date(now), { resolverRegistry, tasks });
-  await service.createOnDemandRun('tenant_1', 'external:api-key', 'aut_external_source', 'external-source-key', 1, {
+  const first = await service.createOnDemandRun('tenant_1', 'external:api-key', 'aut_external_source', 'external-source-key', 1, {
     triggerContext: { certificateVersionId: 'cert-version-1', sourceType: 'external_api' },
     externalExecutionMode: 'direct',
   });
+  const second = await service.createOnDemandRun('tenant_1', 'external:api-key', 'aut_external_source', 'external-source-key', 1, {
+    triggerContext: { certificateVersionId: 'cert-version-1', sourceType: 'external_api' },
+    externalExecutionMode: 'direct',
+  });
+  assert.equal(second.id, first.id);
+  assert.equal(first.approvalId, undefined);
   assert.equal(enqueuedTasks[0]?.triggerSource, 'automation.external_api');
+  assert.equal(enqueuedTasks.length, 1);
+});
+
+test('外部 API 指定不存在或跨租户证书版本时拒绝创建运行', async () => {
+  const db = new PgliteDatabase();
+  await applyAutomationMigrations(db);
+  const repository = new AutomationsRepository(db);
+  const now = '2026-08-27T00:00:00.000Z';
+  await repository.createAutomation({ id: 'aut_external_invalid', tenantId: 'tenant_1', name: '外部 API 校验', status: 'active', currentVersion: 1, createdBy: 'u1', createdAt: now, updatedAt: now, version: 1 });
+  await repository.createVersion({
+    id: 'autv_external_invalid',
+    tenantId: 'tenant_1',
+    automationId: 'aut_external_invalid',
+    version: 1,
+    trigger: { type: 'api' },
+    targetResolver: { type: 'certificate_version_targets' },
+    actions: [{ type: 'send_notification', position: 1, config: { templateKey: 'result', eventKey: 'done' } }],
+    guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 2, requirePreview: true, requireDryRun: false, requireApproval: true },
+    checksum: 'i'.repeat(64),
+    createdBy: 'u1',
+    createdAt: now,
+  });
+  const resolverRegistry = new AutomationTargetResolverRegistry();
+  resolverRegistry.register({
+    type: 'certificate_version_targets',
+    validate: () => undefined,
+    resolve: async () => [{
+      target: { certificateId: 'missing', certificateName: 'missing', certificateVersionId: 'foreign-version', tags: [] },
+      executable: false,
+      excludedReason: 'missing_version',
+    }],
+  });
+  const service = new AutomationsApplicationService(repository, undefined, () => new Date(now), { resolverRegistry });
+  await assert.rejects(
+    () => service.createOnDemandRun('tenant_1', 'external:api-key', 'aut_external_invalid', 'invalid-version', 1, {
+      triggerContext: { certificateVersionId: 'foreign-version', sourceType: 'external_api' },
+      externalExecutionMode: 'direct',
+    }),
+    (error: unknown) => error instanceof AppError && error.errorCode === 'RESOURCE_NOT_FOUND',
+  );
 });
 
 test('证书新版本事件自动化手动执行时缺少证书版本会被拒绝', async () => {

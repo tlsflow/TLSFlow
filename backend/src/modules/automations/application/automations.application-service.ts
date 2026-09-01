@@ -107,6 +107,7 @@ export class AutomationsApplicationService {
     }
     const isManualRun = (options.triggerType ?? 'on_demand') === 'on_demand';
     const allowCertificateDowngrade = isManualRun && options.allowCertificateDowngrade === true;
+    const externalExecutionMode = options.externalExecutionMode;
     const preview = await this.resolveTargets({
       tenantId,
       actorId,
@@ -116,6 +117,21 @@ export class AutomationsApplicationService {
       resolver,
       filters: version.filters ?? [],
     });
+    if (externalExecutionMode !== undefined) {
+      // 中文说明：外部企业入口必须对请求的证书版本给出明确结果。跨租户、已删除或不存在的版本
+      // 不能降级成“创建一个全是 skipped 目标的成功运行”，否则调用方会误以为授权已执行。
+      if (preview.some((item) => item.excludedReason === 'missing_version')) {
+        throw new AppError('RESOURCE_NOT_FOUND', '外部 API 指定的证书版本不存在或不属于当前租户', {
+          certificateVersionId: options.triggerContext?.certificateVersionId,
+          tenantId,
+        });
+      }
+      if (preview.length === 0 || !preview.some((item) => item.executable)) {
+        throw new AppError('VALIDATION_FAILED', '外部 API 指定的证书版本没有可执行部署目标', {
+          certificateVersionId: options.triggerContext?.certificateVersionId,
+        });
+      }
+    }
     const executableDowngradeCount = preview.filter((item) => item.executable && item.target.certificateVersionImpact === 'downgrade').length;
     if (!isManualRun && executableDowngradeCount > 0) {
       throw new AppError('VALIDATION_FAILED', '自动触发不允许降低证书有效期', { executableDowngradeCount });
@@ -123,7 +139,6 @@ export class AutomationsApplicationService {
     if (executableDowngradeCount > 0 && !options.confirmCertificateDowngrade) {
       throw new AppError('VALIDATION_FAILED', '证书有效期降级必须二次确认', { executableDowngradeCount });
     }
-    const externalExecutionMode = options.externalExecutionMode;
     // 中文说明：executionMode=approval 仅作为历史配置兼容字段读取；企业审批在外部系统完成，
     // 自动化运行本身永远以直接执行方式落库，不再创建内部 Approval。
     const executionVersion = { ...version, guardrails: { ...version.guardrails, requireApproval: false }, approvalStage: undefined };
