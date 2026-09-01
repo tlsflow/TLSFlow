@@ -5,7 +5,11 @@ import { PluginFormSchemaService } from '../forms/plugin-form-schema.service.js'
 import type { DevicePresentationSchemaV1, PresentationColumnV1, PresentationFieldV1 } from '../presentations/plugin-presentation.dto.js';
 import { PluginPresentationSchemaService } from '../presentations/plugin-presentation-schema.service.js';
 
-export interface CloudPluginFormResourceV1 {
+/**
+ * 历史云插件表单的输入格式。该格式只允许在读取旧插件版本时出现，
+ * 对外统一转换为 PluginFormSchemaV1，前端和接入流程不再感知它。
+ */
+interface LegacyCloudPluginFormResourceV1 {
   apiVersion: 'gcac.plugin-form/v1';
   pluginId: string;
   fields: Array<{ key: string; type: 'objectRef' | 'secretRef' | 'string' | 'artifactRef'; required: boolean; labelKey?: string; descriptionKey?: string; placeholderKey?: string }>;
@@ -42,7 +46,7 @@ export interface PresentationActionV1 {
   tone?: 'success' | 'warning' | 'danger' | 'info' | 'muted';
 }
 
-export type PluginPackageFormResource = PluginFormSchemaV1 | CloudPluginFormResourceV1;
+export type PluginPackageFormResource = PluginFormSchemaV1;
 export type PluginPackagePresentationResource = DevicePresentationSchemaV1
   | ApplicationPresentationResourceV1
   | CertificateBindingPresentationResourceV1
@@ -66,7 +70,7 @@ export class PluginPackageResourceSchemaService {
     if (isRecord(input) && input.schemaVersion === 'gcac.plugin-form/v1') {
       return this.forms.validate(input, capabilities);
     }
-    return validateCloudForm(input, pluginId);
+    return this.forms.validate(normalizeLegacyCloudForm(input, pluginId), capabilities);
   }
 
   validatePresentation(
@@ -87,7 +91,7 @@ export class PluginPackageResourceSchemaService {
   }
 }
 
-function validateCloudForm(input: unknown, pluginId: string): CloudPluginFormResourceV1 {
+function normalizeLegacyCloudForm(input: unknown, pluginId: string): PluginFormSchemaV1 {
   const value = record(input, 'form');
   assertKnownFields(value, new Set(['apiVersion', 'pluginId', 'fields', 'credentialContract']), 'form');
   if (value.apiVersion !== 'gcac.plugin-form/v1') fail('form.apiVersion', '不支持的 P2 表单资源版本');
@@ -107,11 +111,34 @@ function validateCloudForm(input: unknown, pluginId: string): CloudPluginFormRes
   });
   if (fields.length === 0) fail('form.fields', 'P2 表单至少声明一个字段');
   assertUnique(fields.map((field) => field.key), 'form.fields');
-  const credentialContract = value.credentialContract === undefined ? undefined : validateCredentialContract(value.credentialContract);
-  return { apiVersion: 'gcac.plugin-form/v1', pluginId, fields, ...(credentialContract ? { credentialContract } : {}) };
+  if (value.credentialContract !== undefined) validateCredentialContract(value.credentialContract);
+  // 旧云表单没有 sections/mode，宿主在读取边界一次性投影为现有标准插件表单。
+  // 历史资源只在宿主读取边界转换；数据库中的不可变插件版本本身不被改写。
+  return {
+    schemaVersion: 'gcac.plugin-form/v1',
+    mode: 'BOTH',
+    sections: [{
+      id: 'resource',
+      titleKey: legacyLabelKey(pluginId, 'resourceSection'),
+      fields: fields.map((field) => ({
+        key: field.key,
+        type: legacyFieldType(field),
+        labelKey: field.labelKey ?? legacyLabelKey(pluginId, field.key),
+        ...(field.descriptionKey ? { descriptionKey: field.descriptionKey } : {}),
+        ...(field.placeholderKey ? { placeholderKey: field.placeholderKey } : {}),
+        required: field.required,
+        ...(field.type === 'secretRef' ? { sensitive: true, acceptedSecretTypes: ['api_token'] as const } : {}),
+        ...(legacyFieldType(field) === 'credential_ref' ? {
+          acceptedCredentialKinds: ['CLOUD_PROVIDER'] as const,
+          purpose: 'cloud-service-onboarding',
+          sensitive: true,
+        } : {}),
+      })),
+    }],
+  };
 }
 
-function validateCredentialContract(input: unknown): CloudPluginFormResourceV1['credentialContract'] {
+function validateCredentialContract(input: unknown): LegacyCloudPluginFormResourceV1['credentialContract'] {
   const value = record(input, 'form.credentialContract');
   assertKnownFields(value, new Set(['kind', 'slots']), 'form.credentialContract');
   if (value.kind !== 'CLOUD_PROVIDER') fail('form.credentialContract.kind', '只支持 CLOUD_PROVIDER');
@@ -128,6 +155,19 @@ function validateCredentialContract(input: unknown): CloudPluginFormResourceV1['
   if (slots.length === 0) fail('form.credentialContract.slots', '至少声明一个凭据槽位');
   assertUnique(slots.map((slot) => slot.name), 'form.credentialContract.slots');
   return { kind: 'CLOUD_PROVIDER', slots };
+}
+
+function legacyFieldType(field: LegacyCloudPluginFormResourceV1['fields'][number]): PluginFormSchemaV1['sections'][number]['fields'][number]['type'] {
+  if (field.type === 'objectRef' && /(credential|secret)/i.test(field.key)) return 'credential_ref';
+  const type = field.type;
+  if (type === 'secretRef') return 'secret_ref';
+  if (type === 'artifactRef') return 'file_ref';
+  // objectRef 在旧合同中只是资源引用字符串；统一表单没有 objectRef，使用普通文本承载。
+  return 'text';
+}
+
+function legacyLabelKey(pluginId: string, field: string): string {
+  return `plugin.${pluginId}.${field.replace(/[^A-Za-z0-9_.-]/g, '.')}`;
 }
 
 function validateApplicationPresentation(input: Record<string, unknown>, capabilityKeys: string[]): ApplicationPresentationResourceV1 {

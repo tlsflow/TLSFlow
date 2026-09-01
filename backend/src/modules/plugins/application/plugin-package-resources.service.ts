@@ -84,5 +84,5 @@ function collectLocaleKeys(
     }
     keys.push(...presentation.actions.map((action) => action.labelKey));
   }
-  return [...new Set(keys)].filter((key) => !key.startsWith('plugins.standardFields.'));
+  return [...new Set(keys)].filter((key) => !key.startsWith('plugins.standardFields.') && !key.startsWith('legacy.'));
 }

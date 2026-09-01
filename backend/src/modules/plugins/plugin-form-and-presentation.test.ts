@@ -8,6 +8,7 @@ import { PluginLocaleService, hostLocales } from './locales/plugin-locale.servic
 import { PluginPresentationSchemaService } from './presentations/plugin-presentation-schema.service.js';
 import type { UnifiedPluginManifestV1 } from './dto/unified-plugins.dto.js';
 import { PluginPackageResourcesService } from './application/plugin-package-resources.service.js';
+import { PluginPackageResourceSchemaService } from './application/plugin-package-resource-schema.service.js';
 
 test('标准字段 Registry 覆盖连接、认证、TLS、Gateway 和 CredentialRef', () => {
   const registry = new StandardPluginFieldRegistry();
@@ -56,6 +57,21 @@ test('插件表单拒绝循环依赖和未批准动态选项 Action', () => {
       { key: 'partition', type: 'select', labelKey: 'plugin.test.partition', optionProviderAction: 'device.partition.list/v1' },
     ] }],
   }, []), /低风险只读 Action/);
+});
+
+test('历史云表单读取时归一化为标准插件表单，避免前端空白', () => {
+  const schema = new PluginPackageResourceSchemaService().validateForm({
+    apiVersion: 'gcac.plugin-form/v1',
+    pluginId: 'cloud.aliyun',
+    fields: [
+      { key: 'displayName', type: 'string', required: true, labelKey: 'plugin.cloud.aliyun.displayName' },
+      { key: 'credentialId', type: 'objectRef', required: true, labelKey: 'plugin.cloud.aliyun.credential' },
+    ],
+  }, 'cloud.aliyun', []);
+  assert.equal(schema.schemaVersion, 'gcac.plugin-form/v1');
+  assert.equal(schema.mode, 'BOTH');
+  assert.deepEqual(schema.sections.flatMap((section) => section.fields).map((field) => field.key), ['displayName', 'credentialId']);
+  assert.equal(schema.sections[0]?.fields[1]?.type, 'credential_ref');
 });
 
 test('Locale 服务校验内置八语言、用户默认语言、回退和恶意 HTML', () => {
