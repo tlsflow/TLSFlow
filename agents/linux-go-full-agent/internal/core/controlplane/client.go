@@ -19,8 +19,23 @@ type Config struct {
 }
 
 type APIError struct {
-	Message   string `json:"message"`
-	ErrorCode string `json:"errorCode"`
+	Message   string         `json:"message"`
+	ErrorCode string         `json:"errorCode"`
+	Details   map[string]any `json:"details,omitempty"`
+}
+
+type RequestError struct {
+	StatusCode int
+	Message    string
+	ErrorCode  string
+	Details    map[string]any
+}
+
+func (e *RequestError) Error() string {
+	if e.ErrorCode != "" {
+		return fmt.Sprintf("%s (%s)", e.Message, e.ErrorCode)
+	}
+	return e.Message
 }
 
 type Client struct {
@@ -88,10 +103,12 @@ func encodePayload(payload any) (io.Reader, error) {
 func decodeAPIError(statusCode int, responseBody []byte) error {
 	var apiErr APIError
 	if err := json.Unmarshal(responseBody, &apiErr); err == nil && strings.TrimSpace(apiErr.Message) != "" {
-		if strings.TrimSpace(apiErr.ErrorCode) != "" {
-			return fmt.Errorf("%s (%s)", apiErr.Message, apiErr.ErrorCode)
+		return &RequestError{
+			StatusCode: statusCode,
+			Message:    apiErr.Message,
+			ErrorCode:  apiErr.ErrorCode,
+			Details:    apiErr.Details,
 		}
-		return errors.New(apiErr.Message)
 	}
 	return fmt.Errorf("HTTP %d: %s", statusCode, strings.TrimSpace(string(responseBody)))
 }

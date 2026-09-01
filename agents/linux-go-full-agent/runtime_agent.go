@@ -26,6 +26,7 @@ import (
 	keystore "github.com/pavlo-v-chernykh/keystore-go/v4"
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
 
+	coreControlPlane "gcac/linux-go-full-agent/internal/core/controlplane"
 	coreRegistry "gcac/linux-go-full-agent/internal/core/registry"
 	coreRuntime "gcac/linux-go-full-agent/internal/core/runtime"
 	linuxFacts "gcac/linux-go-full-agent/internal/platform/linux/facts"
@@ -1259,6 +1260,13 @@ func processTask(ctx context.Context, client *http.Client, config *AgentConfig, 
 		return fmt.Errorf("暂存任务结果失败: %w", err)
 	}
 	if _, err := submitTaskResult(ctx, client, config, request); err != nil {
+		if isDiscardableTaskResultError(err) {
+			fmt.Fprintf(os.Stderr, "[task] 控制面已清理或终止旧任务结果，移除本地待回执 taskId=%s error=%v\n", task.ID, err)
+			if discardErr := ledger.markReported(task.ID); discardErr != nil {
+				return fmt.Errorf("清理本地旧任务失败 taskId=%s: %w", task.ID, discardErr)
+			}
+			return nil
+		}
 		return fmt.Errorf("上报任务结果失败: %w", err)
 	}
 	if err := ledger.markReported(task.ID); err != nil {
@@ -1282,6 +1290,13 @@ func recoverPendingResults(ctx context.Context, client *http.Client, config *Age
 		}
 		request := submitResultRequest{AgentID: state.AgentID, TaskID: item.TaskID, LeaseID: item.LeaseID, Success: item.Success, ErrorCode: item.ErrorCode, ErrorMessage: item.ErrorMessage, Detail: detail}
 		if _, err := submitTaskResult(ctx, client, config, request); err != nil {
+			if isDiscardableTaskResultError(err) {
+				fmt.Fprintf(os.Stderr, "[task] 控制面已清理或终止旧任务结果，移除本地待回执 taskId=%s error=%v\n", item.TaskID, err)
+				if discardErr := ledger.markReported(item.TaskID); discardErr != nil {
+					return fmt.Errorf("清理本地旧任务失败 taskId=%s: %w", item.TaskID, discardErr)
+				}
+				continue
+			}
 			return fmt.Errorf("恢复上报任务结果失败 taskId=%s: %w", item.TaskID, err)
 		}
 		if err := ledger.markReported(item.TaskID); err != nil {
@@ -1296,6 +1311,21 @@ func recoverPendingResults(ctx context.Context, client *http.Client, config *Age
 		}
 	}
 	return nil
+}
+
+func isDiscardableTaskResultError(err error) bool {
+	var requestErr *coreControlPlane.RequestError
+	if !errors.As(err, &requestErr) {
+		return false
+	}
+	if requestErr.StatusCode == http.StatusNotFound || requestErr.StatusCode == http.StatusGone {
+		return true
+	}
+	if requestErr.ErrorCode != "RESOURCE_VERSION_CONFLICT" {
+		return false
+	}
+	reason, _ := requestErr.Details["reason"].(string)
+	return reason == "AGENT_V2_LATE_RECEIPT_REJECTED"
 }
 
 // repairPendingReceipt 兼容摘要规则修复前已经落盘的结果。
