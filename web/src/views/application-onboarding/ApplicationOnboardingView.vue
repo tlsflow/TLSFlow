@@ -19,7 +19,7 @@ import {
   discoverOnboardingTargets,
   getOnboardingSession,
   listOnboardingCertificateOptions,
-  listOnboardingDevices,
+  listOnboardingResources,
   listOnboardingPlatforms,
   listOnboardingTargets,
   selectOnboardingCertificate,
@@ -39,10 +39,10 @@ import { createInputBindingsV1, readInputBindingsV1 } from '@/views/assets/asset
 
 interface PlatformBusinessMetadata { capabilityVersion: string; compatibleVersions: string[]; requiredInformation: string[] }
 interface Platform { platformKey: string; source: 'PLUGIN' | 'CUSTOM_MANUAL'; pluginVersionId?: string; displayNameKey: string; displayName?: string; description?: string; logoUrl?: string; logoSquareUrl?: string; businessMetadata?: PlatformBusinessMetadata; deploymentMode?: string; deviceSelection?: 'EXISTING_OR_NEW' | 'EXISTING_ONLY' | 'NONE'; newDeviceOnboarding?: DeviceOnboardingInitialSelection; supportStatus?: string; acceptedCertificateFormats?: string[]; deploymentDefaults?: ApplicationAssetDeploymentDefaults }
-interface Session { id: string; platformKey: string; state: string; stateVersion: number; deploymentMode?: string; deviceId?: string | null; targetId?: string | null; certificateId?: string | null; certificateVersionId?: string | null; targets?: Target[]; inputSnapshot?: Record<string, unknown>; lastErrorCode?: string }
+interface Session { id: string; platformKey: string; state: string; stateVersion: number; deploymentMode?: string; deviceId?: string | null; assetId?: string | null; targetId?: string | null; certificateId?: string | null; certificateVersionId?: string | null; targets?: Target[]; inputSnapshot?: Record<string, unknown>; lastErrorCode?: string }
 interface TargetEndpoint { host?: string; port?: number; protocol?: string }
 interface Target { managedTargetId: string; displayName: string; targetType: string; endpoint?: TargetEndpoint; configFingerprint: string; selectable: boolean; reasonCode?: string }
-interface DeviceOption { deviceId: string; displayName: string; address?: string; health: string; selectable: boolean }
+interface ResourceOption { assetRef: { rootType: 'DEVICE' | 'SERVICE_ASSET'; id: string }; resourceType: 'DEVICE' | 'SERVICE_ASSET'; displayName: string; address?: string; health: string; selectable: boolean }
 interface CertificateOption { id: string; label: string }
 type OnboardingStep = 1 | 2 | 3 | 4 | 5
 type FooterPrimaryAction = 'RESOURCE' | 'TARGET' | 'CERTIFICATE' | 'COMPLETE' | null
@@ -81,15 +81,16 @@ const standalonePlatformKeyword = ref('')
 const selectedPlatform = ref<Platform | null>(null)
 const session = ref<Session | null>(null)
 const targets = ref<Target[]>([])
-const devices = ref<DeviceOption[]>([])
+const resources = ref<ResourceOption[]>([])
 // 平台列表首次请求尚未完成前保持明确的加载态，避免模态框出现空白内容区。
 const loading = ref(true)
 const deviceListLoading = ref(false)
 const deviceListLoaded = ref(false)
 const submitInFlight = ref(false)
 const error = ref('')
-const deviceMode = ref<'EXISTING_DEVICE' | 'NEW_DEVICE'>('EXISTING_DEVICE')
+const deviceMode = ref<'EXISTING_DEVICE' | 'EXISTING_SERVICE_ASSET' | 'NEW_DEVICE'>('EXISTING_DEVICE')
 const deviceId = ref('')
+const assetId = ref('')
 const pendingTarget = ref<Target | null>(null)
 const accessDomain = ref('')
 const verifyUrl = ref('')
@@ -107,8 +108,9 @@ const deploymentCertificateFormats = ref<Record<string, unknown>[]>([])
 let deploymentInputRequestSequence = 0
 const currentStepOverride = ref<OnboardingStep | null>(null)
 const supportsNewDevice = computed(() => selectedPlatform.value?.deviceSelection === 'EXISTING_OR_NEW' && Boolean(selectedPlatform.value.newDeviceOnboarding))
-const supportsExistingDevice = computed(() => selectedPlatform.value?.deviceSelection !== 'NONE')
-const canContinueExistingDevice = computed(() => !loading.value && !deviceListLoading.value && !submitInFlight.value && deviceMode.value === 'EXISTING_DEVICE' && Boolean(deviceId.value))
+// NONE 仅表示不选择设备；直工作流仍然需要选择其对应的云服务资产。
+const supportsResourceSelection = computed(() => selectedPlatform.value?.deviceSelection !== 'NONE' || selectedPlatform.value?.deploymentMode === 'DIRECT_WORKFLOW')
+const canContinueExistingDevice = computed(() => !loading.value && !deviceListLoading.value && !submitInFlight.value && deviceMode.value !== 'NEW_DEVICE' && Boolean(deviceId.value || assetId.value))
 const canOpenNewDevice = computed(() => !loading.value && !deviceListLoading.value && !submitInFlight.value && deviceMode.value === 'NEW_DEVICE' && supportsNewDevice.value)
 const backendStep = computed<OnboardingStep>(() => stepForState(session.value?.state))
 const step = computed<OnboardingStep>(() => {
@@ -128,7 +130,7 @@ const footerActions = computed<OnboardingFooterActions>(() => {
     primaryLabel = deviceMode.value === 'NEW_DEVICE'
       ? t('applicationOnboarding.device.newAction')
       : t('applicationOnboarding.actions.continue')
-    primaryDisabled = deviceMode.value === 'EXISTING_DEVICE' ? !canContinueExistingDevice.value : !canOpenNewDevice.value
+    primaryDisabled = deviceMode.value !== 'NEW_DEVICE' ? !canContinueExistingDevice.value : !canOpenNewDevice.value
   } else if (step.value === 4 && session.value) {
     primaryAction = session.value.state === 'READY_TO_COMMIT' ? 'COMPLETE' : 'CERTIFICATE'
     primaryLabel = session.value.state === 'READY_TO_COMMIT'
@@ -276,7 +278,7 @@ watch(selectedPlatform, (platform) => {
   emit('platform-selection-change', !platform)
 }, { immediate: true })
 watch(deviceMode, (mode) => {
-  if (mode === 'EXISTING_DEVICE' && session.value && step.value === 2) void refreshDevices()
+  if (mode !== 'NEW_DEVICE' && session.value && step.value === 2) void refreshResources()
 })
 watch(footerActions, (actions) => {
   if (props.embedded) emit('footer-actions-change', actions)
@@ -310,7 +312,7 @@ async function choosePlatform(platform: Platform): Promise<void> {
   try {
     session.value = readObject<Session>((await createOnboardingSession(platform.platformKey)).data)
     await syncSessionRoute()
-    await refreshDevices()
+    await refreshResources()
   } catch (cause) { error.value = messageFor(cause) } finally { loading.value = false }
 }
 
@@ -359,29 +361,32 @@ async function runFooterPrimary(): Promise<void> {
 }
 
 async function refreshTargets(): Promise<void> { if (session.value) targets.value = readArray<Target>((await listOnboardingTargets(session.value.id)).data) }
-async function refreshDevices(): Promise<void> {
-  if (!session.value || !supportsExistingDevice.value) return
+async function refreshResources(): Promise<void> {
+  if (!session.value || !supportsResourceSelection.value) return
   deviceListLoading.value = true
   deviceListLoaded.value = true
   try {
-    devices.value = readArray<DeviceOption>((await listOnboardingDevices(session.value.id)).data)
-    if (deviceId.value && !devices.value.some((device) => device.deviceId === deviceId.value && device.selectable)) deviceId.value = ''
+    resources.value = readArray<ResourceOption>((await listOnboardingResources(session.value.id)).data)
+    if (deviceId.value && !resources.value.some((item) => item.resourceType === 'DEVICE' && item.assetRef.id === deviceId.value && item.selectable)) deviceId.value = ''
+    if (assetId.value && !resources.value.some((item) => item.resourceType === 'SERVICE_ASSET' && item.assetRef.id === assetId.value && item.selectable)) assetId.value = ''
   } catch (cause) {
-    devices.value = []
+    resources.value = []
     error.value = messageFor(cause)
   } finally {
     deviceListLoading.value = false
   }
 }
-function selectExistingDevice(device: DeviceOption): void {
-  if (!device.selectable || loading.value || deviceListLoading.value) return
-  deviceMode.value = 'EXISTING_DEVICE'
-  deviceId.value = device.deviceId
+function selectExistingResource(resource: ResourceOption): void {
+  if (!resource.selectable || loading.value || deviceListLoading.value) return
+  deviceMode.value = resource.resourceType === 'SERVICE_ASSET' ? 'EXISTING_SERVICE_ASSET' : 'EXISTING_DEVICE'
+  deviceId.value = resource.resourceType === 'DEVICE' ? resource.assetRef.id : ''
+  assetId.value = resource.resourceType === 'SERVICE_ASSET' ? resource.assetRef.id : ''
 }
 function selectNewDevice(): void {
   if (!supportsNewDevice.value || loading.value || deviceListLoading.value) return
   deviceMode.value = 'NEW_DEVICE'
   deviceId.value = ''
+  assetId.value = ''
 }
 function chooseTarget(target: Target): void {
   if (!session.value || !target.selectable || loading.value) return
@@ -532,6 +537,7 @@ async function restoreSession(): Promise<void> {
     selectedPlatform.value = platforms.value.find((item) => item.platformKey === session.value?.platformKey) ?? null
     currentStepOverride.value = null
     deviceId.value = session.value.deviceId ?? deviceId.value
+    assetId.value = session.value.assetId ?? assetId.value
     accessDomain.value = readString(session.value.inputSnapshot ?? {}, ['accessDomain'])
     verifyUrl.value = readString(session.value.inputSnapshot ?? {}, ['verifyUrl'])
     certificateId.value = session.value.certificateId ?? certificateId.value
@@ -541,10 +547,10 @@ async function restoreSession(): Promise<void> {
     if (!selectedPlatform.value) { resetOnboardingState(); await clearOnboardingRoute(); return }
     if (isRestartableSessionState(session.value.state)) {
       await restartSessionForSelectedPlatform()
-      await refreshDevices()
+      await refreshResources()
       return
     }
-    if (isDeviceSelectionState(session.value.state)) await refreshDevices()
+    if (isDeviceSelectionState(session.value.state)) await refreshResources()
     if (session.value.state === 'TARGET_SELECTION_REQUIRED') targets.value = session.value.targets ?? await readTargets()
     if (['CERTIFICATE_SELECTION_REQUIRED', 'READY_TO_COMMIT'].includes(session.value.state)) await loadCertificateAssets()
   } catch (cause) { error.value = messageFor(cause) } finally { loading.value = false }
@@ -796,7 +802,8 @@ function isDnsName(value: string): boolean {
 function resetDeviceSelection(): void {
   deviceMode.value = 'EXISTING_DEVICE'
   deviceId.value = ''
-  devices.value = []
+  resources.value = []
+  assetId.value = ''
   deviceListLoaded.value = false
 }
 function resetTargetSelection(): void {
@@ -859,7 +866,7 @@ async function navigateToStep(nextStep: number): Promise<void> {
   currentStepOverride.value = nextStep as OnboardingStep
   if (nextStep === 2) {
     resetTargetSelection()
-    await refreshDevices()
+    await refreshResources()
     return
   }
   if (nextStep === 3) {
@@ -903,35 +910,36 @@ async function refreshCurrentSession(): Promise<void> {
 async function prepareSessionForConnectionTest(): Promise<void> {
   if (!session.value) return
   if (isRestartableSessionState(session.value.state)) {
-    if (await restartSessionForSelectedPlatform()) await selectExistingDeviceForSession()
+    if (await restartSessionForSelectedPlatform()) await selectExistingResourceForSession()
     return
   }
   if (isResourceSelectionState(session.value.state)) {
-    await selectExistingDeviceForSession()
+    await selectExistingResourceForSession()
     return
   }
-  const selectedDeviceId = deviceId.value || session.value.deviceId || ''
   if (selectedPlatform.value?.deviceSelection === 'NONE') return
-  if (session.value.deviceId && session.value.deviceId === selectedDeviceId) {
-    deviceId.value = selectedDeviceId
+  if ((deviceMode.value === 'EXISTING_DEVICE' && session.value.deviceId && session.value.deviceId === deviceId.value)
+    || (deviceMode.value === 'EXISTING_SERVICE_ASSET' && session.value.assetId && session.value.assetId === assetId.value)) {
     return
   }
   await restartSessionForSelectedPlatform()
-  if (session.value) await selectExistingDeviceForSession()
+  if (session.value) await selectExistingResourceForSession()
 }
-async function selectExistingDeviceForSession(allowRecovery = true): Promise<void> {
+async function selectExistingResourceForSession(allowRecovery = true): Promise<void> {
   if (!session.value) return
   try {
     session.value = readObject<Session>((await selectOnboardingResource(session.value.id, {
       expectedStateVersion: session.value.stateVersion,
-      mode: 'EXISTING_DEVICE',
+      mode: deviceMode.value,
       deviceId: deviceId.value || undefined,
+      assetId: assetId.value || undefined,
     })).data)
   } catch (cause) {
     if (allowRecovery && await recoverSelectedResourceConflict(cause)) return
     throw cause
   }
   deviceId.value = session.value.deviceId ?? deviceId.value
+  assetId.value = session.value.assetId ?? assetId.value
 }
 async function continueCurrentSession(): Promise<void> {
   if (!session.value) return
@@ -958,9 +966,10 @@ async function recoverSelectedResourceConflict(cause: unknown): Promise<boolean>
   const refreshed = readObject<Session>((await getOnboardingSession(session.value.id)).data)
   session.value = refreshed
   if (refreshed.deviceId) deviceId.value = refreshed.deviceId
+  if (refreshed.assetId) assetId.value = refreshed.assetId
   if (isRestartableSessionState(refreshed.state)) {
     if (!await restartSessionForSelectedPlatform()) return false
-    await selectExistingDeviceForSession(false)
+    await selectExistingResourceForSession(false)
     return true
   }
   return hasSelectedResource(refreshed.state)
@@ -1071,17 +1080,17 @@ defineExpose({ goPrevious, runFooterPrimary, cancel })
     <section v-else class="onboarding-workspace">
       <section v-if="step === 2" class="onboarding-device-step" aria-labelledby="onboarding-device-title">
         <div class="onboarding-device-step__header">
-          <h2 id="onboarding-device-title">{{ t('applicationOnboarding.device.title') }}</h2>
+          <h2 id="onboarding-device-title">{{ t('applicationOnboarding.resource.title') }}</h2>
           <button
             class="gc-button gc-button--secondary"
             type="button"
             :disabled="loading || deviceListLoading"
-            @click="refreshDevices"
+            @click="refreshResources"
           >
-            {{ deviceListLoading ? t('common.loading') : t('applicationOnboarding.device.refreshExisting') }}
+            {{ deviceListLoading ? t('common.loading') : t('applicationOnboarding.resource.refresh') }}
           </button>
         </div>
-        <div class="onboarding-device-grid" :aria-label="t('applicationOnboarding.device.title')">
+        <div class="onboarding-device-grid" :aria-label="t('applicationOnboarding.resource.title')">
           <GcSelectionCard
             class="onboarding-device-card onboarding-device-card--new"
             :title="t('applicationOnboarding.device.new')"
@@ -1095,14 +1104,14 @@ defineExpose({ goPrevious, runFooterPrimary, cancel })
             </template>
           </GcSelectionCard>
           <GcSelectionCard
-            v-for="device in devices"
-            :key="device.deviceId"
+            v-for="resource in resources"
+            :key="`${resource.resourceType}-${resource.assetRef.id}`"
             class="onboarding-device-card"
-            :title="device.displayName"
-            :description="device.address || t('applicationOnboarding.device.selectPlaceholder')"
-            :selected="deviceMode === 'EXISTING_DEVICE' && deviceId === device.deviceId"
-            :disabled="loading || deviceListLoading || !device.selectable"
-            @select="selectExistingDevice(device)"
+            :title="resource.displayName"
+            :description="resource.address || t('applicationOnboarding.device.selectPlaceholder')"
+            :selected="deviceMode !== 'NEW_DEVICE' && ((resource.resourceType === 'DEVICE' && deviceId === resource.assetRef.id) || (resource.resourceType === 'SERVICE_ASSET' && assetId === resource.assetRef.id))"
+            :disabled="loading || deviceListLoading || !resource.selectable"
+            @select="selectExistingResource(resource)"
           >
             <template #icon>
               <span class="onboarding-device-card__glyph onboarding-device-card__glyph--device" aria-hidden="true"><span /><span /><span /></span>
@@ -1110,7 +1119,7 @@ defineExpose({ goPrevious, runFooterPrimary, cancel })
           </GcSelectionCard>
         </div>
         <p v-if="deviceListLoading" class="onboarding-empty">{{ t('applicationOnboarding.device.existingLoading') }}</p>
-        <p v-else-if="deviceListLoaded && devices.length === 0" class="onboarding-empty">{{ t('applicationOnboarding.device.noExisting') }}</p>
+        <p v-else-if="deviceListLoaded && resources.length === 0" class="onboarding-empty">{{ t('applicationOnboarding.device.noExisting') }}</p>
       </section>
       <div v-else-if="step === 3" class="onboarding-panel">
         <div class="onboarding-panel__header">

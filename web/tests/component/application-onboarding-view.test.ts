@@ -11,7 +11,7 @@ const onboardingMocks = vi.hoisted(() => ({
   discoverOnboardingTargets: vi.fn(),
   getOnboardingSession: vi.fn(),
   listOnboardingCertificateOptions: vi.fn(),
-  listOnboardingDevices: vi.fn(),
+  listOnboardingResources: vi.fn(),
   listOnboardingPlatforms: vi.fn(),
   listOnboardingTargets: vi.fn(),
   selectOnboardingCertificate: vi.fn(),
@@ -41,6 +41,22 @@ import ApplicationOnboardingView from '@/views/application-onboarding/Applicatio
 import ApplicationOnboardingModal from '@/views/application-onboarding/ApplicationOnboardingModal.vue'
 
 function response(data: unknown) {
+  if (data && typeof data === 'object' && !Array.isArray(data) && Array.isArray((data as Record<string, unknown>).items)) {
+    const items = (data as Record<string, unknown>).items as Record<string, unknown>[]
+    data = {
+      ...(data as Record<string, unknown>),
+      items: items.map((item) => item.deviceId
+        ? {
+            assetRef: { rootType: 'DEVICE', id: item.deviceId },
+            resourceType: 'DEVICE',
+            displayName: item.displayName,
+            address: item.address,
+            health: item.health,
+            selectable: item.selectable,
+          }
+        : item),
+    }
+  }
   return { data }
 }
 
@@ -184,7 +200,7 @@ describe('ApplicationOnboardingView', () => {
       items: [{ platformKey: 'citrix.adc', source: 'PLUGIN', pluginVersionId: 'plugin-version-citrix', displayName: 'Citrix ADC', displayNameKey: 'applicationOnboarding.platforms.citrixAdc', logoUrl: '/api/v1/plugin-versions/plugin-version-citrix/resources/logos/horizontal', logoSquareUrl: '/api/v1/plugin-versions/plugin-version-citrix/resources/logos/square', businessMetadata: { capabilityVersion: '1.0.4', compatibleVersions: ['Citrix ADC 13.1'], requiredInformation: ['管理地址', '管理员凭据'] }, deploymentMode: 'MANAGED_TARGET', supportStatus: 'SUPPORTED' }],
     }))
     onboardingMocks.createOnboardingSession.mockResolvedValue(response({ id: 'session-1', platformKey: 'citrix.adc', deploymentMode: 'MANAGED_TARGET', state: 'PLATFORM_SELECTED', stateVersion: 1 }))
-    onboardingMocks.listOnboardingDevices.mockResolvedValue(response({ items: [{ deviceId: 'device-1', displayName: 'ADC', health: 'HEALTHY', selectable: true }] }))
+    onboardingMocks.listOnboardingResources.mockResolvedValue(response({ items: [{ deviceId: 'device-1', displayName: 'ADC', health: 'HEALTHY', selectable: true }] }))
     onboardingMocks.selectOnboardingResource.mockResolvedValue(response({ id: 'session-1', platformKey: 'citrix.adc', deploymentMode: 'MANAGED_TARGET', state: 'CONNECTION_TESTING', stateVersion: 2 }))
     onboardingMocks.testOnboardingConnection.mockResolvedValue(response({ id: 'session-1', platformKey: 'citrix.adc', deploymentMode: 'MANAGED_TARGET', state: 'DISCOVERING', stateVersion: 3 }))
     onboardingMocks.discoverOnboardingTargets.mockResolvedValue(response({ id: 'session-1', platformKey: 'citrix.adc', deploymentMode: 'MANAGED_TARGET', state: 'TARGET_SELECTION_REQUIRED', stateVersion: 4, targets: [{ managedTargetId: 'target-1', displayName: 'example.com', targetType: 'tls.binding', endpoint: { host: '10.255.0.215', port: 443, protocol: 'HTTPS' }, configFingerprint: 'target-fingerprint', selectable: true }] }))
@@ -229,7 +245,7 @@ describe('ApplicationOnboardingView', () => {
       items: [{ platformKey: 'workflow.platform', source: 'PLUGIN', displayNameKey: 'applicationOnboarding.platforms.nginx', deploymentMode: 'DIRECT_WORKFLOW', deviceSelection: 'EXISTING_OR_NEW', newDeviceOnboarding: { kind: 'AGENT_INSTALL', platformKey: 'linux' }, supportStatus: 'SUPPORTED' }],
     }))
     onboardingMocks.createOnboardingSession.mockResolvedValue(response({ id: 'session-direct', platformKey: 'workflow.platform', deploymentMode: 'DIRECT_WORKFLOW', state: 'PLATFORM_SELECTED', stateVersion: 1 }))
-    onboardingMocks.listOnboardingDevices.mockResolvedValue(response({ items: [{ deviceId: 'host-direct', displayName: 'Nginx Host', health: 'HEALTHY', selectable: true }] }))
+    onboardingMocks.listOnboardingResources.mockResolvedValue(response({ items: [{ deviceId: 'host-direct', displayName: 'Nginx Host', health: 'HEALTHY', selectable: true }] }))
     onboardingMocks.selectOnboardingResource.mockResolvedValue(response({ id: 'session-direct', platformKey: 'workflow.platform', deploymentMode: 'DIRECT_WORKFLOW', state: 'CONNECTION_TESTING', stateVersion: 2 }))
     onboardingMocks.testOnboardingConnection.mockResolvedValue(response({ id: 'session-direct', platformKey: 'workflow.platform', deploymentMode: 'DIRECT_WORKFLOW', state: 'DISCOVERING', stateVersion: 3 }))
     onboardingMocks.discoverOnboardingTargets.mockResolvedValue(response({ id: 'session-direct', platformKey: 'workflow.platform', deploymentMode: 'DIRECT_WORKFLOW', state: 'TARGET_SELECTION_REQUIRED', stateVersion: 4, targets: [{ managedTargetId: 'target-direct', displayName: 'example.com:443', targetType: 'tls.binding', configFingerprint: 'direct-fingerprint', selectable: true }] }))
@@ -240,7 +256,7 @@ describe('ApplicationOnboardingView', () => {
     await flushPromises()
 
     expect(onboardingMocks.testOnboardingConnection).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('连接业务平台')
+    expect(wrapper.text()).toContain('选择平台资源')
     expect(wrapper.text()).toContain('Nginx Host')
     expect(wrapper.text()).toContain('新增设备')
     expect(wrapper.text()).not.toContain('选择业务站点')
@@ -252,6 +268,35 @@ describe('ApplicationOnboardingView', () => {
     expect(onboardingMocks.testOnboardingConnection).toHaveBeenCalledWith('session-direct', 2)
     expect(onboardingMocks.discoverOnboardingTargets).toHaveBeenCalledWith('session-direct', 3)
     expect(wrapper.find('.target-row').exists()).toBe(true)
+  })
+
+  it('无设备直工作流加载云服务资产并以服务资产作为资源来源', async () => {
+    onboardingMocks.listOnboardingPlatforms.mockResolvedValue(response({
+      items: [{ platformKey: 'cloud.aliyun.cdn', source: 'PLUGIN', displayName: '阿里云 CDN', displayNameKey: 'plugin.cloud.aliyun.name', deploymentMode: 'DIRECT_WORKFLOW', deviceSelection: 'NONE', supportStatus: 'SUPPORTED' }],
+    }))
+    onboardingMocks.createOnboardingSession.mockResolvedValue(response({ id: 'session-cloud', platformKey: 'cloud.aliyun.cdn', deploymentMode: 'DIRECT_WORKFLOW', state: 'RESOURCE_SELECTION_REQUIRED', stateVersion: 1 }))
+    onboardingMocks.listOnboardingResources.mockResolvedValue(response({ items: [{ assetRef: { rootType: 'SERVICE_ASSET', id: 'cloud-asset-1' }, resourceType: 'SERVICE_ASSET', displayName: '阿里云账号', address: 'cloud.aliyun', health: 'ACTIVE', selectable: true }] }))
+    onboardingMocks.selectOnboardingResource.mockResolvedValue(response({ id: 'session-cloud', platformKey: 'cloud.aliyun.cdn', deploymentMode: 'DIRECT_WORKFLOW', state: 'CONNECTION_TESTING', stateVersion: 2, assetId: 'cloud-asset-1' }))
+    onboardingMocks.testOnboardingConnection.mockResolvedValue(response({ id: 'session-cloud', platformKey: 'cloud.aliyun.cdn', deploymentMode: 'DIRECT_WORKFLOW', state: 'DISCOVERING', stateVersion: 3, assetId: 'cloud-asset-1' }))
+
+    const wrapper = mount(ApplicationOnboardingView, { global: { plugins: [i18n] } })
+    await flushPromises()
+    await wrapper.find('.platform-card').trigger('click')
+    await flushPromises()
+
+    expect(onboardingMocks.listOnboardingResources).toHaveBeenCalledWith('session-cloud')
+    expect(wrapper.text()).toContain('阿里云账号')
+    await wrapper.find('.onboarding-device-card:not(.onboarding-device-card--new)').trigger('click')
+    await wrapper.vm.runFooterPrimary()
+    await flushPromises()
+
+    expect(onboardingMocks.selectOnboardingResource).toHaveBeenCalledWith('session-cloud', {
+      expectedStateVersion: 1,
+      mode: 'EXISTING_SERVICE_ASSET',
+      deviceId: undefined,
+      assetId: 'cloud-asset-1',
+    })
+    expect(onboardingMocks.testOnboardingConnection).toHaveBeenCalledWith('session-cloud', 2)
   })
 
   it('连接测试失败时不调用站点发现并展示真实错误', async () => {
@@ -267,7 +312,7 @@ describe('ApplicationOnboardingView', () => {
       stateVersion: 2,
       deviceId: 'device-test-poc',
     }))
-    onboardingMocks.listOnboardingDevices.mockResolvedValue(response({ items: [{ deviceId: 'device-test-poc', displayName: 'TEST-POC', health: 'HEALTHY', selectable: true }] }))
+    onboardingMocks.listOnboardingResources.mockResolvedValue(response({ items: [{ deviceId: 'device-test-poc', displayName: 'TEST-POC', health: 'HEALTHY', selectable: true }] }))
     onboardingMocks.testOnboardingConnection.mockRejectedValue(new ApiClientError('设备插件能力执行失败', {
       errorCode: 'PLUGIN_CAPABILITY_EXECUTION_FAILED',
       requestId: 'req-connection-failure',
@@ -381,7 +426,7 @@ describe('ApplicationOnboardingView', () => {
       items: [{ platformKey: 'workflow.platform', source: 'PLUGIN', displayNameKey: 'applicationOnboarding.platforms.nginx', deploymentMode: 'DIRECT_WORKFLOW', deviceSelection: 'EXISTING_OR_NEW', newDeviceOnboarding: { kind: 'AGENT_INSTALL', platformKey: 'linux' }, supportStatus: 'SUPPORTED' }],
     }))
     onboardingMocks.createOnboardingSession.mockResolvedValue(response({ id: 'session-new-device', platformKey: 'workflow.platform', deploymentMode: 'DIRECT_WORKFLOW', state: 'PLATFORM_SELECTED', stateVersion: 1 }))
-    onboardingMocks.listOnboardingDevices.mockResolvedValue(response({ items: [] }))
+    onboardingMocks.listOnboardingResources.mockResolvedValue(response({ items: [] }))
 
     const wrapper = mount(ApplicationOnboardingView, { global: { plugins: [i18n] } })
     await flushPromises()
@@ -402,12 +447,12 @@ describe('ApplicationOnboardingView', () => {
       items: [{ platformKey: 'workflow.platform', source: 'PLUGIN', displayNameKey: 'applicationOnboarding.platforms.nginx', deploymentMode: 'DIRECT_WORKFLOW', deviceSelection: 'EXISTING_OR_NEW', supportStatus: 'SUPPORTED' }],
     }))
     onboardingMocks.getOnboardingSession.mockResolvedValue(response({ id: 'session-restore', platformKey: 'workflow.platform', deploymentMode: 'DIRECT_WORKFLOW', state: 'RESOURCE_SELECTION_REQUIRED', stateVersion: 2 }))
-    onboardingMocks.listOnboardingDevices.mockResolvedValue(response({ items: [{ deviceId: 'host-restored', displayName: 'Restored Host', health: 'HEALTHY', selectable: true }] }))
+    onboardingMocks.listOnboardingResources.mockResolvedValue(response({ items: [{ deviceId: 'host-restored', displayName: 'Restored Host', health: 'HEALTHY', selectable: true }] }))
 
     const wrapper = mount(ApplicationOnboardingView, { global: { plugins: [i18n] } })
     await flushPromises()
 
-    expect(onboardingMocks.listOnboardingDevices).toHaveBeenCalledWith('session-restore')
+    expect(onboardingMocks.listOnboardingResources).toHaveBeenCalledWith('session-restore')
     expect(wrapper.text()).toContain('Restored Host')
   })
 
@@ -424,7 +469,7 @@ describe('ApplicationOnboardingView', () => {
       stateVersion: 2,
       deviceId: 'windows-host',
     }))
-    onboardingMocks.listOnboardingDevices.mockResolvedValue(response({ items: [{ deviceId: 'windows-host', displayName: 'Windows Host', health: 'HEALTHY', selectable: true }] }))
+    onboardingMocks.listOnboardingResources.mockResolvedValue(response({ items: [{ deviceId: 'windows-host', displayName: 'Windows Host', health: 'HEALTHY', selectable: true }] }))
     onboardingMocks.testOnboardingConnection.mockResolvedValue(response({ id: 'session-connection', platformKey: 'web.iis', deploymentMode: 'DIRECT_WORKFLOW', state: 'DISCOVERING', stateVersion: 3, deviceId: 'windows-host' }))
     onboardingMocks.discoverOnboardingTargets.mockResolvedValue(response({ id: 'session-connection', platformKey: 'web.iis', deploymentMode: 'DIRECT_WORKFLOW', state: 'TARGET_SELECTION_REQUIRED', stateVersion: 4, deviceId: 'windows-host', targets: [{ managedTargetId: 'site-1', displayName: 'iis.example:443', targetType: 'tls.binding', configFingerprint: 'site-fingerprint', selectable: true }] }))
 
@@ -459,7 +504,7 @@ describe('ApplicationOnboardingView', () => {
       state: 'PLATFORM_SELECTED',
       stateVersion: 1,
     }))
-    onboardingMocks.listOnboardingDevices.mockResolvedValue(response({ items: [{ deviceId: 'windows-host', displayName: 'Windows Host', health: 'HEALTHY', selectable: true }] }))
+    onboardingMocks.listOnboardingResources.mockResolvedValue(response({ items: [{ deviceId: 'windows-host', displayName: 'Windows Host', health: 'HEALTHY', selectable: true }] }))
     onboardingMocks.selectOnboardingResource.mockResolvedValue(response({ id: 'session-restarted', platformKey: 'web.iis', deploymentMode: 'DIRECT_WORKFLOW', state: 'CONNECTION_TESTING', stateVersion: 2, deviceId: 'windows-host' }))
     onboardingMocks.testOnboardingConnection.mockResolvedValue(response({ id: 'session-restarted', platformKey: 'web.iis', deploymentMode: 'DIRECT_WORKFLOW', state: 'DISCOVERING', stateVersion: 3, deviceId: 'windows-host' }))
     onboardingMocks.discoverOnboardingTargets.mockResolvedValue(response({ id: 'session-restarted', platformKey: 'web.iis', deploymentMode: 'DIRECT_WORKFLOW', state: 'TARGET_SELECTION_REQUIRED', stateVersion: 4, deviceId: 'windows-host', targets: [{ managedTargetId: 'site-1', displayName: 'iis.example:443', targetType: 'tls.binding', configFingerprint: 'site-fingerprint', selectable: true }] }))
@@ -493,7 +538,7 @@ describe('ApplicationOnboardingView', () => {
       state: 'PLATFORM_SELECTED',
       stateVersion: 1,
     }))
-    onboardingMocks.listOnboardingDevices.mockResolvedValue(response({ items: [{ deviceId: 'windows-host', displayName: 'Windows Host', health: 'HEALTHY', selectable: true }] }))
+    onboardingMocks.listOnboardingResources.mockResolvedValue(response({ items: [{ deviceId: 'windows-host', displayName: 'Windows Host', health: 'HEALTHY', selectable: true }] }))
     onboardingMocks.getOnboardingSession.mockResolvedValue(response({
       id: 'session-race',
       platformKey: 'web.iis',
@@ -532,7 +577,7 @@ describe('ApplicationOnboardingView', () => {
       state: 'PLATFORM_SELECTED',
       stateVersion: 1,
     }))
-    onboardingMocks.listOnboardingDevices.mockResolvedValue(response({ items: [{ deviceId: 'windows-host', displayName: 'Windows Host', health: 'HEALTHY', selectable: true }] }))
+    onboardingMocks.listOnboardingResources.mockResolvedValue(response({ items: [{ deviceId: 'windows-host', displayName: 'Windows Host', health: 'HEALTHY', selectable: true }] }))
     onboardingMocks.getOnboardingSession
       .mockResolvedValueOnce(response({
         id: 'session-race-error',
@@ -580,14 +625,14 @@ describe('ApplicationOnboardingView', () => {
     onboardingMocks.createOnboardingSession.mockResolvedValue(response({
       id: 'session-iis', platformKey: 'web.iis', deploymentMode: 'DIRECT_WORKFLOW', state: 'PLATFORM_SELECTED', stateVersion: 1,
     }))
-    onboardingMocks.listOnboardingDevices.mockResolvedValue(response({ items: [{ deviceId: 'windows-host', displayName: 'Windows Host', health: 'HEALTHY', selectable: true }] }))
+    onboardingMocks.listOnboardingResources.mockResolvedValue(response({ items: [{ deviceId: 'windows-host', displayName: 'Windows Host', health: 'HEALTHY', selectable: true }] }))
 
     const wrapper = mount(ApplicationOnboardingView, { props: { embedded: true }, global: { plugins: [i18n] } })
     await flushPromises()
     await wrapper.find('.platform-card').trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('连接业务平台')
+    expect(wrapper.text()).toContain('选择平台资源')
     await wrapper.vm.goPrevious()
     await flushPromises()
 
@@ -601,7 +646,7 @@ describe('ApplicationOnboardingView', () => {
       items: [{ platformKey: 'web.iis', source: 'PLUGIN', displayName: 'IIS', displayNameKey: 'plugin.web.iis', deploymentMode: 'DIRECT_WORKFLOW', deviceSelection: 'EXISTING_OR_NEW', supportStatus: 'SUPPORTED' }],
     }))
     onboardingMocks.createOnboardingSession.mockResolvedValue(response({ id: 'session-step', platformKey: 'web.iis', deploymentMode: 'DIRECT_WORKFLOW', state: 'PLATFORM_SELECTED', stateVersion: 1 }))
-    onboardingMocks.listOnboardingDevices.mockResolvedValue(response({ items: [{ deviceId: 'windows-host', displayName: 'Windows Host', health: 'HEALTHY', selectable: true }] }))
+    onboardingMocks.listOnboardingResources.mockResolvedValue(response({ items: [{ deviceId: 'windows-host', displayName: 'Windows Host', health: 'HEALTHY', selectable: true }] }))
     onboardingMocks.selectOnboardingResource.mockResolvedValue(response({ id: 'session-step', platformKey: 'web.iis', deploymentMode: 'DIRECT_WORKFLOW', state: 'CONNECTION_TESTING', stateVersion: 2 }))
     onboardingMocks.testOnboardingConnection.mockResolvedValue(response({ id: 'session-step', platformKey: 'web.iis', deploymentMode: 'DIRECT_WORKFLOW', state: 'DISCOVERING', stateVersion: 3 }))
     onboardingMocks.discoverOnboardingTargets.mockResolvedValue(response({ id: 'session-step', platformKey: 'web.iis', deploymentMode: 'DIRECT_WORKFLOW', state: 'TARGET_SELECTION_REQUIRED', stateVersion: 4, targets: [{ managedTargetId: 'site-1', displayName: 'iis.example:443', targetType: 'tls.binding', configFingerprint: 'site-fingerprint', selectable: true }] }))
@@ -618,8 +663,8 @@ describe('ApplicationOnboardingView', () => {
     const stepButtons = wrapper.findAll('.onboarding-steps__button')
     await stepButtons[1].trigger('click')
     await flushPromises()
-    expect(wrapper.text()).toContain('连接业务平台')
-    expect(onboardingMocks.listOnboardingDevices).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('选择平台资源')
+    expect(onboardingMocks.listOnboardingResources).toHaveBeenCalledTimes(2)
 
     await wrapper.findAll('.onboarding-steps__button')[0].trigger('click')
     await flushPromises()
@@ -633,7 +678,7 @@ describe('ApplicationOnboardingView', () => {
     onboardingMocks.createOnboardingSession.mockResolvedValue(response({
       id: 'session-cancel', platformKey: 'web.iis', deploymentMode: 'DIRECT_WORKFLOW', state: 'PLATFORM_SELECTED', stateVersion: 1,
     }))
-    onboardingMocks.listOnboardingDevices.mockResolvedValue(response({ items: [] }))
+    onboardingMocks.listOnboardingResources.mockResolvedValue(response({ items: [] }))
     onboardingMocks.cancelOnboardingSession.mockRejectedValue(new Error('cancel failed'))
 
     const wrapper = mount(ApplicationOnboardingView, { props: { embedded: true }, global: { plugins: [i18n] } })
@@ -657,7 +702,7 @@ describe('ApplicationOnboardingView', () => {
     onboardingMocks.createOnboardingSession.mockResolvedValue(response({
       id: 'session-modal', platformKey: 'citrix.adc', deploymentMode: 'MANAGED_TARGET', state: 'PLATFORM_SELECTED', stateVersion: 1,
     }))
-    onboardingMocks.listOnboardingDevices.mockResolvedValue(response({ items: [] }))
+    onboardingMocks.listOnboardingResources.mockResolvedValue(response({ items: [] }))
 
     const wrapper = mount(ApplicationOnboardingView, { props: { embedded: true }, global: { plugins: [i18n] } })
     await flushPromises()

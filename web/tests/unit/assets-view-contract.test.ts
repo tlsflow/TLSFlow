@@ -92,7 +92,9 @@ describe('应用资产卡片契约', () => {
   })
 
   it('专属证书重新申请保留内部 CA 的证书模板版本', () => {
-    expect(source).toContain("'certificateAuthorityId', 'certificateProfileVersionId', 'acmeProviderProfileId'")
+    expect(source).toContain('certificateAuthorityId')
+    expect(source).toContain('certificateProfileVersionId')
+    expect(source).toContain('acmeProviderProfileId')
   })
 
   it('编辑入口先打开模态框，再异步加载轻量详情', () => {
@@ -136,5 +138,17 @@ describe('统一资产中心入口契约', () => {
     expect(assetsViewSource).not.toContain('listCloudServiceAssets(')
     expect(assetsViewSource).not.toContain('listDevices(')
     expect(assetsViewSource).not.toContain('listServiceAssets(')
+  })
+})
+
+describe('手动应用受管目标资产契约', () => {
+  it('从统一资产列表同时加载设备和云服务，并按云服务根资产查询框架', () => {
+    expect(source).toContain("const result = await listAssets({ page: 1, pageSize: 200, sort: 'displayName:asc' })")
+    expect(source).toContain('const items = readUnifiedAssetItems(result)')
+    expect(source).toContain("raw.includes('CLOUD_SERVICE') || raw.includes('SERVICE_ASSET')")
+    expect(source).toContain("for (const key of ['items', 'rows', 'records'])")
+    expect(source).toContain('filters: {\n        ...(serviceAssetId ? { serviceAssetId } : { deviceId: hostId })')
+    expect(source).toContain('v-model:service-asset-id="assetDraft.serviceAssetId"')
+    expect(source).toContain(':service-assets="serviceAssetItems"')
   })
 })

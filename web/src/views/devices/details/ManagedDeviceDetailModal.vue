@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { listCertificateVersions } from '@/api/modules/certificates.api'
 import { executeManagedDeviceCapability, getManagedDevice } from '@/api/modules/devices.api'
+import { discoverServiceAssetResources } from '@/api/modules/providers.api'
 import { getAssetDetail, getServiceAssetDetail, type UnifiedAssetRef } from '@/api/modules/assets.api'
 import type { ApiRecord } from '@/api/modules/common'
 import { GcModal, GcStatusTag, type DevicePresentationSchema } from '@/design-system/components'
@@ -49,11 +50,18 @@ const pluginPresentation = computed(() => {
   return value && typeof value === 'object' ? value as DevicePresentationSchema : null
 })
 const pluginMessages = computed(() => asRecord(pluginUi.value.messages) as Record<string, string>)
-const pluginActions = computed(() => (pluginPresentation.value?.actions ?? []).filter(action => action.capabilityKey !== 'device.discover'))
+const pluginActions = computed(() => {
+  const actions = pluginPresentation.value?.actions ?? []
+  return openedResourceKind.value === 'SERVICE_ASSET'
+    ? []
+    : actions.filter(action => action.capabilityKey !== 'device.discover')
+})
 const canRediscover = computed(() => {
   const allowedActions = Array.isArray(detail.value?.allowedActions) ? detail.value.allowedActions : []
   const pluginCapabilities = Array.isArray(pluginUi.value.capabilities) ? pluginUi.value.capabilities : []
-  return allowedActions.includes('device.discover') || pluginCapabilities.includes('device.discover')
+  return openedResourceKind.value === 'SERVICE_ASSET'
+    ? allowedActions.includes('cloud.service.discover') || pluginCapabilities.includes('cloud.service.discover')
+    : allowedActions.includes('device.discover') || pluginCapabilities.includes('device.discover')
 })
 const title = computed(() => String(detail.value?.displayName ?? t('devices.detail.title')))
 const status = computed(() => String(detail.value?.category === 'CLOUD'
@@ -163,9 +171,14 @@ async function executePluginAction(capabilityKey: string) {
   rediscovering.value = true
   discoveryFeedback.value = null
   try {
-    const response = await executeManagedDeviceCapability(openedDeviceId.value, capabilityKey)
-    const result = response.data as Record<string, unknown> | undefined
-    const refreshed = await getManagedDevice(openedDeviceId.value, locale.value)
+    if (openedResourceKind.value === 'SERVICE_ASSET') {
+      await discoverServiceAssetResources(openedDeviceId.value)
+    } else {
+      await executeManagedDeviceCapability(openedDeviceId.value, capabilityKey)
+    }
+    const refreshed = openedResourceKind.value === 'SERVICE_ASSET'
+      ? await getAssetDetail({ rootType: 'SERVICE_ASSET', id: openedDeviceId.value })
+      : await getManagedDevice(openedDeviceId.value, locale.value)
     if (refreshed.data) {
       detail.value = refreshed.data
       loadedIncludes.value = new Set(DETAIL_RESOURCE_INCLUDES)
@@ -173,7 +186,13 @@ async function executePluginAction(capabilityKey: string) {
     }
     discoveryFeedback.value = {
       tone: 'success',
-      message: t(capabilityKey === 'device.discover' ? 'devices.unifiedDetail.discovery.success' : 'devices.unifiedDetail.action.success'),
+      message: t(
+        openedResourceKind.value === 'SERVICE_ASSET'
+          ? 'devices.unifiedDetail.discovery.cloudSuccess'
+          : capabilityKey === 'device.discover'
+            ? 'devices.unifiedDetail.discovery.success'
+            : 'devices.unifiedDetail.action.success',
+      ),
     }
   } catch (cause) {
     discoveryFeedback.value = { tone: 'danger', message: cause instanceof Error ? cause.message : t('devices.unifiedDetail.discovery.requestFailed') }

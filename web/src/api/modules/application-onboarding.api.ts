@@ -20,6 +20,10 @@ export function listOnboardingDevices(sessionId: string): Promise<ApiRecordResul
   return apiClient.get<ApiRecord>(toClientPath(`${ROOT}/sessions/${encodeURIComponent(sessionId)}/devices`))
 }
 
+export function listOnboardingResources(sessionId: string): Promise<ApiRecordResult> {
+  return apiClient.get<ApiRecord>(toClientPath(`${ROOT}/sessions/${encodeURIComponent(sessionId)}/resources`))
+}
+
 /** 返回插件声明格式下可用的证书资产与版本；版本已按平台接受格式过滤。 */
 export function listOnboardingCertificateOptions(sessionId: string, certificateAssetId?: string): Promise<ApiRecordResult> {
   const params = certificateAssetId ? `?certificateAssetId=${encodeURIComponent(certificateAssetId)}` : ''

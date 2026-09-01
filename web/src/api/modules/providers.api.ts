@@ -28,3 +28,11 @@ export function deleteCloudAccountAsset(id: string): Promise<ApiRecordResult> {
 export function listCloudAccountResources(id: string): Promise<ApiRecordResult> {
   return apiClient.get<ApiRecord>(toClientPath(`${CLOUD_ASSETS_PATH}/${encodeURIComponent(id)}/resources`))
 }
+
+/** 重新发现标准云服务资产的资源并刷新持久化投影。 */
+export function discoverServiceAssetResources(id: string): Promise<ApiRecordResult> {
+  return apiClient.post<ApiRecord>(toClientPath(`/api/v1/service-assets/${encodeURIComponent(id)}/discover`), {}, {
+    idempotencyKey: createIdempotencyKey('service_asset_discovery'),
+    timeoutMs: 90_000,
+  })
+}
