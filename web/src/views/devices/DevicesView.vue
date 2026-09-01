@@ -158,7 +158,7 @@ const config = computed<BusinessPageConfig>(() => ({
   tableFixed: true,
   showTotalInPagination: true,
   columns: [
-    { key: 'name', title: t('devices.columns.name'), candidates: ['displayName', 'id'], width: '13%' },
+    { key: 'name', title: t('devices.columns.name'), candidates: ['displayName', 'id'], width: '12%' },
     {
       key: 'category',
       title: t('devices.columns.category'),
@@ -201,12 +201,12 @@ const config = computed<BusinessPageConfig>(() => ({
       },
       width: '10%',
     },
-    { key: 'managementAddress', title: t('devices.columns.managementAddress'), candidates: ['managementAddress'], width: '13%' },
+    { key: 'managementAddress', title: t('devices.columns.managementAddress'), candidates: ['managementAddress'], width: '12%' },
     { key: 'status', title: t('devices.columns.liveness'), candidates: ['livenessStatus', 'health', 'sourceStatus'], kind: 'status', width: '8%' },
-    { key: 'deviceVersion', title: t('devices.columns.deviceVersion'), candidates: ['softwareVersion'], width: '20ch', truncate: true },
-    { key: 'controlVersion', title: t('devices.columns.controlVersion'), candidates: ['controlVersion'], width: '11%' },
-    { key: 'applicationAssetCount', title: t('devices.columns.applications'), candidates: ['applicationAssetCount'], kind: 'count', width: '6%' },
-    { key: 'actions', title: t('devices.columns.actions'), candidates: [], width: '15%' },
+    { key: 'deviceVersion', title: t('devices.columns.deviceVersion'), candidates: ['softwareVersion'], width: '12%', truncate: true },
+    { key: 'controlVersion', title: t('devices.columns.controlVersion'), candidates: ['controlVersion'], width: '10%' },
+    { key: 'applicationAssetCount', title: t('devices.columns.sites'), candidates: ['applicationAssetCount'], kind: 'count', width: '5%' },
+    { key: 'actions', title: t('devices.columns.actions'), candidates: [], width: '12%' },
   ],
   metrics: [
     { title: t('devices.metrics.total'), description: t('devices.metrics.totalDescription'), status: 'HEALTHY', risk: 'MEDIUM', kind: 'total' },
@@ -328,13 +328,17 @@ const config = computed<BusinessPageConfig>(() => ({
 }
 
 .devices-page :deep(.business-page__row-actions) {
-  flex-wrap: nowrap;
-  white-space: nowrap;
+  align-items: center;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .devices-page :deep(.business-page__row-actions > *) {
-  flex: 0 0 auto;
-  white-space: nowrap;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .devices-page__control-version {
