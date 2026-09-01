@@ -193,6 +193,34 @@ test('Dashboard 聚合只统计和展示有对象权限的资产', async () => {
   assert.deepEqual(overview.statusGroups.map((group) => group.key), ['certificates', 'assets', 'gateways', 'applicationAssets']);
 });
 
+test('Dashboard 读模型分支使用设备分页生成资产状态块', async () => {
+  const service = createDashboardService({ host: ['device-visible'] }, [], true, {
+    applicationCount: 0,
+    validCertificateCount: 0,
+    expiringCertificateCount: 0,
+    activeAgentCount: 0,
+    activeGatewayCount: 0,
+    managedBindingCount: 0,
+    applicationAssets: [],
+    certificateAssets: [],
+    certificateVersions: [],
+    bindings: [],
+    bindingCountsByVersionId: new Map(),
+    agents: [],
+    gateways: [],
+    gatewayZones: [],
+    gatewayReachability: [],
+    auditCandidates: [],
+  });
+
+  const overview = await service.getOverview({
+    tenantId: 'tenant-1',
+    subject: { id: 'user-1', type: 'user', scope: { tenantId: 'tenant-1' } },
+  });
+
+  assert.deepEqual(statusBlockIds(overview, 'assets'), ['device-visible']);
+});
+
 test('Dashboard 不展示没有活跃版本的证书资产', async () => {
   const service = createDashboardService({
     certificate_asset: ['certificate-empty'],
@@ -252,6 +280,7 @@ function createDashboardService(
   allowedObjectIds: Record<string, string[]>,
   auditLogs: AuditLogEntity[] = [],
   canReadAudit = true,
+  readModel?: Record<string, unknown>,
 ): DashboardApplicationService {
   const objectPermissions = {
     buildAuthorizedQuery: async (_subject: unknown, objectType: string) => {
@@ -333,6 +362,7 @@ function createDashboardService(
     },
     gateways: {
       listGateways: async (_tenantId: string, query: PageQuery) => authorizedPage(gateways, query),
+      ensureSchema: async () => undefined,
     },
     audit: {
       query: async () => auditLogs,
@@ -340,6 +370,9 @@ function createDashboardService(
     deploymentPlans: {} as never,
     objectPermissions: objectPermissions as never,
     canReadAudit: async () => canReadAudit,
+    readRepository: readModel
+      ? { load: async () => readModel } as never
+      : undefined,
   } as never);
 }
 
