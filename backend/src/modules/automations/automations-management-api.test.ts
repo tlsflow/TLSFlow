@@ -79,14 +79,16 @@ test('已启用 API 自动化可以刷新 Key，旧 Key 立即失效且审计不
     ...createBody,
     name: '外部 API 证书更新',
     trigger: { type: 'api' as const },
-    externalApi: { executionMode: 'direct' as const },
+    // 旧版本可能仍保存 approval，启用时必须统一转换为外部直接执行。
+    externalApi: { executionMode: 'approval' as const },
     filters: [{ field: 'event.domains', operator: 'contains_any' as const, value: ['example.com'] }],
     guardrails: { ...createBody.guardrails, requireApproval: false },
   };
   const created = await router.match('POST', '/api/v1/automations')!.handler(request('POST', '/api/v1/automations', apiBody)) as { body: { id: string; version: number } };
-  const enabled = await router.match('POST', `/api/v1/automations/${created.body.id}/actions/enable`)!.handler(request('POST', `/api/v1/automations/${created.body.id}/actions/enable`, { expectedVersion: created.body.version })) as { externalApiKey: string };
+  const enabled = await router.match('POST', `/api/v1/automations/${created.body.id}/actions/enable`)!.handler(request('POST', `/api/v1/automations/${created.body.id}/actions/enable`, { expectedVersion: created.body.version })) as { externalApiKey: string; externalApiExecutionMode: string; version: number };
   const firstKey = enabled.externalApiKey;
   assert.match(firstKey, /^ak_/);
+  assert.equal(enabled.externalApiExecutionMode, 'direct');
 
   const rotated = await router.match('POST', `/api/v1/automations/${created.body.id}/actions/rotate-external-api-key`)!.handler(request('POST', `/api/v1/automations/${created.body.id}/actions/rotate-external-api-key`)) as { body: { externalApiKey: string; externalApiKeyPrefix: string } };
   assert.notEqual(rotated.body.externalApiKey, firstKey);
@@ -99,4 +101,7 @@ test('已启用 API 自动化可以刷新 Key，旧 Key 立即失效且审计不
   assert.ok(rotation);
   assert.equal(JSON.stringify(rotation).includes(firstKey), false);
   assert.equal(JSON.stringify(rotation).includes(rotated.body.externalApiKey), false);
+
+  await router.match('POST', `/api/v1/automations/${created.body.id}/actions/disable`)!.handler(request('POST', `/api/v1/automations/${created.body.id}/actions/disable`, { expectedVersion: enabled.version }));
+  await assert.rejects(() => externalApi.authenticate(rotated.body.externalApiKey));
 });

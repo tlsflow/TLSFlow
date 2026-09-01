@@ -104,8 +104,6 @@ export class AutomationsController {
     }
     // 外部幂等键按自动化隔离，避免同一租户不同自动化之间意外复用运行结果。
     const idempotencyKey = `external:${automation.id}:${suppliedIdempotencyKey}`;
-    const executionMode = configuration.externalApi?.executionMode
-      ?? (configuration.guardrails.requireApproval ? 'approval' : 'direct');
     const run = await this.service.createOnDemandRun(
       key.tenantId,
       `external:${key.id}`,
@@ -117,7 +115,8 @@ export class AutomationsController {
         executionOptions: body?.executionOptions,
         allowCertificateDowngrade: body?.allowCertificateDowngrade,
         confirmCertificateDowngrade: body?.confirmCertificateDowngrade,
-        externalExecutionMode: executionMode,
+        // 中文说明：企业审批在调用方完成，GCAC 外部入口永远创建直接执行运行。
+        externalExecutionMode: 'direct',
       },
     );
     return { statusCode: 201, body: run };
@@ -252,9 +251,8 @@ export class AutomationsController {
       const current = await this.service.get(this.tenantId(request), id);
       if (current.configuration.trigger.type === 'api') {
         if (!this.externalApi) throw new Error('automation external API service is not configured');
-        const executionMode = current.configuration.externalApi?.executionMode
-          ?? (current.configuration.guardrails.requireApproval ? 'approval' : 'direct');
-        const issued = await this.externalApi.issue({ tenantId: this.tenantId(request), automationId: id, createdBy: subject.id, executionMode });
+        // 中文说明：外部企业入口固定为直接执行；旧配置中的 approval 仅保留读取兼容，不得继续签发为有效模式。
+        const issued = await this.externalApi.issue({ tenantId: this.tenantId(request), automationId: id, createdBy: subject.id, executionMode: 'direct' });
         response = { ...updated, externalApiKey: issued.key, externalApiKeyPrefix: issued.keyPrefix, externalApiExecutionMode: issued.executionMode };
       }
     } else if (this.externalApi) {
@@ -275,13 +273,12 @@ export class AutomationsController {
     if (automation.status !== 'active') throw new AppError('VALIDATION_FAILED', '只有已启用的自动化才能刷新外部 API Key');
     if (automation.configuration.trigger.type !== 'api') throw new AppError('VALIDATION_FAILED', '只有 API 触发的自动化才能刷新外部 API Key');
 
-    const executionMode = automation.configuration.externalApi?.executionMode
-      ?? (automation.configuration.guardrails.requireApproval ? 'approval' : 'direct');
     const issued = await this.externalApi.issue({
       tenantId: this.tenantId(request),
       automationId: id,
       createdBy: subject.id,
-      executionMode,
+      // 中文说明：轮换后的 Key 只能绑定外部直接执行语义，避免旧版本配置重新启用内部审批。
+      executionMode: 'direct',
     });
     await this.audit(
       request,

@@ -96,9 +96,25 @@ export class AutomationsApplicationService {
       externalExecutionMode?: AutomationExternalExecutionMode;
     } = {},
   ): Promise<AutomationRunDto> {
-    const existing = await this.repository.findRunByIdempotencyKey(tenantId, idempotencyKey);
-    if (existing) return existing;
     const automation = await this.repository.getAutomationOrThrow(id, tenantId);
+    const existing = await this.repository.findRunByIdempotencyKey(tenantId, idempotencyKey);
+    if (existing) {
+      const requestedCertificateVersionId = options.triggerContext?.certificateVersionId;
+      const existingCertificateVersionId = existing.triggerContext?.certificateVersionId;
+      if (existing.automationId !== id
+        || existing.automationVersion !== automation.currentVersion
+        || (requestedCertificateVersionId !== undefined && existingCertificateVersionId !== requestedCertificateVersionId)) {
+        throw new AppError('IDEMPOTENCY_CONFLICT', '自动化运行幂等键与本次请求参数冲突', {
+          idempotencyKey,
+          existingRunId: existing.id,
+          existingAutomationId: existing.automationId,
+          existingAutomationVersion: existing.automationVersion,
+          existingCertificateVersionId,
+          requestedCertificateVersionId,
+        });
+      }
+      return existing;
+    }
     this.domain.assertVersion(automation, expectedVersion);
     const version = await this.requireRunnableVersion(tenantId, automation, { allowDisabledManual: true });
     const resolver = this.effectiveResolver(version.targetResolver, version.filters ?? []);

@@ -143,6 +143,48 @@ test('通过外部 API 创建的统一任务记录独立触发来源', async () 
   assert.equal(enqueuedTasks.length, 1);
 });
 
+test('外部 API 复用幂等键时证书版本改变会被拒绝', async () => {
+  const db = new PgliteDatabase();
+  await applyAutomationMigrations(db);
+  const repository = new AutomationsRepository(db);
+  const now = '2026-08-27T00:00:00.000Z';
+  await repository.createAutomation({ id: 'aut_external_conflict', tenantId: 'tenant_1', name: '外部幂等冲突', status: 'active', currentVersion: 1, createdBy: 'u1', createdAt: now, updatedAt: now, version: 1 });
+  await repository.createVersion({
+    id: 'autv_external_conflict',
+    tenantId: 'tenant_1',
+    automationId: 'aut_external_conflict',
+    version: 1,
+    trigger: { type: 'api' },
+    targetResolver: { type: 'certificate_version_targets' },
+    actions: [{ type: 'send_notification', position: 1, config: { templateKey: 'result', eventKey: 'done' } }],
+    guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 2, requirePreview: true, requireDryRun: false, requireApproval: true },
+    checksum: 'j'.repeat(64),
+    createdBy: 'u1',
+    createdAt: now,
+  });
+  const resolverRegistry = new AutomationTargetResolverRegistry();
+  resolverRegistry.register({
+    type: 'certificate_version_targets',
+    validate: () => undefined,
+    resolve: async (input) => [{
+      target: { certificateId: 'cert-1', certificateName: 'example.com', certificateVersionId: input.triggerContext?.certificateVersionId, assetId: 'asset-1', assetName: 'app.example.com', tags: [] },
+      executable: true,
+    }],
+  });
+  const service = new AutomationsApplicationService(repository, undefined, () => new Date(now), { resolverRegistry });
+  await service.createOnDemandRun('tenant_1', 'external:api-key', 'aut_external_conflict', 'external-conflict-key', 1, {
+    triggerContext: { certificateVersionId: 'cert-version-1', sourceType: 'external_api' },
+    externalExecutionMode: 'direct',
+  });
+  await assert.rejects(
+    () => service.createOnDemandRun('tenant_1', 'external:api-key', 'aut_external_conflict', 'external-conflict-key', 1, {
+      triggerContext: { certificateVersionId: 'cert-version-2', sourceType: 'external_api' },
+      externalExecutionMode: 'direct',
+    }),
+    (error: unknown) => error instanceof AppError && error.errorCode === 'IDEMPOTENCY_CONFLICT',
+  );
+});
+
 test('外部 API 指定不存在或跨租户证书版本时拒绝创建运行', async () => {
   const db = new PgliteDatabase();
   await applyAutomationMigrations(db);
