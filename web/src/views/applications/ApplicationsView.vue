@@ -1691,10 +1691,12 @@ async function openEditDialog(row: ViewRow) {
     if (assetDraft.workflowId) await loadWorkflowVersions(assetDraft.workflowId)
     await refreshWorkflowBindingProjection()
   } catch (cause) {
-    editInitializationError.value = cause instanceof ApiClientError
+    const message = cause instanceof ApiClientError
       ? cause.message
       : cause instanceof Error ? cause.message : t('assets.errors.loadAssetDetailFailed')
-    createError.value = editInitializationError.value
+    // 详情已成功后，选择器或投影的后台失败不能清空已打开的编辑表单。
+    if (editInitializationLoading.value) editInitializationError.value = message
+    createError.value = message
     editInitializationLoading.value = false
     targetSelectionInitializing.value = false
   }
