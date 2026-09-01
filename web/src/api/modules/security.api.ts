@@ -364,13 +364,15 @@ export function listBusinessPermissionGrants(query?: BusinessListQuery): Promise
 }
 
 export function createBusinessPermissionGrant(body: Record<string, unknown>): Promise<ApiResult<ApiRecord>> {
-  return apiClient.post<ApiRecord>('/v1/security/business-permission-grants', body)
+  // 角色授权会同步投影应用关联对象，批量授权可能超过通用 30 秒请求上限。
+  return apiClient.post<ApiRecord>('/v1/security/business-permission-grants', body, { timeoutMs: 120_000 })
 }
 
 export function revokeBusinessPermissionGrant(id: string, version?: number): Promise<ApiResult<{ id: string; revoked: true; version: number }>> {
   return apiClient.request<{ id: string; revoked: true; version: number }>('/v1/security/business-permission-grants', {
     method: 'DELETE',
-    body: { id, version }
+    body: { id, version },
+    timeoutMs: 120_000
   })
 }
 

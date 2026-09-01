@@ -2,18 +2,17 @@ import type { DatabasePort } from '../../database/database-port.js';
 import type { BusinessPermissionDomain } from '../../persistence/entities/business-permission.entity.js';
 import type { BusinessPermissionResolverOptions } from './business-permission.resolver.js';
 
-interface DocumentRow extends Record<string, unknown> {
-  document_id: string;
-  payload: Record<string, unknown>;
-}
-
 interface IdRow extends Record<string, unknown> {
   id: string;
 }
 
+// 中文说明：关系投影会在一次角色授权中被连续调用多次。按数据库实例缓存
+// 文档表初始化，避免每个根对象都重复执行 DDL 并等待 PostgreSQL 元数据锁。
+const documentStoreInitialization = new WeakMap<DatabasePort, Promise<void>>();
+
 /**
- * 从业务表和执行记录投影业务根对象的关联资源。管理员永远只选择根对象，
- * 关联的计划、工作流和执行记录只能由服务端事实源生成。
+ * 从业务表投影业务根对象的必要低基数关联资源。管理员永远只选择根对象，
+ * 监控明细、执行记录等高基数资源由父级授权抽象实时判权，不再生成关系行。
  */
 export function createBusinessPermissionRelationProjector(db: DatabasePort): Required<Pick<BusinessPermissionResolverOptions, 'rootExists' | 'projectRelations'>> {
   return {
@@ -95,90 +94,95 @@ async function projectApplicationRelations(
     relatedObjectId: input.rootObjectId,
     relation: 'application-service-asset',
   });
-  const deviceAssets = (await db.query<IdRow>(
-    `select distinct target.device_asset_id as id
+  const managedTargets = (await db.query<{ device_asset_id?: string | null; service_asset_id?: string | null }>(
+    `select distinct target.device_asset_id, target.service_asset_id
        from pg_application_asset_targets relation
        join pg_managed_targets target on target.tenant_id=relation.tenant_id and target.id=relation.managed_target_id
       where relation.tenant_id=$1 and relation.application_asset_id=$2 and relation.deleted_at is null
-        and target.deleted_at is null and target.device_asset_id is not null`,
+        and target.deleted_at is null`,
     [input.tenantId, input.rootObjectId],
   )).rows;
+  const serviceAssetIds = [...new Set([
+    input.rootObjectId,
+    ...managedTargets.map((item) => item.service_asset_id).filter((id): id is string => Boolean(id)),
+    ...managedTargets.map((item) => item.device_asset_id).filter((id): id is string => Boolean(id)),
+  ])];
+  relations.push(...serviceAssetIds
+    .filter((id) => id !== input.rootObjectId)
+    .map((id) => ({ relatedObjectType: 'service_asset', relatedObjectId: id, relation: 'application-service-asset' })));
+  const deviceAssetIds = managedTargets
+    .map((item) => item.device_asset_id)
+    .filter((id): id is string => Boolean(id));
+  const hosts = deviceAssetIds.length > 0
+    ? await queryOptional<IdRow>(db,
+      `select distinct device.host_id as id
+         from pg_device_assets device
+        where device.tenant_id=$1 and device.service_asset_id = any($2::text[])
+          and device.host_id is not null`,
+      [input.tenantId, deviceAssetIds])
+    : [];
+  relations.push(...hosts.map((item) => ({ relatedObjectType: 'host', relatedObjectId: item.id, relation: 'application-host' })));
+  relations.push(...deviceAssetIds.map((id) => ({ relatedObjectType: 'device_asset', relatedObjectId: id, relation: 'application-device' })));
+  const managedTargetIds = (await db.query<IdRow>(
+    `select distinct relation.managed_target_id as id
+       from pg_application_asset_targets relation
+      where relation.tenant_id=$1 and relation.application_asset_id=$2 and relation.deleted_at is null`,
+    [input.tenantId, input.rootObjectId],
+  )).rows.map((item) => item.id);
   const bindings = (await db.query<IdRow>(
     `select distinct binding.id
        from pg_certificate_bindings binding
       where binding.tenant_id=$1 and binding.deleted_at is null and (
-        binding.service_asset_id=$2
-        or binding.managed_target_id in (
-          select relation.managed_target_id from pg_application_asset_targets relation
-           where relation.tenant_id=$1 and relation.application_asset_id=$2 and relation.deleted_at is null
-        )
+        binding.service_asset_id = any($2::text[])
+        or binding.managed_target_id = any($3::text[])
       )`,
-    [input.tenantId, input.rootObjectId],
+    [input.tenantId, serviceAssetIds, managedTargetIds],
   )).rows;
-  relations.push(...deviceAssets.map((item) => ({ relatedObjectType: 'device_asset', relatedObjectId: item.id, relation: 'application-device' })));
   relations.push(...bindings.map((item) => ({ relatedObjectType: 'certificate_binding', relatedObjectId: item.id, relation: 'application-certificate' })));
+
+  const deploymentPlans = await queryOptional<IdRow>(db,
+    `select distinct payload->>'deploymentPlanId' as id
+       from pg_documents
+      where namespace = 'deployment-plans:targets'
+        and payload->>'tenantId' = $1
+        and payload->>'applicationAssetId' = $2
+        and coalesce(payload->>'deploymentPlanId', '') <> ''`,
+    [input.tenantId, input.rootObjectId],
+  );
+  relations.push(...deploymentPlans.map((item) => ({ relatedObjectType: 'deployment_plan', relatedObjectId: item.id, relation: 'application-deployment-plan' })));
 
   const monitorTargets = await queryOptional<IdRow>(db,
     `select id from pg_monitor_targets
-      where tenant_id=$1 and service_asset_id=$2 and deleted_at is null`,
-    [input.tenantId, input.rootObjectId],
+      where tenant_id=$1 and service_asset_id = any($2::text[]) and deleted_at is null`,
+    [input.tenantId, serviceAssetIds],
   );
   relations.push(...monitorTargets.map((item) => ({ relatedObjectType: 'monitor_target', relatedObjectId: item.id, relation: 'application-monitor-target' })));
   relations.push({ relatedObjectType: 'monitor_dashboard', relatedObjectId: input.rootObjectId, relation: 'application-monitor-dashboard' });
-  const monitorRisks = await queryOptional<IdRow>(db,
-    `select id from pg_monitor_risk_events
-      where coalesce(tenant_id,$1)=$1 and scope->>'serviceAssetId'=$2`,
-    [input.tenantId, input.rootObjectId],
-  );
-  relations.push(...monitorRisks.map((item) => ({ relatedObjectType: 'monitor_risk', relatedObjectId: item.id, relation: 'application-monitor-risk' })));
-  const probeResults = await queryOptional<IdRow>(db,
-    `select id from pg_monitor_probe_results
-      where tenant_id=$1 and service_asset_id=$2`,
-    [input.tenantId, input.rootObjectId],
-  );
-  relations.push(...probeResults.map((item) => ({ relatedObjectType: 'monitor_probe_result', relatedObjectId: item.id, relation: 'application-monitor-probe' })));
-  const observations = await queryOptional<IdRow>(db,
-    `select id from pg_monitor_certificate_observations
-      where coalesce(tenant_id,$1)=$1 and service_asset_id=$2`,
-    [input.tenantId, input.rootObjectId],
-  );
-  relations.push(...observations.map((item) => ({ relatedObjectType: 'monitor_certificate_observation', relatedObjectId: item.id, relation: 'application-monitor-observation' })));
-
-  const targets = (await db.query<DocumentRow>(
-    `select document_id, payload from pg_documents where namespace='deployment-plans:targets'`,
-  )).rows.filter((item) => item.payload.tenantId === input.tenantId && item.payload.applicationAssetId === input.rootObjectId);
-  const planIds = new Set(targets.map((item) => stringValue(item.payload.deploymentPlanId)).filter((item): item is string => Boolean(item)));
-  relations.push(...[...planIds].map((id) => ({ relatedObjectType: 'deployment_plan', relatedObjectId: id, relation: 'application-plan' })));
-  for (const target of targets) {
-    const workflowId = workflowIdFromTarget(target.payload);
-    if (workflowId) relations.push({ relatedObjectType: 'workflow', relatedObjectId: workflowId, relation: 'application-workflow' });
-  }
-  if (planIds.size > 0) {
-    const runs = (await db.query<DocumentRow>(
-      `select document_id, payload from pg_documents where namespace='executions:runs'`,
-    )).rows.filter((item) => item.payload.tenantId === input.tenantId && planIds.has(stringValue(item.payload.deploymentPlanId) ?? ''));
-    relations.push(...runs.map((item) => ({ relatedObjectType: 'execution_run', relatedObjectId: item.document_id, relation: 'application-execution' })));
-    const runIds = new Set(runs.map((item) => item.document_id));
-    if (runIds.size > 0) {
-      const steps = (await db.query<DocumentRow>(
-        `select document_id, payload from pg_documents where namespace='executions:steps'`,
-      )).rows.filter((item) => item.payload.tenantId === input.tenantId && runIds.has(stringValue(item.payload.executionRunId) ?? ''));
-      relations.push(...steps.map((item) => ({ relatedObjectType: 'execution_step', relatedObjectId: item.document_id, relation: 'application-execution-step' })));
-    }
-  }
+  // 监控探针、证书观测、风险事件和执行明细通过 service_asset 父级授权判断，
+  // 不再把高基数明细复制成业务权限关系。
   return uniqueRelations(relations);
 }
 
 async function ensureDocumentStore(db: DatabasePort): Promise<void> {
-  await db.exec(`
-    create table if not exists pg_documents (
-      namespace varchar(128) not null,
-      document_id varchar(128) not null,
-      payload jsonb not null,
-      updated_at timestamptz not null default now(),
-      primary key (namespace, document_id)
-    );
-  `);
+  const existing = documentStoreInitialization.get(db);
+  if (existing) {
+    await existing;
+    return;
+  }
+  const initialization = db.exec(`
+      create table if not exists pg_documents (
+        namespace varchar(128) not null,
+        document_id varchar(128) not null,
+        payload jsonb not null,
+        updated_at timestamptz not null default now(),
+        primary key (namespace, document_id)
+      );
+    `).catch((error) => {
+      documentStoreInitialization.delete(db);
+      throw error;
+    });
+  documentStoreInitialization.set(db, initialization);
+  await initialization;
 }
 
 async function queryOptional<T extends Record<string, unknown>>(db: DatabasePort, sql: string, params: unknown[]): Promise<T[]> {
@@ -190,24 +194,6 @@ async function queryOptional<T extends Record<string, unknown>>(db: DatabasePort
     if ((error as { code?: string } | undefined)?.code === '42P01') return [];
     throw error;
   }
-}
-
-function workflowIdFromTarget(target: Record<string, unknown>): string | undefined {
-  const strategy = recordValue(target.strategyPayload);
-  const executionSource = recordValue(strategy?.executionSource);
-  const workflowRequest = recordValue(strategy?.workflowRequest);
-  return stringValue(executionSource?.workflowTemplateId)
-    ?? stringValue(executionSource?.workflowId)
-    ?? stringValue(workflowRequest?.workflowTemplateId)
-    ?? stringValue(workflowRequest?.workflowId);
-}
-
-function recordValue(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() !== '' ? value : undefined;
 }
 
 function uniqueRelations(items: Array<{ relatedObjectType: string; relatedObjectId: string; relation: string }>) {

@@ -90,6 +90,7 @@ export const BUSINESS_PERMISSION_REGISTRY: Readonly<Record<BusinessPermissionDom
           resource('application_asset', 'read', 'application.read', 'application.asset.rescan', 'application.monitor.read'),
           resource('service_asset', 'read', 'application.read', 'application.asset.rescan', 'application.monitor.read'),
           resource('device_asset', 'read', 'application.device.read'),
+          resource('host', 'read', 'host.read', 'application.device.read'),
           resource('certificate_binding', 'read', 'application.certificate.read'),
           resource('monitor_target', 'read', 'application.monitor.read', 'monitor.target.read'),
           resource('monitor_risk', 'read', 'application.monitor.read', 'monitor.risk.read'),
@@ -101,10 +102,12 @@ export const BUSINESS_PERMISSION_REGISTRY: Readonly<Record<BusinessPermissionDom
       },
       manager: {
         resources: [
-          resource('application_asset', 'edit', 'application.read', 'application.update', 'application.asset.rescan', 'application.monitor.read'),
-          resource('service_asset', 'edit', 'application.read', 'application.update', 'service_asset.manage', 'application.asset.rescan', 'application.monitor.read'),
+          resource('application_asset', 'edit', 'application.read', 'application.update', 'application.certificate.update', 'application.deployment.execute', 'application.asset.rescan', 'application.monitor.read'),
+          resource('service_asset', 'edit', 'application.read', 'application.update', 'application.certificate.update', 'application.deployment.execute', 'service_asset.manage', 'application.asset.rescan', 'application.monitor.read'),
           resource('device_asset', 'edit', 'application.device.read', 'application.device.update'),
+          resource('host', 'read', 'host.read', 'application.device.read'),
           resource('certificate_binding', 'edit', 'application.certificate.read', 'application.certificate.update', 'binding.manage', 'certificate.binding.update'),
+          resource('deployment_plan', 'control', 'application.deployment.read', 'application.deployment.submit', 'application.deployment.execute'),
           resource('monitor_target', 'read', 'application.monitor.read', 'monitor.target.read'),
           resource('monitor_risk', 'read', 'application.monitor.read', 'monitor.risk.read'),
           resource('monitor_dashboard', 'read', 'application.monitor.read', 'monitor.dashboard.read'),

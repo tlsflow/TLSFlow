@@ -159,6 +159,8 @@ export class BusinessPermissionResolver {
     );
     // 同一角色、主体、范围和效果的重复提交直接返回现有记录，保证网络重试不会产生第二份授权。
     if (existing.length > 0) return existing[0];
+    // 只有创建/变更授权时刷新低基数关系；权限读取路径绝不写关系表。
+    await this.refreshProjectedRelations(input);
     const resolution = await this.resolveGrant({
       tenantId: input.tenantId,
       domain: input.domain,
@@ -288,7 +290,6 @@ export class BusinessPermissionResolver {
     const definition = this.requireDefinition(input.domain, input.level);
     this.validateRoot(definition, input.rootObjectType, input.rootObjectId, input.domain);
     await this.assertTenantRoot(input.tenantId, input.rootObjectType, input.rootObjectId);
-    await this.refreshProjectedRelations(input);
     const rules = definition.levels[input.level].resources;
     const relationRows = input.rootObjectId
       ? await this.relations.list((item) =>
@@ -298,8 +299,30 @@ export class BusinessPermissionResolver {
         && item.rootObjectId === input.rootObjectId,
       )
       : [];
-    if (input.domain === 'application' && input.rootObjectId && relationRows.length === 0) {
-      return this.deniedResolution(input.domain, input.level, { tenantId: input.tenantId, objectType: input.rootObjectType, objectId: input.rootObjectId }, 'application relations missing');
+    // 关系表是可重建缓存。旧授权可能在关系投影规则更新前创建，读取时合并当前事实投影，
+    // 确保权限变更立即反映到资产和监控等关联资源，同时不在读路径写数据库。
+    if (input.rootObjectId && this.options.projectRelations) {
+      const projected = await this.options.projectRelations({
+        tenantId: input.tenantId,
+        domain: input.domain,
+        rootObjectType: input.rootObjectType,
+        rootObjectId: input.rootObjectId,
+      });
+      if (projected) {
+        const known = new Set(relationRows.map((item) => `${item.relatedObjectType}:${item.relatedObjectId}:${item.relation}`));
+        relationRows.push(...projected
+          .filter((item) => !known.has(`${item.relatedObjectType}:${item.relatedObjectId}:${item.relation}`))
+          .map((item) => ({
+            id: `projected:${input.domain}:${input.rootObjectType}:${input.rootObjectId}:${item.relatedObjectType}:${item.relatedObjectId}:${item.relation}`,
+            tenantId: input.tenantId,
+            rootDomain: input.domain,
+            rootObjectType: input.rootObjectType,
+            rootObjectId: input.rootObjectId!,
+            ...item,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          })));
+      }
     }
     const related = new Map<string, BusinessPermissionResource>();
     for (const rule of rules) {

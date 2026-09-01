@@ -19,6 +19,25 @@ function createResolver(
 }
 
 describe('BusinessPermissionResolver', () => {
+  it('权限读取路径合并最新关系投影，创建授权仍会持久化刷新', async () => {
+    let projectionCalls = 0;
+    const db = new PgliteDatabase();
+    const grants = new PgDocumentRepository<BusinessPermissionGrantEntity>(db, 'test.no_side_effect.grants');
+    const relations = new PgDocumentRepository<BusinessPermissionRelationEntity>(db, 'test.no_side_effect.relations');
+    const resolver = new BusinessPermissionResolver(grants, relations, undefined, {
+      rootExists: async () => true,
+      projectRelations: async () => {
+        projectionCalls += 1;
+        return [{ relatedObjectType: 'service_asset', relatedObjectId: 'app_1', relation: 'application-root' }];
+      },
+    });
+    const subject = { id: 'u1', type: 'user' as const, scope: { tenantId: 'tenant_a' } };
+    await resolver.resolveGrant({ tenantId: 'tenant_a', domain: 'application', level: 'user', rootObjectType: 'service_asset', rootObjectId: 'app_1', effect: 'allow' });
+    await resolver.list(subject);
+    assert.equal(projectionCalls, 1);
+    await resolver.create({ tenantId: 'tenant_a', principalType: 'user', principalId: 'u1', roleId: 'r1', domain: 'application', level: 'user', rootObjectType: 'service_asset', rootObjectId: 'app_1', createdBy: 'admin' });
+    assert.equal(projectionCalls, 3);
+  });
   it('固定四个业务域和两个级别，并拒绝未知根对象', async () => {
     const { resolver } = createResolver();
     assert.deepEqual(BUSINESS_PERMISSION_DOMAINS, ['certificate', 'application', 'audit', 'settings']);
@@ -52,11 +71,11 @@ describe('BusinessPermissionResolver', () => {
     assert.equal((await resolver.list()).length, 1);
   });
 
-  it('应用关系缺失时失败关闭，关联完整时返回应用业务资源', async () => {
+  it('应用根对象可直接授权，关联低基数资源时返回应用业务资源', async () => {
     const { resolver } = createResolver();
     const denied = await resolver.resolveGrant({ tenantId: 'tenant_a', domain: 'application', level: 'manager', rootObjectType: 'service_asset', rootObjectId: 'app_1', effect: 'allow' });
-    assert.equal(denied.allowed, false);
-    assert.equal(denied.reason, 'application relations missing');
+    assert.equal(denied.allowed, true);
+    assert.equal(denied.reason, 'allow');
 
     for (const [objectType, objectId, relation] of [
       ['device_asset', 'device_1', 'application-device'],
@@ -97,6 +116,7 @@ describe('BusinessPermissionResolver', () => {
     });
     const subject = { id: 'u1', type: 'user' as const, scope: { tenantId: 'tenant_a' } };
     assert.equal(await resolver.isActionAllowed(subject, 'application.update', { type: 'service_asset', id: 'app_1', tenantId: 'tenant_a' }), true);
+    assert.equal(await resolver.isActionAllowed(subject, 'application.deployment.execute', { type: 'service_asset', id: 'app_1', tenantId: 'tenant_a' }), true);
     assert.equal(await resolver.isActionAllowed(subject, 'application.create', { type: 'service_asset', tenantId: 'tenant_a' }), false);
   });
 
@@ -188,12 +208,12 @@ describe('BusinessPermissionResolver', () => {
       rootObjectId,
       effect: 'allow' as const,
     };
-    const first = await resolver.resolveGrant(input);
-    const second = await resolver.resolveGrant(input);
+    const first = await resolver.create({ ...input, principalType: 'user', principalId: 'u1', roleId: 'r1', createdBy: 'admin' });
+    const second = await resolver.create({ ...input, principalType: 'user', principalId: 'u1', roleId: 'r1', createdBy: 'admin' });
     const rows = await relations.list();
 
-    assert.equal(first.allowed, true);
-    assert.equal(second.allowed, true);
+    assert.equal(first.status, 'active');
+    assert.equal(second.id, first.id);
     assert.equal(rows.length, 1);
     assert.equal(rows[0]?.id.startsWith('bprel_'), true);
     assert.ok((rows[0]?.id.length ?? Infinity) <= 128);

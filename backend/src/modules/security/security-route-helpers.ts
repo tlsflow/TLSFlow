@@ -6,6 +6,8 @@ import type { AccessLevel } from '../../persistence/entities/object-permission.e
 import type { ResourceOwnerType, ResourceScope, SecuritySubject } from '../../shared/security-types.js';
 import type { ObjectRef } from './object-permission.service.js';
 import type { SecurityServices } from './security.controller.js';
+import { ResourceAuthorizationScopeResolver } from './resource-authorization-scope.resolver.js';
+import { securityErrors } from '../../shared/security-error.js';
 
 export interface RouteSecurityContext {
   request: HttpRequest;
@@ -101,6 +103,55 @@ export async function filterAuthorizedItems<T extends object>(
       objectIdField,
     },
   });
+}
+
+/** 监控明细统一按登记的父级对象授权过滤，禁止回退到明细关系投影。 */
+export async function filterAuthorizedResourceItems<T extends object>(
+  context: RouteSecurityContext,
+  items: T[],
+  resourceType: string,
+  accessLevel: AccessLevel,
+): Promise<T[]> {
+  const resolver = new ResourceAuthorizationScopeResolver(context.services.objectPermissions);
+  const cache = new Map<string, Promise<boolean>>();
+  const authorized: T[] = [];
+  for (const item of items) {
+    const key = JSON.stringify([resourceType, accessLevel, resolver.parentKeys(resourceType, item, context.tenantId)]);
+    const pending = cache.get(key) ?? resolver.isAllowed(context.subject, resourceType, accessLevel, item, context.tenantId);
+    cache.set(key, pending);
+    if (await pending) authorized.push(item);
+  }
+  return authorized;
+}
+
+export async function authorizedParentObjectIds(
+  context: RouteSecurityContext,
+  resourceType: string,
+  accessLevel: AccessLevel,
+): Promise<string[] | undefined> {
+  return new ResourceAuthorizationScopeResolver(context.services.objectPermissions)
+    .parentObjectIds(context.subject, resourceType, accessLevel);
+}
+
+export async function authorizedParentObjectIdMap(
+  context: RouteSecurityContext,
+  resourceType: string,
+  accessLevel: AccessLevel,
+): Promise<Record<string, string[]> | undefined> {
+  return new ResourceAuthorizationScopeResolver(context.services.objectPermissions)
+    .parentObjectIdMap(context.subject, resourceType, accessLevel);
+}
+
+export async function assertResourceObjectAccess(
+  context: RouteSecurityContext,
+  accessLevel: AccessLevel,
+  resourceType: string,
+  item: object,
+): Promise<void> {
+  const resolver = new ResourceAuthorizationScopeResolver(context.services.objectPermissions);
+  if (!await resolver.isAllowed(context.subject, resourceType, accessLevel, item, context.tenantId)) {
+    throw securityErrors.permissionDenied({ action: `${resourceType}.${accessLevel}`, resourceType });
+  }
 }
 
 export function normalizeRouteObjectRef(object: ObjectRef, fallbackTenantId: string): ObjectRef {
