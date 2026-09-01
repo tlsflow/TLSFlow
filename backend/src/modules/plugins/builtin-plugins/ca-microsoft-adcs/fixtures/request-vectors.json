@@ -1,7 +1,7 @@
 {
   "apiVersion": "gcac.ca-fixture/v1",
   "pluginId": "ca.microsoft-adcs",
-  "pluginVersion": "1.0.1",
+  "pluginVersion": "1.0.14",
   "operations": ["create", "issue", "renew", "revoke", "recover"],
   "agentBoundary": { "controlPlaneProduces": "AgentPlanV1", "agentSideConsumes": "AgentPlanV1", "receipt": "AgentExecutionReceiptV1" },
   "negativeCases": ["missing-token", "missing-decision", "missing-local-policy", "plan-digest-mismatch", "nonce-replay", "unknown-receipt"]
