@@ -12040,6 +12040,15 @@
                       "adcs_agent"
                     ]
                   },
+                  "platformFamily": {
+                    "type": "string",
+                    "enum": [
+                      "red-hat",
+                      "debian-ubuntu",
+                      "kylin",
+                      "uos"
+                    ]
+                  },
                   "zone": {
                     "type": "string"
                   },
@@ -12154,6 +12163,15 @@
                         "full_agent",
                         "gateway",
                         "adcs_agent"
+                      ]
+                    },
+                    "platformFamily": {
+                      "type": "string",
+                      "enum": [
+                        "red-hat",
+                        "debian-ubuntu",
+                        "kylin",
+                        "uos"
                       ]
                     },
                     "relayAllowedTargets": {
@@ -12445,6 +12463,15 @@
                     "enum": [
                       "full_agent",
                       "gateway"
+                    ]
+                  },
+                  "platformFamily": {
+                    "type": "string",
+                    "enum": [
+                      "red-hat",
+                      "debian-ubuntu",
+                      "kylin",
+                      "uos"
                     ]
                   },
                   "zone": {

@@ -7930,6 +7930,13 @@ paths:
                     - "full_agent"
                     - "gateway"
                     - "adcs_agent"
+                platformFamily:
+                  type: "string"
+                  enum:
+                    - "red-hat"
+                    - "debian-ubuntu"
+                    - "kylin"
+                    - "uos"
                 zone:
                   type: "string"
                 agentKey:
@@ -8010,6 +8017,13 @@ paths:
                       - "full_agent"
                       - "gateway"
                       - "adcs_agent"
+                  platformFamily:
+                    type: "string"
+                    enum:
+                      - "red-hat"
+                      - "debian-ubuntu"
+                      - "kylin"
+                      - "uos"
                   relayAllowedTargets:
                     type: "array"
                     items:
@@ -8199,6 +8213,13 @@ paths:
                   enum:
                     - "full_agent"
                     - "gateway"
+                platformFamily:
+                  type: "string"
+                  enum:
+                    - "red-hat"
+                    - "debian-ubuntu"
+                    - "kylin"
+                    - "uos"
                 zone:
                   type: "string"
                 agentKey:
