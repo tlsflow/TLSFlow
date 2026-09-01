@@ -1257,7 +1257,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('automationEventDelivery', automationEventDelivery);
   const applicationExecutionCompatibility = new ApplicationExecutionCompatibilityService(appDb);
   app.setResource('applicationExecutionCompatibility', applicationExecutionCompatibility);
-  assetsService.setApplicationExecutionCompatibilityService(applicationExecutionCompatibility);
+  assetsService.setApplicationExecutionCompatibilityService?.(applicationExecutionCompatibility);
   deploymentPlans.getApplicationService().setApplicationExecutionCompatibilityService(applicationExecutionCompatibility);
   new AssetsController(
     security,
