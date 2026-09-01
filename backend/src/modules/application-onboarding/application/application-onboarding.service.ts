@@ -11,6 +11,7 @@ import type {
   ApplicationOnboardingSessionDto,
   CreateOnboardingSessionInput,
   OnboardingDeviceOptionDto,
+  OnboardingResourceOptionDto,
   OnboardingPlatformBusinessMetadataDto,
   OnboardingPlatformDto,
   OnboardingTargetOptionDto,
@@ -23,6 +24,8 @@ export interface OnboardingExecutionPort {
   /** 校验已有设备属于当前租户且具备配方要求的插件能力。 */
   validateExistingDevice?: (tenantId: string, deviceId: string, session: ApplicationOnboardingSessionDto, recipe: LoadedApplicationOnboardingRecipe) => Promise<void>;
   listExistingDevices?: (tenantId: string, session: ApplicationOnboardingSessionDto, recipe: LoadedApplicationOnboardingRecipe) => Promise<OnboardingDeviceOptionDto[]>;
+  listExistingResources?: (tenantId: string, session: ApplicationOnboardingSessionDto, recipe: LoadedApplicationOnboardingRecipe) => Promise<OnboardingResourceOptionDto[]>;
+  validateExistingServiceAsset?: (tenantId: string, serviceAssetId: string, session: ApplicationOnboardingSessionDto, recipe: LoadedApplicationOnboardingRecipe) => Promise<void>;
   testConnection?: (tenantId: string, session: ApplicationOnboardingSessionDto, recipe: LoadedApplicationOnboardingRecipe) => Promise<void>;
   discover?: (tenantId: string, session: ApplicationOnboardingSessionDto, recipe: LoadedApplicationOnboardingRecipe) => Promise<OnboardingTargetOptionDto[]>;
   /** 宿主只有在真正接入了直工作流发现/连接适配器时才暴露该平台。 */
@@ -113,8 +116,8 @@ export class ApplicationOnboardingService {
     const session: ApplicationOnboardingSessionDto = {
       id: newId('onboard'), tenantId, actorId, platformKey: input.platformKey,
       pluginVersionId: recipe.pluginVersionId, recipeHash: recipe.recipeHash,
-      // 新配方统一先选择真实设备；保留 NONE 以兼容已发布的无设备直工作流会话。
-      state: recipe.recipe.deviceSelection === 'NONE' ? 'CONNECTION_TESTING' : 'PLATFORM_SELECTED', stateVersion: 1, deploymentMode: recipe.recipe.deploymentMode,
+      // NONE 仅跳过设备选择；直工作流仍需先选择云服务资产。
+      state: requiresResourceSelection(recipe) ? 'RESOURCE_SELECTION_REQUIRED' : 'CONNECTION_TESTING', stateVersion: 1, deploymentMode: recipe.recipe.deploymentMode,
       inputSnapshot: {}, targets: [], idempotencyKey: input.idempotencyKey,
       createdAt: now.toISOString(), updatedAt: now.toISOString(), expiresAt: new Date(now.getTime() + 30 * 60 * 1000).toISOString(),
     };
@@ -131,15 +134,28 @@ export class ApplicationOnboardingService {
     return session;
   }
 
-  async selectResource(tenantId: string, id: string, input: StateVersionInput & { mode: 'EXISTING_DEVICE' | 'NEW_DEVICE'; deviceId?: string; values?: Record<string, unknown> }): Promise<ApplicationOnboardingSessionDto> {
+  async selectResource(tenantId: string, id: string, input: StateVersionInput & { mode: 'EXISTING_DEVICE' | 'EXISTING_SERVICE_ASSET' | 'NEW_DEVICE'; deviceId?: string; assetId?: string; values?: Record<string, unknown> }): Promise<ApplicationOnboardingSessionDto> {
     const session = await this.getSession(tenantId, id);
     const recipe = await this.recipeForSession(tenantId, session);
-    if (input.mode === 'EXISTING_DEVICE') {
+    if (input.mode === 'EXISTING_DEVICE' || input.mode === 'EXISTING_SERVICE_ASSET') {
+      if (input.mode === 'EXISTING_SERVICE_ASSET') {
+        const assetId = input.assetId?.trim();
+        if (!assetId) throw new AppError('VALIDATION_FAILED', '选择云服务资产时必须提供资产 ID', { code: 'ONBOARDING_SERVICE_ASSET_REQUIRED' });
+        if (!isResourceSelectionState(session.state)) {
+          if (session.assetId === assetId && hasSelectedResource(session.state)) return session;
+          throw invalidState(session, '不能重复选择资源来源');
+        }
+        if (!this.execution.validateExistingServiceAsset) throw new AppError('SYSTEM_INTERNAL_ERROR', '云服务资产校验服务未接入', { code: 'ONBOARDING_SERVICE_ASSET_VALIDATION_UNAVAILABLE' });
+        await this.execution.validateExistingServiceAsset(tenantId, assetId, session, recipe);
+        const updated = await this.repository.update(tenantId, id, input.expectedStateVersion, { state: 'CONNECTION_TESTING', deviceId: null, assetId, inputSnapshot: sanitizeInput(input.values ?? {}) });
+        if (!updated) throw versionConflict();
+        return updated;
+      }
       const deviceId = input.deviceId?.trim();
       if (!deviceId) throw new AppError('VALIDATION_FAILED', '选择已有设备时必须提供设备 ID', { code: 'ONBOARDING_DEVICE_REQUIRED' });
       if (!isResourceSelectionState(session.state)) {
         if (session.deviceId === deviceId && hasSelectedResource(session.state)) return session;
-        throw invalidState(session, '不能重复选择设备来源');
+        throw invalidState(session, '不能重复选择资源来源');
       }
       if (!this.execution.validateExistingDevice) {
         throw new AppError('SYSTEM_INTERNAL_ERROR', '已有设备校验服务未接入', { code: 'ONBOARDING_DEVICE_VALIDATION_UNAVAILABLE' });
@@ -186,8 +202,8 @@ export class ApplicationOnboardingService {
     const session = await this.getSession(tenantId, id);
     const recipe = await this.recipeForSession(tenantId, session);
     if (!['CONNECTION_TESTING', 'DEVICE_ONBOARDING'].includes(session.state)) throw invalidState(session, '当前阶段不能测试连接');
-    if (recipe.recipe.deviceSelection !== 'NONE' && !session.deviceId) {
-      throw new AppError('VALIDATION_FAILED', '连接测试缺少设备 ID', { code: 'ONBOARDING_DEVICE_REQUIRED' });
+    if (requiresResourceSelection(recipe) && !session.deviceId && !session.assetId) {
+      throw new AppError('VALIDATION_FAILED', '连接测试缺少已选择资源', { code: 'ONBOARDING_DEVICE_REQUIRED' });
     }
     if (!this.execution.testConnection) {
       throw new AppError('SYSTEM_INTERNAL_ERROR', '连接测试服务未接入', { code: 'ONBOARDING_CONNECTION_TEST_UNAVAILABLE' });
@@ -209,8 +225,8 @@ export class ApplicationOnboardingService {
     const session = await this.getSession(tenantId, id);
     const recipe = await this.recipeForSession(tenantId, session);
     if (!['DISCOVERING', 'TARGET_SELECTION_REQUIRED'].includes(session.state)) throw invalidState(session, '当前阶段不能扫描站点');
-    if (recipe.recipe.deviceSelection !== 'NONE' && !session.deviceId) {
-      throw new AppError('VALIDATION_FAILED', '扫描站点缺少设备 ID', { code: 'ONBOARDING_DEVICE_REQUIRED' });
+    if (requiresResourceSelection(recipe) && !session.deviceId && !session.assetId) {
+      throw new AppError('VALIDATION_FAILED', '扫描站点缺少已选择资源', { code: 'ONBOARDING_DEVICE_REQUIRED' });
     }
     if (!this.execution.discover) {
       throw new AppError('SYSTEM_INTERNAL_ERROR', '站点发现服务未接入', { code: 'ONBOARDING_DISCOVERY_UNAVAILABLE' });
@@ -237,6 +253,12 @@ export class ApplicationOnboardingService {
     const recipe = await this.recipeForSession(tenantId, session);
     if (!this.execution.listExistingDevices) return [];
     return this.execution.listExistingDevices(tenantId, session, recipe);
+  }
+
+  async resources(tenantId: string, id: string): Promise<OnboardingResourceOptionDto[]> {
+    const session = await this.getSession(tenantId, id);
+    const recipe = await this.recipeForSession(tenantId, session);
+    return this.execution.listExistingResources ? this.execution.listExistingResources(tenantId, session, recipe) : [];
   }
 
   async certificateOptions(tenantId: string, id: string, certificateAssetId?: string): Promise<{ assets: CertificateAssetDto[]; versions: CertificateVersionDto[] }> {
@@ -406,6 +428,10 @@ function highestEnabledVersionsPerPlugin(versions: UnifiedPluginVersionRecord[])
     if (highest) selected.push(highest);
   }
   return selected;
+}
+
+function requiresResourceSelection(recipe: LoadedApplicationOnboardingRecipe): boolean {
+  return recipe.recipe.deviceSelection !== 'NONE' || recipe.recipe.deploymentMode === 'DIRECT_WORKFLOW';
 }
 
 function sanitizeInput(input: Record<string, unknown>): Record<string, unknown> {

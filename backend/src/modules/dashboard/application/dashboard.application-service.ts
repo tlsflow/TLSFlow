@@ -139,9 +139,6 @@ export class DashboardApplicationService {
         bindings: bindings.items,
         secrets: this.dependencies.secrets,
         certificates: this.dependencies.certificates,
-        labelScope: 'referenced',
-        preloadedCertificateAssets: certificateAssets.items,
-        preloadedCertificateVersions: certificateVersions.items,
       })
       : emptyAuditPresentationContext();
 
@@ -220,9 +217,6 @@ export class DashboardApplicationService {
         bindings: model.bindings,
         secrets: this.dependencies.secrets,
         certificates: this.dependencies.certificates,
-        labelScope: 'referenced',
-        preloadedCertificateAssets: model.certificateAssets,
-        preloadedCertificateVersions: model.certificateVersions,
       })
       : emptyAuditPresentationContext();
 

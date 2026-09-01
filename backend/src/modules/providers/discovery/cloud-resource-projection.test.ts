@@ -114,13 +114,15 @@ test('账号级 CDN 投影不创建伪设备，区域生成 Framework，实例�
     topology: 'ACCOUNT_FRAMEWORK',
     providerDisplayName: '阿里云 CDN',
   }, [
-    { ...resource, metadata: { cdnRegion: 'mainland', cdnRegionName: '中国大陆' } },
+    { ...resource, frameworkKey: 'cdn.mainland', frameworkDisplayName: '阿里云 CDN · 中国大陆', metadata: { cdnRegion: 'mainland', cdnRegionName: '中国大陆' } },
     {
       ...resource,
       stableKey: 'cloud.aliyun:cdn.domain:global.example',
       resourceId: 'global.example',
       displayName: 'global.example',
       region: 'global',
+      frameworkKey: 'cdn.global',
+      frameworkDisplayName: '阿里云 CDN · 国际站',
       metadata: { cdnRegion: 'global', cdnRegionName: '国际站' },
     },
   ]);
@@ -131,7 +133,7 @@ test('账号级 CDN 投影不创建伪设备，区域生成 Framework，实例�
   ]);
   assert.equal(projection.sites.length, 2);
   assert.ok(projection.sites.every((site) => site.deviceId === undefined));
-  assert.deepEqual(service.preview({ ...context(), topology: 'ACCOUNT_FRAMEWORK' }, [resource]), { devices: 0, frameworks: 2, sites: 1, managedTargets: 0 });
+  assert.deepEqual(service.preview({ ...context(), topology: 'ACCOUNT_FRAMEWORK' }, [resource]), { devices: 0, frameworks: 1, sites: 1, managedTargets: 0 });
 });
 
 test('账号级 CDN 投影将历史全球文案规范化为国际站', () => {
@@ -142,12 +144,14 @@ test('账号级 CDN 投影将历史全球文案规范化为国际站', () => {
   }, [{
     ...resource,
     region: 'global',
+    frameworkKey: 'cdn.global',
+    frameworkDisplayName: '阿里云 CDN · 国际站',
     metadata: { cdnRegion: 'global', cdnRegionName: '全球' },
   }]);
   assert.equal(projection.frameworks.find((item) => item.frameworkKey === 'cdn.global')?.displayName, '阿里云 CDN · 国际站');
 });
 
-test('账号级 CDN 即使没有域名也固定生成中国大陆和国际站 Framework', () => {
+test('账号级 CDN 没有域名时不生成空的中国大陆或国际站 Framework', () => {
   const service = new CloudResourceProjectionService();
   const projection = service.projectBatch({
     ...context(),
@@ -155,11 +159,37 @@ test('账号级 CDN 即使没有域名也固定生成中国大陆和国际站 Fr
     providerDisplayName: '阿里云 CDN',
   }, []);
   assert.equal(projection.devices.length, 0);
-  assert.deepEqual(projection.frameworks.map((item) => [item.frameworkKey, item.displayName, item.versionText]), [
-    ['cdn.global', '阿里云 CDN · 国际站', '0 resources'],
-    ['cdn.mainland', '阿里云 CDN · 中国大陆', '0 resources'],
-  ]);
+  assert.deepEqual(projection.frameworks, []);
   assert.equal(projection.sites.length, 0);
+});
+
+test('账号级拓扑完全使用插件声明的 Framework 分组，不依赖厂商名称', () => {
+  const service = new CloudResourceProjectionService();
+  const genericContext = {
+    tenantId: 'tenant-generic-provider',
+    cloudAccountAssetId: 'account-generic-provider',
+    pluginId: 'cloud.example',
+    pluginVersionId: 'cloud.example:1.0.0',
+    provider: 'cloud.example',
+    topology: 'ACCOUNT_FRAMEWORK' as const,
+  };
+  const first = {
+    apiVersion: 'gcac.cloud-service/v1' as const,
+    kind: 'CloudServiceResource' as const,
+    stableKey: 'cloud.example:database:one',
+    pluginId: 'cloud.example',
+    pluginVersionId: 'cloud.example:1.0.0',
+    provider: 'cloud.example',
+    resourceId: 'one',
+    resourceType: 'database',
+    region: 'region-a',
+    frameworkKey: 'database.primary',
+    frameworkDisplayName: 'Primary databases',
+  };
+  const second = { ...first, stableKey: 'cloud.example:database:two', resourceId: 'two', region: 'region-b' };
+  const projection = service.projectBatch(genericContext, [first, second]);
+  assert.deepEqual(projection.frameworks.map((item) => [item.frameworkKey, item.displayName]), [['database.primary', 'Primary databases']]);
+  assert.equal(projection.sites.length, 2);
 });
 
 test('Cloud Resource provenance、stableKey 和跨租户资产边界失败关闭', async () => {

@@ -187,15 +187,7 @@ const FULL_WEB_DISCOVERY_SCOPE = 'FULL_WEB_DISCOVERY';
 function fullWebInventoryValue(capabilities: AgentCapabilitySnapshot['capabilities']): Record<string, any> | undefined {
   let hasLegacyWebDetail = false;
   for (const capability of capabilities) {
-    if (capability.capabilityKey === 'windows.iis.detail'
-      || capability.capabilityKey === 'windows.apache.detail'
-      || capability.capabilityKey === 'linux.nginx.detail'
-      || capability.capabilityKey === 'linux.apache.detail'
-      || capability.capabilityKey === 'linux.tomcat.detail'
-      || capability.capabilityKey === 'web.iis.detail'
-      || capability.capabilityKey === 'web.nginx.detail'
-      || capability.capabilityKey === 'web.apache.detail'
-      || capability.capabilityKey === 'app.tomcat.detail') {
+    if (/^[a-z0-9_-]+\.[a-z0-9_-]+\.detail$/i.test(capability.capabilityKey)) {
       hasLegacyWebDetail = true;
       continue;
     }

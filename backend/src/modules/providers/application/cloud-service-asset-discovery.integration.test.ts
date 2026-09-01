@@ -60,12 +60,14 @@ test('标准 ServiceAsset 云资源接入会投影 Framework、Site 和真实 Ma
             stableKey: 'cloud.aliyun:cdn.domain:mainland.example', pluginId: plugin.pluginId,
             pluginVersionId: plugin.id, provider: plugin.pluginId, resourceId: 'mainland.example',
             resourceType: 'cdn.domain', region: 'mainland', displayName: 'mainland.example',
+            frameworkKey: 'cdn.mainland', frameworkDisplayName: '阿里云 CDN · 中国大陆',
           },
           {
             apiVersion: 'gcac.cloud-service/v1', kind: 'CloudServiceResource',
             stableKey: 'cloud.aliyun:cdn.domain:global.example', pluginId: plugin.pluginId,
             pluginVersionId: plugin.id, provider: plugin.pluginId, resourceId: 'global.example',
             resourceType: 'cdn.domain', region: 'global', displayName: 'global.example',
+            frameworkKey: 'cdn.global', frameworkDisplayName: '阿里云 CDN · 国际站',
             metadata: {
               certificateEndpoints: [{
                 endpointKey: 'global.example',

@@ -224,6 +224,7 @@ test('Provider 厂商旁路全部移除，OpenAPI 暴露固定连接、发现和
     ['POST', '/api/v1/cloud-account-assets/caa_removed/connection-test'],
     ['POST', '/api/v1/cloud-account-assets/caa_removed/discover'],
     ['GET', '/api/v1/cloud-account-assets/caa_removed/resources'],
+    ['POST', '/api/v1/service-assets/service_removed/discover'],
   ] as const) {
     assert.ok(app.router.match(method, path), `${method} ${path} 未被 Router 注册`);
   }
@@ -241,6 +242,7 @@ test('Provider 厂商旁路全部移除，OpenAPI 暴露固定连接、发现和
     'POST /api/v1/cloud-account-assets/:id/connection-test',
     'POST /api/v1/cloud-account-assets/:id/discover',
     'POST /api/v1/cloud-account-assets/delete',
+    'POST /api/v1/service-assets/:id/discover',
   ]);
 
   const openApiResponse = await app.inject({ method: 'GET', path: '/api/v1/openapi.json' });
@@ -255,6 +257,7 @@ test('Provider 厂商旁路全部移除，OpenAPI 暴露固定连接、发现和
   assert.ok(openApiPaths.includes('/api/v1/cloud-account-assets/:id/connection-test'));
   assert.ok(openApiPaths.includes('/api/v1/cloud-account-assets/:id/discover'));
   assert.ok(openApiPaths.includes('/api/v1/cloud-account-assets/:id/resources'));
+  assert.ok(openApiPaths.includes('/api/v1/service-assets/:id/discover'));
 });
 
 test('云账号创建、更新和删除使用后端持久化幂等记录', async () => {

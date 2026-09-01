@@ -22,7 +22,7 @@ test('已有设备必须提供设备 ID 并经过可注入校验端口', async (
     service.selectResource('tenant-1', session.id, { expectedStateVersion: 1, mode: 'EXISTING_DEVICE' }),
     (error: unknown) => error instanceof AppError && error.details && (error.details as { code?: string }).code === 'ONBOARDING_DEVICE_REQUIRED',
   );
-  assert.equal(repository.getStored(session.id)?.state, 'PLATFORM_SELECTED');
+  assert.equal(repository.getStored(session.id)?.state, 'RESOURCE_SELECTION_REQUIRED');
   const selected = await service.selectResource('tenant-1', session.id, { expectedStateVersion: 1, mode: 'EXISTING_DEVICE', deviceId: 'device-1' });
   assert.equal(selected.state, 'CONNECTION_TESTING');
   assert.deepEqual(calls, ['validate']);
@@ -217,7 +217,7 @@ test('新增设备缺少接入端口时失败关闭，不会伪造连接测试�
     service.selectResource('tenant-1', session.id, { expectedStateVersion: 1, mode: 'NEW_DEVICE', values: { address: '10.0.0.1' } }),
     (error: unknown) => error instanceof AppError && error.details && (error.details as { code?: string }).code === 'ONBOARDING_DEVICE_ONBOARDING_UNAVAILABLE',
   );
-  assert.equal(repository.getStored(session.id)?.state, 'PLATFORM_SELECTED');
+  assert.equal(repository.getStored(session.id)?.state, 'RESOURCE_SELECTION_REQUIRED');
 });
 
 test('DIRECT_WORKFLOW 也必须先选择真实设备，缺少连接测试端口时不得推进', async () => {
@@ -230,7 +230,7 @@ test('DIRECT_WORKFLOW 也必须先选择真实设备，缺少连接测试端口�
   assert.equal(platform?.platformKey, directRecipe.recipe.platformKey);
   assert.equal(platform?.supportStatus, 'SUPPORTED');
   const session = await service.createSession('tenant-1', 'actor-1', { platformKey: directRecipe.recipe.platformKey, idempotencyKey: 'create-3' });
-  assert.equal(session.state, 'PLATFORM_SELECTED');
+  assert.equal(session.state, 'RESOURCE_SELECTION_REQUIRED');
 
   await assert.rejects(
     service.selectResource('tenant-1', session.id, { expectedStateVersion: 1, mode: 'EXISTING_DEVICE' }),
@@ -243,6 +243,35 @@ test('DIRECT_WORKFLOW 也必须先选择真实设备，缺少连接测试端口�
     (error: unknown) => error instanceof AppError && error.details && (error.details as { code?: string }).code === 'ONBOARDING_CONNECTION_TEST_UNAVAILABLE',
   );
   assert.equal(repository.getStored(session.id)?.state, 'CONNECTION_TESTING');
+});
+
+test('无设备直工作流必须先选择云服务资产', async () => {
+  const directRecipe = recipe('DIRECT_WORKFLOW');
+  directRecipe.recipe.deviceSelection = 'NONE';
+  const { service, repository } = fixture({
+    recipe: directRecipe,
+    execution: {
+      supportsDirectWorkflow: () => true,
+      listExistingResources: async () => [{
+        assetRef: { rootType: 'SERVICE_ASSET', id: 'cloud-asset-1' }, resourceType: 'SERVICE_ASSET', displayName: '阿里云账号', health: 'ACTIVE', selectable: true,
+      }],
+      validateExistingServiceAsset: async () => undefined,
+      testConnection: async () => undefined,
+    },
+  });
+  const session = await service.createSession('tenant-1', 'actor-1', { platformKey: directRecipe.recipe.platformKey, idempotencyKey: 'create-cloud-service' });
+  assert.equal(session.state, 'RESOURCE_SELECTION_REQUIRED');
+  const resources = await service.resources('tenant-1', session.id);
+  assert.deepEqual(resources.map((item) => item.assetRef), [{ rootType: 'SERVICE_ASSET', id: 'cloud-asset-1' }]);
+
+  const selected = await service.selectResource('tenant-1', session.id, {
+    expectedStateVersion: session.stateVersion,
+    mode: 'EXISTING_SERVICE_ASSET',
+    assetId: 'cloud-asset-1',
+  });
+  assert.equal(selected.state, 'CONNECTION_TESTING');
+  assert.equal(selected.assetId, 'cloud-asset-1');
+  assert.equal(repository.getStored(session.id)?.assetId, 'cloud-asset-1');
 });
 
 test('待验收平台不能创建接入会话', async () => {

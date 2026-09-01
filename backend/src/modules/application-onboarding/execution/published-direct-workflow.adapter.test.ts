@@ -98,6 +98,56 @@ test('DIRECT_WORKFLOW 只列出所选真实设备上与插件平台匹配的 Age
   await assert.rejects(adapter.test('tenant-1', { deviceId: 'host-apache' } as never, recipe()), /可用目标站点/);
 });
 
+test('DIRECT_WORKFLOW 支持无设备端点的云服务控制面目标', async () => {
+  const adapter = new PublishedDirectWorkflowOnboardingAdapter({
+    async listManagedTargets() { return { items: [{ id: 'cloud-target', tenantId: 'tenant-1', serviceAssetId: 'cloud-1', frameworkInstanceId: 'framework-1', siteId: 'site-1', discoveryProviderKey: 'plugin:plugin-version-1', targetType: 'tls.binding', targetKey: 'cdn:nas-cdn.jacksonz.cn', supportedCapabilities: ['certificate.deploy'], executionLocations: ['CONTROL_PLANE'], status: 'ACTIVE', metadata: {}, createdAt: '2026-08-14T00:00:00.000Z', updatedAt: '2026-08-14T00:00:00.000Z', version: 1 }], page: 1, pageSize: 200, total: 1 }; },
+    async getFrameworkInstance() { return { id: 'framework-1', tenantId: 'tenant-1', serviceAssetId: 'cloud-1', frameworkType: 'cloud.aliyun' }; },
+    async getSiteAsset() { return { id: 'site-1', tenantId: 'tenant-1', serviceAssetId: 'cloud-1', frameworkInstanceId: 'framework-1', siteName: 'nas-cdn.jacksonz.cn' }; },
+    async getServiceAsset() { return { id: 'cloud-1', tenantId: 'tenant-1', assetKind: 'CLOUD_SERVICE', status: 'ACTIVE' }; },
+  } as never, { async require(pluginVersionId, capabilityKey) { return { pluginVersionId, capabilityKey, workflowKey: capabilityKey, workflowResourcePath: 'workflows/fixed.json', workflowTemplateId: 'template', workflowVersionId: 'version', workflowContentSha256: 'sha256:fixed', createdAt: '2026-08-14T00:00:00.000Z' }; } });
+  assert.deepEqual([...await adapter.listCompatibleServiceAssetIds('tenant-1', recipe())], ['cloud-1']);
+  const targets = await adapter.discover('tenant-1', { assetId: 'cloud-1' } as never, recipe());
+  assert.equal(targets[0]?.managedTargetId, 'cloud-target');
+});
+
+test('云服务统一投影使用 provider discover 键和 cloud.resource 框架时仍可被向导选择', async () => {
+  const adapter = new PublishedDirectWorkflowOnboardingAdapter({
+    async listManagedTargets() {
+      return {
+        items: [{
+          id: 'aliyun-target', tenantId: 'tenant-1', serviceAssetId: 'aliyun-asset', frameworkInstanceId: 'aliyun-framework', siteId: 'aliyun-site',
+          discoveryProviderKey: 'plugin:cloud.aliyun:discover', targetType: 'cloud.aliyun.cdn.certificate', targetKey: 'nas-cdn.jacksonz.cn',
+          supportedCapabilities: ['certificate.deploy'], executionLocations: ['CONTROL_PLANE'], status: 'ACTIVE',
+          metadata: { pluginId: 'cloud.aliyun', pluginVersionId: 'cloud.aliyun:2.0.33' },
+          createdAt: '2026-08-14T00:00:00.000Z', updatedAt: '2026-08-14T00:00:00.000Z', version: 1,
+        }], page: 1, pageSize: 200, total: 1,
+      };
+    },
+    async getFrameworkInstance() {
+      return {
+        id: 'aliyun-framework', tenantId: 'tenant-1', serviceAssetId: 'aliyun-asset', frameworkType: 'cloud.resource', frameworkKey: 'cdn.mainland',
+        discoveryProviderKey: 'plugin:cloud.aliyun:discover', displayName: '阿里云 CDN · 中国大陆', discoverySource: 'PROVIDER', status: 'ACTIVE',
+        rawFacts: { pluginId: 'cloud.aliyun', pluginVersionId: 'cloud.aliyun:2.0.33' }, createdAt: '2026-08-14T00:00:00.000Z', updatedAt: '2026-08-14T00:00:00.000Z', version: 1,
+      };
+    },
+    async getSiteAsset() { return { id: 'aliyun-site', tenantId: 'tenant-1', serviceAssetId: 'aliyun-asset', frameworkInstanceId: 'aliyun-framework', siteName: 'nas-cdn.jacksonz.cn' }; },
+    async getServiceAsset() { return { id: 'aliyun-asset', tenantId: 'tenant-1', assetKind: 'CLOUD_SERVICE', status: 'ACTIVE' }; },
+  } as never, {
+    async require(pluginVersionId, capabilityKey) {
+      return { pluginVersionId, capabilityKey, workflowKey: capabilityKey, workflowResourcePath: 'workflows/fixed.json', workflowTemplateId: 'template', workflowVersionId: 'version', workflowContentSha256: 'sha256:fixed', createdAt: '2026-08-14T00:00:00.000Z' };
+    },
+  });
+
+  const cloudRecipe = recipe();
+  cloudRecipe.pluginVersionId = 'cloud.aliyun:2.0.33';
+  cloudRecipe.pluginId = 'cloud.aliyun';
+  cloudRecipe.recipe.platformKey = 'cloud.aliyun.cdn';
+  cloudRecipe.recipe.targetProjection.targetType = 'cloud.aliyun.cdn.certificate';
+  assert.deepEqual([...await adapter.listCompatibleServiceAssetIds('tenant-1', cloudRecipe)], ['aliyun-asset']);
+  const targets = await adapter.discover('tenant-1', { assetId: 'aliyun-asset' } as never, cloudRecipe);
+  assert.equal(targets[0]?.displayName, 'nas-cdn.jacksonz.cn');
+});
+
 function recipe(): LoadedApplicationOnboardingRecipe {
   return {
     pluginVersionId: 'plugin-version-1', pluginId: 'web.nginx', pluginVersion: '1.0.3',

@@ -140,6 +140,8 @@ export class AssetsController {
       ...query,
       page: 1,
       pageSize: 5000,
+      // 统一资产中心只展示设备和云服务；APPLICATION 由 /applications 独立列表承载。
+      filter: { ...query.filter, assetKind: 'CLOUD_SERVICE' },
     });
     const effectiveServiceReadAuthorization = normalizeReadAuthorization(serviceReadAuthorization.authorization, serviceAllowed);
     const hostScopedAllowed = hostAllowed || hasAuthorizedReadScope(hostReadAuthorization.authorization);

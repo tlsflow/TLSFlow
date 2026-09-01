@@ -2,7 +2,6 @@ export const LINUX_WEB_DISCOVERY_PATHS: readonly string[] = Object.freeze([
   '/etc',
   '/opt',
   '/usr/local',
-  '/usr/share/nginx',
   '/srv',
   '/var/lib',
   '/var/www',

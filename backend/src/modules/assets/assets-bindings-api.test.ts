@@ -264,6 +264,53 @@ describe('资产与证书绑定 API', () => {
     assert.equal((created.body as { platform?: string }).platform, 'LINUX');
   });
 
+  it('统一资产选择可返回非 ACTIVE 云服务，并按 serviceAssetId 查询其框架', async () => {
+    const app = await createMigratedApp();
+    const headers = authorizedHeaders('tenant_cloud_service_target_selector');
+    const cloudAsset = await app.inject({
+      method: 'POST',
+      path: '/api/v1/service-assets',
+      headers,
+      body: {
+        address: 'nas-cdn.jacksonz.cn',
+        displayName: '阿里云CDN-TEST',
+        assetKind: 'CLOUD_SERVICE',
+        port: 443,
+        protocol: 'HTTPS',
+        discoverySource: 'PROVIDER',
+        status: 'INACTIVE',
+      },
+    });
+    assert.equal(cloudAsset.statusCode, 201, JSON.stringify(cloudAsset.body));
+    const serviceAssetId = (cloudAsset.body as { id: string }).id;
+
+    const framework = await app.inject({
+      method: 'POST',
+      path: '/api/v1/framework-instances',
+      headers,
+      body: {
+        serviceAssetId,
+        frameworkType: 'cloud.aliyun.cdn',
+        frameworkKey: 'aliyun-cdn',
+        displayName: '阿里云 CDN',
+        discoveryProviderKey: 'cloud.aliyun',
+        status: 'ACTIVE',
+      },
+    });
+    assert.equal(framework.statusCode, 201, JSON.stringify(framework.body));
+
+    const assets = await app.inject({ method: 'GET', path: '/api/v1/assets?sort=displayName:asc', headers });
+    assert.equal(assets.statusCode, 200, JSON.stringify(assets.body));
+    const assetItems = (assets.body as { items: Array<{ id: string; assetKind: string; displayName?: string }> }).items;
+    assert.ok(assetItems.some((item) => item.id === serviceAssetId && item.assetKind === 'CLOUD_SERVICE' && item.displayName === '阿里云CDN-TEST'));
+
+    const frameworks = await app.inject({ method: 'GET', path: `/api/v1/framework-instances?filter[serviceAssetId]=${serviceAssetId}`, headers });
+    assert.equal(frameworks.statusCode, 200, JSON.stringify(frameworks.body));
+    const frameworkItems = (frameworks.body as { items: Array<{ id: string; serviceAssetId?: string }> }).items;
+    assert.equal(frameworkItems.length, 1);
+    assert.equal(frameworkItems[0]?.serviceAssetId, serviceAssetId);
+  });
+
   it('可以创建 Host、ServiceInstance、ServiceEndpoint 和 CertificateBinding，并按 Host 查询绑定', async () => {
     const app = await createMigratedApp();
     const headers = authorizedHeaders('tenant_spec007', 'user_admin', 'req_spec007_create');

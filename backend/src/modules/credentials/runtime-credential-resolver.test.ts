@@ -110,6 +110,6 @@ test('显式 keystorePassword Credential 的错误类型不会回退到 Agent �
 
   await assert.rejects(
     () => resolver.resolveSecretValue('tenant-password', created.id),
-    (error: any) => error?.errorCode === 'VALIDATION_FAILED' && /Tomcat KeyStore 密码 Credential 类型/.test(error.message),
+    (error: any) => error?.errorCode === 'VALIDATION_FAILED' && /当前凭据类型不支持密码 Secret Slot/.test(error.message),
   );
 });

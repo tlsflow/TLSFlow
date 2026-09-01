@@ -217,6 +217,14 @@ test('云服务详情使用统一详情字段并显示厂商或 SDK 版本', asy
       runtime: 'WORKFLOW_DSL',
       manifest: { compatibility: { productFamilies: ['cloud.aliyun.cdn'] } },
     }),
+    getCurrentEnabledVersion: async () => ({
+      id: 'plugin-version-current',
+      pluginId: 'cloud.aliyun',
+      version: '2.0.27',
+      runtime: 'WORKFLOW_DSL',
+      status: 'ENABLED',
+      manifest: { compatibility: { productFamilies: ['cloud.aliyun.cdn'] } },
+    }),
   } as any;
   const service = new AssetsApplicationService(repository);
   service.setCloudResourceProjectionService(projection);
@@ -225,10 +233,10 @@ test('云服务详情使用统一详情字段并显示厂商或 SDK 版本', asy
   const detail = await service.getServiceAssetDetail('tenant-cloud-detail', asset.id) as any;
   const fields = Object.fromEntries(detail.informationSections.flatMap((section: any) => section.fields.map((field: any) => [field.key, field.value])));
   assert.equal(detail.productFamily, 'cloud.aliyun.cdn');
-  assert.equal(detail.controlVersion, '2.0.26');
+  assert.equal(detail.controlVersion, '2.0.27');
   assert.equal(detail.siteCount, 1);
   assert.equal(fields.productFamily, 'cloud.aliyun.cdn');
-  assert.equal(fields.pluginVersion, '2.0.26');
+  assert.equal(fields.pluginVersion, '2.0.27');
   assert.equal(fields.softwareVersion, 'aliyun-sdk-cdn/3.7.2');
   assert.equal(fields.siteCount, 1);
   assert.equal(fields.apiVersion, '2018-05-10');

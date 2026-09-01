@@ -109,7 +109,7 @@ const cryptoSignRequest = objectSchema({
   signatureAlgorithm: { enum: ['RS256', 'ES256'] },
 }, ['grantId', 'secretRef', 'data', 'hashAlgorithm', 'signatureAlgorithm']);
 // 中文说明：HMAC 只在宿主解密边界内使用密钥。publicValueRef 用于云厂商要求
-// 放入请求参数的公开标识（例如阿里云 AccessKeyId），绝不返回 HMAC 密钥。
+// 放入请求参数的公开标识，绝不返回 HMAC 密钥。
 const cryptoHmacRequest = objectSchema({
   grantId: id,
   secretRef,

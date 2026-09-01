@@ -59,15 +59,11 @@ export class DeploymentAssetContextBuilder {
         topology?.frameworkType,
       )
       : undefined;
-    const targetFrameworkType = readNonEmptyString(targetMetadata?.frameworkType) ?? topology?.frameworkType;
     const workflowTargetSiteName = readWorkflowTargetSiteName(input.applicationAsset.metadata);
     const certificateLocation = targetMetadata
-      ? withIisCertificateLocationDefaults(
-        readCertificateLocation(
-          mergeFrameworkRuntimeFacts(targetMetadata, topology?.serviceInstance?.rawFacts),
-          managedTarget?.updatedAt || new Date(0).toISOString(),
-        ),
-        targetFrameworkType,
+      ? readCertificateLocation(
+        mergeFrameworkRuntimeFacts(targetMetadata, topology?.serviceInstance?.rawFacts),
+        managedTarget?.updatedAt || new Date(0).toISOString(),
       )
       : undefined;
     const deploymentTargetName = site?.siteName
@@ -323,18 +319,6 @@ function pickCertificateLocationRuntimeFacts(source: Record<string, unknown> | u
     if (key === 'configPath' && source.sourceConfigPath !== undefined) return [];
     return [[key === 'configPath' ? 'sourceConfigPath' : key, value]];
   }));
-}
-
-function withIisCertificateLocationDefaults(
-  location: ReturnType<typeof readCertificateLocation>,
-  frameworkType: string | undefined,
-): ReturnType<typeof readCertificateLocation> {
-  if (!location || frameworkType !== 'web.iis' || location.storageKind !== 'WINDOWS_CERTIFICATE_STORE') return location;
-  return {
-    ...location,
-    serviceName: location.serviceName ?? 'W3SVC',
-    programPath: location.programPath ?? 'C:/Windows/System32/inetsrv/appcmd.exe',
-  };
 }
 
 /**

@@ -72,7 +72,7 @@ export async function resolveCertificateVersionId(
   );
   if (byIdentity.rows.length === 1) return byIdentity.rows[0]?.id;
 
-  // 阿里云 CDN 证书接口常只返回证书域名和有效期；在主题/颁发者格式不完整时，
+  // 部分 Provider 证书接口只返回证书域名和有效期；在主题/颁发者格式不完整时，
   // 仍可用主题 CN 加完整有效期唯一锁定版本，多个结果继续保持未纳管。
   if (notBefore && notAfter) {
     const byValidity = await db.query<{ id: string }>(

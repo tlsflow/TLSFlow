@@ -311,17 +311,19 @@ export class PgAssetsRepository implements AssetsRepository {
   }
 
   async listFrameworkInstances(tenantId: string, query: PageQuery): Promise<PageResult<FrameworkInstanceDto>> {
-    if (canUseSqlPage(query, ['deviceId', 'status'])) {
+    if (canUseSqlPage(query, ['deviceId', 'serviceAssetId', 'status'])) {
       const deviceId = query.filter.deviceId ?? null;
+      const serviceAssetId = query.filter.serviceAssetId ?? null;
       const status = query.filter.status ?? null;
       const where = `tenant_id = $1 and deleted_at is null
         and ($2::text is null or lower(coalesce(device_id, '')) like '%' || lower($2) || '%')
-        and ($3::text is null or lower(coalesce(status, '')) like '%' || lower($3) || '%')`;
-      const countResult = await this.db.query<{ count: string }>(`select count(*)::text as count from pg_framework_instances where ${where}`, [tenantId, deviceId, status]);
+        and ($3::text is null or lower(coalesce(service_asset_id, '')) like '%' || lower($3) || '%')
+        and ($4::text is null or lower(coalesce(status, '')) like '%' || lower($4) || '%')`;
+      const countResult = await this.db.query<{ count: string }>(`select count(*)::text as count from pg_framework_instances where ${where}`, [tenantId, deviceId, serviceAssetId, status]);
       const sortColumn = frameworkInstanceSortColumn(query.sort?.field);
       const direction = query.sort?.direction === 'asc' ? 'asc' : 'desc';
       const offset = Math.max(0, (query.page - 1) * query.pageSize);
-      const rows = (await this.db.query<ServiceInstanceRow>(`select * from pg_framework_instances where ${where} order by ${sortColumn} ${direction}, id desc limit $4 offset $5`, [tenantId, deviceId, status, query.pageSize, offset])).rows.map(toServiceInstance);
+      const rows = (await this.db.query<ServiceInstanceRow>(`select * from pg_framework_instances where ${where} order by ${sortColumn} ${direction}, id desc limit $5 offset $6`, [tenantId, deviceId, serviceAssetId, status, query.pageSize, offset])).rows.map(toServiceInstance);
       return { items: rows, page: query.page, pageSize: query.pageSize, total: Number(countResult.rows[0]?.count ?? 0) };
     }
     const rows = (await this.db.query<ServiceInstanceRow>(`select * from pg_framework_instances where tenant_id = $1 and deleted_at is null`, [tenantId])).rows.map(toServiceInstance);

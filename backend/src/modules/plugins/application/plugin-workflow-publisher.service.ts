@@ -188,10 +188,20 @@ export class PluginWorkflowPublisherService {
     binding: PluginWorkflowBindingRecord,
   ): Promise<PluginWorkflowBindingRecord | undefined> {
     if (binding.workflowResourcePath !== resourcePath) return undefined;
-    const version = await this.getPublishedBinding(binding, record.id, capabilityKey);
-    if (version.content.metadata.version === record.version) return undefined;
+    let version: WorkflowTemplateVersion | undefined;
+    let previousBinding: PluginWorkflowBindingRecord | undefined = binding;
+    try {
+      version = await this.getPublishedBinding(binding, record.id, capabilityKey);
+    } catch (error) {
+      // 历史派生记录可能指向已删除的 WorkflowVersion，或其目标摘要已经损坏。
+      // 绑定本身不是用户编辑的事实，当前插件资源才是唯一可信来源；同一路径
+      // 可以直接重建目标，避免后端重载把仍可用的内置插件永久禁用。
+      if (!(error instanceof AppError) || error.errorCode !== 'RESOURCE_VERSION_CONFLICT') throw error;
+      previousBinding = undefined;
+    }
+    if (version?.content.metadata.version === record.version) return undefined;
 
-    const published = await this.publishWorkflowVersion(record, content, binding);
+    const published = await this.publishWorkflowVersion(record, content, previousBinding);
     return this.repository.save({
       ...binding,
       pluginVersionId: record.id,
@@ -325,6 +335,23 @@ export class PluginWorkflowPublisherService {
     const changeSummary = `由插件 ${record.pluginId}@${record.version} 发布`;
     if (!previous) {
       return this.createAndPublishPluginWorkflow(record, content, changeSummary);
+    }
+    // 上一次发布可能已经创建草稿，但在发布阶段进程被重载或中断。
+    // 同一插件版本只能有一个 DSL 版本：内容一致时直接发布该草稿，避免
+    // 再次追加同版本触发“版本必须递进”校验并把插件误禁用。
+    const contentHash = computeWorkflowContentHash(content);
+    const listVersions = this.workflows.listVersions?.bind(this.workflows);
+    const pending = listVersions
+      ? (await listVersions(previous.workflowTemplateId))
+        .find((version) => version.status === 'draft'
+          && version.content.metadata.version === record.version)
+      : undefined;
+    if (pending) {
+      if (pending.contentHash !== contentHash) {
+        return this.createAndPublishPluginWorkflow(record, content, changeSummary);
+      }
+      const published = await this.workflows.publishPluginVersion(pending.id);
+      return { templateId: previous.workflowTemplateId, versionId: published.id, contentHash: published.contentHash };
     }
     try {
       const draft = await this.workflows.createPluginInternalDraftVersion({

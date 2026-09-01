@@ -2656,8 +2656,8 @@ export class DeploymentPlansApplicationService {
         ? { format: 'pfx', configName: '宿主默认 PFX 容器' }
         : undefined;
     if (!selector) {
-      throw new AppError('VALIDATION_FAILED', 'Tomcat KeyStore 类型缺失或不受支持，无法自动绑定证书产物', {
-        code: 'TOMCAT_KEYSTORE_TYPE_REQUIRED',
+      throw new AppError('VALIDATION_FAILED', 'KeyStore 类型缺失或不受支持，无法自动绑定证书产物', {
+        code: 'KEYSTORE_TYPE_REQUIRED',
         keystoreType,
       });
     }
@@ -2667,8 +2667,8 @@ export class DeploymentPlansApplicationService {
       && item.format === selector.format
       && item.parameters?.configName === selector.configName);
     if (!selected) {
-      throw new AppError('RESOURCE_NOT_FOUND', '宿主默认 Tomcat 证书产物配置不存在', {
-        code: 'TOMCAT_DEFAULT_CERTIFICATE_FORMAT_NOT_FOUND',
+      throw new AppError('RESOURCE_NOT_FOUND', '宿主默认 KeyStore 证书产物配置不存在', {
+        code: 'DEFAULT_KEYSTORE_CERTIFICATE_FORMAT_NOT_FOUND',
         ...selector,
       });
     }
@@ -2689,8 +2689,8 @@ export class DeploymentPlansApplicationService {
       keystoreType = location?.keystoreType;
     }
     if (!keystoreType) {
-      throw new AppError('VALIDATION_FAILED', 'Tomcat 目标缺少 KeyStore 类型，无法自动绑定证书产物', {
-        code: 'TOMCAT_KEYSTORE_TYPE_REQUIRED',
+      throw new AppError('VALIDATION_FAILED', '目标缺少 KeyStore 类型，无法自动绑定证书产物', {
+        code: 'KEYSTORE_TYPE_REQUIRED',
         deploymentPlanTargetId: target.id,
       });
     }

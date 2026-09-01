@@ -46,6 +46,7 @@ export class ProvidersController {
     router.post('/api/v1/cloud-account-assets/delete', '删除云账号资产', tags, (request) => this.deleteCloudAccount(request));
     router.post('/api/v1/cloud-account-assets/:id/connection-test', '测试云账号连接', tags, (request) => this.runCloudAccountAction(request, 'connection-test'));
     router.post('/api/v1/cloud-account-assets/:id/discover', '发现云账号资源', tags, (request) => this.runCloudAccountAction(request, 'discover'));
+    router.post('/api/v1/service-assets/:id/discover', '重新发现云服务资产资源', tags, (request) => this.runServiceAssetDiscovery(request));
     router.get('/api/v1/cloud-account-onboarding/recipes', '查询云账号接入配方', tags, (request) => this.listCloudAccountOnboardingRecipes(request));
   }
 
@@ -180,6 +181,17 @@ export class ProvidersController {
     return this.discovery.execute(security.tenantId, assetId, operation);
   }
 
+  private async runServiceAssetDiscovery(request: HttpRequest) {
+    if (!this.discovery) throw new AppError('CAPABILITY_MISSING', '云账号发现服务未完成装配');
+    const security = requireRouteSecurity(request, this.security);
+    const id = request.path.match(/^\/api\/v1\/service-assets\/([^/]+)\/discover$/)?.[1];
+    if (!id) throw new AppError('VALIDATION_FAILED', 'ServiceAsset 发现路径无效');
+    const serviceAssetId = decodeURIComponent(id);
+    await assertRouteAction(security, 'application.asset.rescan', 'service_asset', { resourceId: serviceAssetId });
+    await assertRouteObjectAccess(security, 'read', { objectType: 'service_asset', objectId: serviceAssetId, tenantId: security.tenantId });
+    return this.discovery.executeServiceAsset(security.tenantId, serviceAssetId, 'discover');
+  }
+
   private async listCloudAccountResources(request: HttpRequest) {
     if (!this.discovery) throw new AppError('CAPABILITY_MISSING', '云账号发现服务未完成装配');
     const security = requireRouteSecurity(request, this.security);
@@ -203,6 +215,7 @@ export function getCloudAccountRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/cloud-account-assets/delete', operationId: 'deleteCloudAccountAsset', summary: '删除云账号资产', tags, responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/cloud-account-assets/:id/connection-test', operationId: 'testCloudAccountConnection', summary: '测试云账号连接', tags, responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/cloud-account-assets/:id/discover', operationId: 'discoverCloudAccountResources', summary: '发现云账号资源', tags, responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/service-assets/:id/discover', operationId: 'discoverServiceAssetResources', summary: '重新发现云服务资产资源', tags, responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/cloud-account-onboarding/recipes', operationId: 'listCloudAccountOnboardingRecipes', summary: '查询云账号接入配方', tags, responseSchema: { type: 'object', additionalProperties: true } },
   ];
 }

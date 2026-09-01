@@ -18,6 +18,7 @@ export class ApplicationOnboardingController {
     router.post('/api/v1/application-onboarding/sessions', '创建应用接入会话', tags, (request) => this.createSession(request));
     router.get('/api/v1/application-onboarding/sessions/:id', '查询应用接入会话', tags, (request) => this.getSession(request));
     router.get('/api/v1/application-onboarding/sessions/:id/devices', '查询可选择接入设备', tags, (request) => this.devices(request));
+    router.get('/api/v1/application-onboarding/sessions/:id/resources', '查询可选择接入资源', tags, (request) => this.resources(request));
     router.get('/api/v1/application-onboarding/sessions/:id/certificate-options', '查询平台可用的证书选项', tags, (request) => this.certificateOptions(request));
     router.post('/api/v1/application-onboarding/sessions/:id/resource-selection', '选择接入设备来源', tags, (request) => this.selectResource(request));
     router.post('/api/v1/application-onboarding/sessions/:id/test', '测试接入设备连接', tags, (request) => this.test(request));
@@ -54,6 +55,11 @@ export class ApplicationOnboardingController {
     return { items: await this.service.devices(requireTenantId(request), this.sessionId(request)) };
   }
 
+  private async resources(request: HttpRequest) {
+    await this.assertRead(request);
+    return { items: await this.service.resources(requireTenantId(request), this.sessionId(request)) };
+  }
+
   private async certificateOptions(request: HttpRequest) {
     await this.assertRead(request);
     const certificateAssetId = typeof request.query.certificateAssetId === 'string' ? request.query.certificateAssetId : undefined;
@@ -64,14 +70,15 @@ export class ApplicationOnboardingController {
     const subject = await this.assertWrite(request);
     const body = validateObject(request.body, {
       expectedStateVersion: { type: 'number', required: true },
-      mode: { type: 'string', required: true, enum: ['EXISTING_DEVICE', 'NEW_DEVICE'] },
-      deviceId: { type: 'string' }, values: { type: 'object' },
+      mode: { type: 'string', required: true, enum: ['EXISTING_DEVICE', 'EXISTING_SERVICE_ASSET', 'NEW_DEVICE'] },
+      deviceId: { type: 'string' }, assetId: { type: 'string' }, values: { type: 'object' },
     });
     if (body.mode === 'NEW_DEVICE') await this.assertPermission(request, 'credential.create');
     return this.service.selectResource(requireTenantId(request), this.sessionId(request), {
       expectedStateVersion: Number(body.expectedStateVersion),
-      mode: body.mode as 'EXISTING_DEVICE' | 'NEW_DEVICE',
+      mode: body.mode as 'EXISTING_DEVICE' | 'EXISTING_SERVICE_ASSET' | 'NEW_DEVICE',
       deviceId: typeof body.deviceId === 'string' ? body.deviceId : undefined,
+      assetId: typeof body.assetId === 'string' ? body.assetId : undefined,
       values: (body.values ?? {}) as Record<string, unknown>,
     });
   }
@@ -194,6 +201,7 @@ export function getApplicationOnboardingRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/application-onboarding/sessions', operationId: 'createApplicationOnboardingSession', summary: '创建应用接入会话', tags, responseSchema: schema },
     { method: 'GET', path: '/api/v1/application-onboarding/sessions/:id', operationId: 'getApplicationOnboardingSession', summary: '查询应用接入会话', tags, responseSchema: schema },
     { method: 'GET', path: '/api/v1/application-onboarding/sessions/:id/devices', operationId: 'listApplicationOnboardingDevices', summary: '查询可选择接入设备', tags, responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/application-onboarding/sessions/:id/resources', operationId: 'listApplicationOnboardingResources', summary: '查询可选择接入资源', tags, responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/application-onboarding/sessions/:id/certificate-options', operationId: 'listApplicationOnboardingCertificateOptions', summary: '查询平台可用的证书选项', tags, responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/application-onboarding/sessions/:id/resource-selection', operationId: 'selectApplicationOnboardingResource', summary: '选择接入设备来源', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/application-onboarding/sessions/:id/test', operationId: 'testApplicationOnboardingConnection', summary: '测试接入设备连接', tags, responseSchema: schema },

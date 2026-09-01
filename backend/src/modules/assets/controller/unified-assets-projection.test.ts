@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { applyAuthorizationFilter } from '../../../common/pagination/pagination.js';
-import { compareUnifiedAssets, getAssetsRouteContracts, isObjectAllowed, matchesUnifiedAssetFilter, normalizeReadAuthorization, projectDeviceAsset, projectServiceAsset } from './assets.controller.js';
+import { AssetsController, compareUnifiedAssets, getAssetsRouteContracts, isObjectAllowed, matchesUnifiedAssetFilter, normalizeReadAuthorization, projectDeviceAsset, projectServiceAsset } from './assets.controller.js';
 
 test('统一资产投影为设备和云服务提供稳定 assetRef 与通用动作', () => {
   const device = projectDeviceAsset({
@@ -20,6 +20,31 @@ test('统一资产筛选和排序不依赖前端拼表', () => {
   assert.equal(matchesUnifiedAssetFilter(cloud, { category: 'CLOUD', managementMethod: 'PLUGIN' }), true);
   assert.equal(matchesUnifiedAssetFilter(cloud, { category: 'SERVER' }), false);
   assert.equal(compareUnifiedAssets({ displayName: 'B' }, { displayName: 'A' }, { field: 'displayName', direction: 'asc' }) > 0, true);
+});
+
+test('统一资产列表只读取云服务 ServiceAsset，不混入应用资产', async () => {
+  let observedFilter: Record<string, string> | undefined;
+  const service = {
+    listServiceAssets: async (_tenantId: string, query: { filter: Record<string, string> }) => {
+      observedFilter = query.filter;
+      const items = [
+        { id: 'application-1', displayName: '应用', address: 'app.example.com', assetKind: 'APPLICATION', status: 'ACTIVE' },
+        { id: 'cloud-1', displayName: '云服务', address: 'cloud.example.com', assetKind: 'CLOUD_SERVICE', status: 'ACTIVE' },
+      ].filter((item) => item.assetKind === query.filter.assetKind);
+      return { items, page: 1, pageSize: 5000, total: items.length };
+    },
+  };
+  const controller = new AssetsController(undefined, service as any);
+  const response = await (controller as any).listUnifiedAssets({
+    method: 'GET',
+    path: '/api/v1/assets',
+    query: { page: '1', pageSize: '20' },
+    headers: {},
+    context: { tenantId: 'tenant-assets', tenantScope: undefined, actorId: 'user-assets' },
+  });
+
+  assert.equal(observedFilter?.assetKind, 'CLOUD_SERVICE');
+  assert.deepEqual(response.items.map((item: { id: string }) => item.id), ['cloud-1']);
 });
 
 test('统一资产对象 deny 优先于 allow，空授权不会放行对象', () => {

@@ -2235,12 +2235,12 @@ function readCheckpointFromAgentDetail(detail: Record<string, unknown> | undefin
   return undefined;
 }
 
-/** 回滚步骤保留插件和授权身份，但能力必须切换到固定 certificate.rollback。 */
+/** 回滚步骤保留插件和授权身份，但能力必须切换到统一回滚能力。 */
 function buildRollbackPlanDraft(value: unknown): Record<string, unknown> | undefined {
   const plan = readRecord(value);
   if (!plan) return undefined;
   const pluginId = readString(plan, 'pluginId');
-  if (!pluginId || !pluginId.startsWith('web.nginx.') && !pluginId.startsWith('web.apache.') && !pluginId.startsWith('app.tomcat.')) {
+  if (!pluginId || !Array.isArray(plan.operations)) {
     return undefined;
   }
   return { ...plan, planId: 'certificate.rollback', capability: 'certificate.rollback' };

@@ -9,6 +9,7 @@ import type { ExecutionGrantService } from '../../executions/execution-grant.ser
 import type { WorkflowExecutorDispatchResult, WorkflowRunResult, WorkflowStep } from '../../workflow-templates/dto/workflow-templates.dto.js';
 import type { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
 import type { UnifiedPluginsApplicationService } from '../../plugins/application/unified-plugins.application-service.js';
+import type { PluginWorkflowPublisherService } from '../../plugins/application/plugin-workflow-publisher.service.js';
 import type { PluginWorkflowBindingsRepositoryPort } from '../../plugins/repository/plugin-workflow-bindings.repository.js';
 import type { CloudAccountAsset } from '../dto/providers.dto.js';
 import type { ServiceAssetDto } from '../../assets/dto/assets.dto.js';
@@ -41,7 +42,9 @@ export interface CloudAccountDiscoveryDependencies {
   cloudAccounts: Pick<CloudAccountAssetsApplicationService, 'get'>;
   /** 标准插件资源通过 pg_service_assets 执行动作；旧 cloudAccounts 仅供兼容 API。 */
   serviceAssets?: Pick<AssetsApplicationService, 'getServiceAsset'>;
-  plugins: Pick<UnifiedPluginsApplicationService, 'listCatalog' | 'getVersionForTenant'>;
+  plugins: Pick<UnifiedPluginsApplicationService, 'listCatalog' | 'getVersionForTenant'> & Partial<Pick<UnifiedPluginsApplicationService, 'getCurrentEnabledVersion'>>;
+  /** 当前插件版本的 Workflow 派生记录缺失时，允许执行一次幂等补发。 */
+  workflowPublisher?: Pick<PluginWorkflowPublisherService, 'publishPlugin'>;
   workflows: Pick<WorkflowTemplatesApplicationService, 'getVersion' | 'runWithDispatcher'>;
   workflowBindings: PluginWorkflowBindingsRepositoryPort;
   projection: CloudResourceProjectionService;
@@ -62,7 +65,7 @@ interface DiscoveryAsset {
 
 /**
  * 中文说明：云账号动作的唯一应用入口。这里只允许连接测试和资源发现，
- * 每次执行都从 CloudAccountAsset 的 CapabilityAssignment 读取冻结插件版本。
+ * 执行时按资产 providerKey 解析当前启用插件版本，历史 CapabilityAssignment 仅用于确认资产已接入。
  */
 export class CloudAccountDiscoveryApplicationService {
   constructor(private readonly dependencies: CloudAccountDiscoveryDependencies) {}
@@ -186,19 +189,28 @@ export class CloudAccountDiscoveryApplicationService {
       [tenantId, ownerType, asset.id, capabilityKey],
     )).rows[0];
     if (!assignment) throw new AppError('PLUGIN_CAPABILITY_EXECUTION_FAILED', '云服务资产没有冻结的插件能力指派', { assetId: asset.id, operation });
-    const plugin = await this.dependencies.plugins.getVersionForTenant(tenantId, assignment.plugin_version_id);
+    // 云服务资产只保存接入时的 Assignment；运行期按稳定 providerKey 解析当前已启用版本，避免历史冻结版本阻断重扫。
+    const currentPlugin = this.dependencies.plugins.getCurrentEnabledVersion
+      ? await this.dependencies.plugins.getCurrentEnabledVersion(tenantId, asset.providerKey)
+      : await this.dependencies.plugins.getVersionForTenant(tenantId, assignment.plugin_version_id);
+    const plugin = currentPlugin;
     if (plugin.pluginId !== asset.providerKey || plugin.status !== 'ENABLED' || !plugin.manifest.capabilities.some((capability) => capability.key === capabilityKey)) {
-      throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', '云账号冻结的插件版本不可执行', { pluginVersionId: assignment.plugin_version_id, capabilityKey });
+      throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', '当前启用的云服务插件版本不可执行', { pluginVersionId: plugin.id, capabilityKey });
     }
-    const binding = await this.dependencies.workflowBindings.find(assignment.plugin_version_id, capabilityKey, capabilityKey);
-    if (!binding || binding.pluginVersionId !== assignment.plugin_version_id) {
+    let binding = await this.dependencies.workflowBindings.find(plugin.id, capabilityKey, capabilityKey);
+    if (!binding && this.dependencies.workflowPublisher) {
+      // 插件启用或历史恢复可能只写入 PluginVersion，Workflow 绑定尚未派生；重扫时补发并再次读取。
+      await this.dependencies.workflowPublisher.publishPlugin(plugin);
+      binding = await this.dependencies.workflowBindings.find(plugin.id, capabilityKey, capabilityKey);
+    }
+    if (!binding || binding.pluginVersionId !== plugin.id) {
       throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', '当前插件版本没有对应 WorkflowVersion', {
-        pluginVersionId: assignment.plugin_version_id,
+        pluginVersionId: plugin.id,
         operation,
       });
     }
     return {
-      pluginVersionId: assignment.plugin_version_id,
+      pluginVersionId: plugin.id,
       workflowTemplateId: binding.workflowTemplateId,
       workflowVersionId: binding.workflowVersionId,
     };

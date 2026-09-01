@@ -256,7 +256,7 @@ function bindCertificateArtifactContent(
         input: {
           ...operation.input,
           artifactDigest: snapshot.artifactDigest,
-          expectedFingerprintSha256: snapshot.pluginId === 'web.iis' && capability === 'certificate.rollback'
+          expectedFingerprintSha256: snapshot.artifactKind === 'WINDOWS_CERTIFICATE_STORE' && capability === 'certificate.rollback'
             ? snapshot.previousFingerprintSha256
             : snapshot.expectedFingerprintSha256,
         },

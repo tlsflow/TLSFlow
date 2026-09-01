@@ -18,7 +18,8 @@ const asset: CloudAccountAsset = {
   version: 1,
 };
 
-function createService(catalog: unknown[], binding?: unknown, assignmentPluginVersionId: string | undefined = 'uplgv-latest'): CloudAccountDiscoveryApplicationService {
+function createService(catalog: unknown[], binding?: unknown, assignmentPluginVersionId: string | undefined = 'uplgv-latest', currentEnabledVersion?: unknown, repairBinding = false): CloudAccountDiscoveryApplicationService {
+  let activeBinding = binding;
   const dependencies: CloudAccountDiscoveryDependencies = {
     db: { query: async () => ({ rows: assignmentPluginVersionId ? [{ plugin_version_id: assignmentPluginVersionId }] : [] }) } as never,
     cloudAccounts: { get: async () => asset },
@@ -31,10 +32,11 @@ function createService(catalog: unknown[], binding?: unknown, assignmentPluginVe
         status: 'ENABLED',
         manifest: { capabilities: [{ key: 'cloud.service.connection-test' }, { key: 'cloud.service.discover' }] },
       } as never),
+      ...(currentEnabledVersion ? { getCurrentEnabledVersion: async () => currentEnabledVersion as never } : {}),
     },
     workflows: { getVersion: async () => ({} as never), runWithDispatcher: async () => ({} as never) },
     workflowBindings: {
-      find: async () => binding as never,
+      find: async () => activeBinding as never,
       findByResource: async () => undefined,
       findLatestByPluginResource: async () => undefined,
       listCurrent: async () => [],
@@ -42,6 +44,18 @@ function createService(catalog: unknown[], binding?: unknown, assignmentPluginVe
       listAll: async () => [],
       save: async (record) => record,
     },
+    ...(repairBinding ? {
+      workflowPublisher: {
+        publishPlugin: async () => {
+          activeBinding = {
+            pluginVersionId: 'uplgv-current',
+            workflowTemplateId: 'wft-current',
+            workflowVersionId: 'wfv-current',
+          };
+          return [];
+        },
+      },
+    } : {}),
     projection: {} as never,
     pluginActionExecutor: {} as never,
     executionGrants: {} as never,
@@ -64,6 +78,12 @@ test('云账号动作忽略历史 Assignment 并解析最新已启用插件版�
     pluginVersionId: 'uplgv-latest',
     workflowTemplateId: 'wft-latest',
     workflowVersionId: 'wfv-latest',
+  }, 'uplgv-history', {
+    id: 'uplgv-latest',
+    pluginId: 'cloud.aliyun',
+    version: '2.0.20',
+    status: 'ENABLED',
+    manifest: { capabilities: [{ key: 'cloud.service.connection-test' }, { key: 'cloud.service.discover' }] },
   });
 
   const resolved = await (service as unknown as {
@@ -115,4 +135,48 @@ test('最新插件 Workflow 绑定指向旧插件时明确拒绝', async () => {
     }).resolveCurrentExecution(asset.tenantId, asset, 'connection-test'),
     (error: unknown) => error instanceof Error && error.message.includes('没有对应 WorkflowVersion'),
   );
+});
+
+test('云服务重扫优先使用当前启用版本而非历史 Assignment', async () => {
+  const service = createService([], {
+    pluginVersionId: 'uplgv-current',
+    workflowTemplateId: 'wft-current',
+    workflowVersionId: 'wfv-current',
+  }, 'uplgv-history', {
+    id: 'uplgv-current',
+    pluginId: 'cloud.aliyun',
+    version: '2.0.21',
+    status: 'ENABLED',
+    manifest: { capabilities: [{ key: 'cloud.service.discover' }] },
+  });
+
+  const resolved = await (service as unknown as {
+    resolveCurrentExecution: (tenantId: string, cloudAsset: CloudAccountAsset, operation: 'discover') => Promise<unknown>;
+  }).resolveCurrentExecution(asset.tenantId, asset, 'discover');
+
+  assert.deepEqual(resolved, {
+    pluginVersionId: 'uplgv-current',
+    workflowTemplateId: 'wft-current',
+    workflowVersionId: 'wfv-current',
+  });
+});
+
+test('当前插件缺少派生 Workflow 绑定时，重扫会幂等补发后继续执行', async () => {
+  const service = createService([], undefined, 'uplgv-history', {
+    id: 'uplgv-current',
+    pluginId: 'cloud.aliyun',
+    version: '2.0.21',
+    status: 'ENABLED',
+    manifest: { capabilities: [{ key: 'cloud.service.discover' }] },
+  }, true);
+
+  const resolved = await (service as unknown as {
+    resolveCurrentExecution: (tenantId: string, cloudAsset: CloudAccountAsset, operation: 'discover') => Promise<unknown>;
+  }).resolveCurrentExecution(asset.tenantId, asset, 'discover');
+
+  assert.deepEqual(resolved, {
+    pluginVersionId: 'uplgv-current',
+    workflowTemplateId: 'wft-current',
+    workflowVersionId: 'wfv-current',
+  });
 });

@@ -748,8 +748,8 @@ export class ManagedTargetPluginQueryService {
         ? { format: 'pfx', configName: '宿主默认 PFX 容器' }
         : undefined;
     if (!selector) {
-      throw new AppError('VALIDATION_FAILED', 'Tomcat KeyStore 类型缺失或不受支持，无法自动绑定证书产物', {
-        code: 'TOMCAT_KEYSTORE_TYPE_REQUIRED',
+      throw new AppError('VALIDATION_FAILED', 'KeyStore 类型缺失或不受支持，无法自动绑定证书产物', {
+        code: 'KEYSTORE_TYPE_REQUIRED',
         keystoreType,
       });
     }

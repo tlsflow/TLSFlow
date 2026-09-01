@@ -3827,6 +3827,26 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/application-onboarding/sessions/:id/resources:
+    get:
+      operationId: "listApplicationOnboardingResources"
+      summary: "查询可选择接入资源"
+      tags:
+        - "ApplicationOnboarding"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/application-onboarding/sessions/:id/certificate-options:
     get:
       operationId: "listApplicationOnboardingCertificateOptions"
@@ -4170,6 +4190,26 @@ paths:
     post:
       operationId: "discoverCloudAccountResources"
       summary: "发现云账号资源"
+      tags:
+        - "Cloud Service"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/service-assets/:id/discover:
+    post:
+      operationId: "discoverServiceAssetResources"
+      summary: "重新发现云服务资产资源"
       tags:
         - "Cloud Service"
       responses:
@@ -5998,6 +6038,36 @@ paths:
                     - "renewing"
                     - "needs_attention"
                     - "disabled"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/application-assets/:applicationAssetId/certificate-supply-policy/deploy:
+    post:
+      operationId: "enqueueApplicationCertificateDeployment"
+      summary: "创建专属证书部署任务"
+      tags:
+        - "ApplicationCertificateSupply"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              additionalProperties: false
+              properties:
+                reapply:
+                  type: "boolean"
       responses:
         200:
           description: "成功"
@@ -14447,6 +14517,9 @@ paths:
                 pluginOverride:
                   type: "object"
                   properties:
+                    pluginId:
+                      type: "string"
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
                     pluginVersionId:
                       type: "string"
                       pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
@@ -14483,8 +14556,6 @@ paths:
                         - "credentials"
                         - "artifacts"
                       additionalProperties: false
-                  required:
-                    - "pluginVersionId"
                   additionalProperties: false
                 workflowExecution:
                   type: "object"
@@ -17268,4 +17339,4 @@ tags:
   -
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-08-30T13:24:25.619Z"
+x-generatedAt: "2026-09-01T05:51:22.021Z"

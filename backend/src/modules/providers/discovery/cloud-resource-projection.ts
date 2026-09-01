@@ -14,6 +14,9 @@ export interface CloudServiceResourceV1 {
   resourceType: string;
   region: string;
   displayName?: string;
+  /** 中文说明：插件声明资源所属 Framework 的稳定键和展示名，宿主不推断厂商拓扑。 */
+  frameworkKey?: string;
+  frameworkDisplayName?: string;
   /** 中文说明：插件可为资源声明证书管理目标的类型、绑定键和执行能力。 */
   targetType?: string;
   targetKey?: string;
@@ -147,6 +150,8 @@ export class CloudResourceProjectionService {
       resourceType: identifier(input.resourceType, 'resourceType'),
       region: identifier(input.region, 'region'),
       ...(input.displayName === undefined ? {} : { displayName: text(input.displayName, 'displayName') }),
+      ...(input.frameworkKey === undefined ? {} : { frameworkKey: identifier(input.frameworkKey, 'frameworkKey') }),
+      ...(input.frameworkDisplayName === undefined ? {} : { frameworkDisplayName: text(input.frameworkDisplayName, 'frameworkDisplayName') }),
       ...(input.targetType === undefined ? {} : { targetType: identifier(input.targetType, 'targetType') }),
       ...(input.targetKey === undefined ? {} : { targetKey: identifier(input.targetKey, 'targetKey') }),
       ...(input.bindingKey === undefined ? {} : { bindingKey: identifier(input.bindingKey, 'bindingKey') }),
@@ -190,9 +195,7 @@ export class CloudResourceProjectionService {
       return projectAccountFrameworkTopology(context, resources, providerKey);
     }
     const byRegion = new Map<string, CloudServiceResourceV1[]>();
-    const regionDisplayNames = new Map<string, string>();
     resources.forEach((resource) => {
-      if (resource.resourceType === 'cloud.region' && resource.displayName) regionDisplayNames.set(resource.region, resource.displayName);
       byRegion.set(resource.region, [...(byRegion.get(resource.region) ?? []), resource]);
     });
     const regions = [...byRegion.keys()].sort();
@@ -205,9 +208,12 @@ export class CloudResourceProjectionService {
       const typedByFramework = new Map<string, CloudServiceResourceV1[]>();
       (byRegion.get(region) ?? [])
         .filter((resource) => resource.resourceType !== 'cloud.region')
-        .forEach((resource) => typedByFramework.set(resource.resourceType, [...(typedByFramework.get(resource.resourceType) ?? []), resource]));
-      for (const [resourceType, typedResources] of typedByFramework) {
-        const frameworkKey = resourceType === 'cdn.domain' ? 'cdn' : resourceType;
+        .forEach((resource) => {
+          const key = resource.frameworkKey ?? resource.resourceType;
+          typedByFramework.set(key, [...(typedByFramework.get(key) ?? []), resource]);
+        });
+      for (const [frameworkKey, typedResources] of typedByFramework) {
+        const resourceType = typedResources[0]?.resourceType ?? frameworkKey;
         const ownerAssetId = projectionOwnerAssetId(context);
         const frameworkId = `fw_${stableId(ownerAssetId, `cloud.region:${region}:framework:${frameworkKey}`)}`;
         const frameworkMetadata = {
@@ -228,7 +234,7 @@ export class CloudResourceProjectionService {
           frameworkType: 'cloud.resource',
           frameworkKey,
           discoveryProviderKey: providerKey,
-          displayName: resourceType === 'cdn.domain' ? `${context.provider} CDN` : `${context.provider} ${resourceType}`,
+          displayName: typedResources[0]?.frameworkDisplayName ?? `${context.provider} ${resourceType}`,
           versionText: `${typedResources.length} resources`,
           discoverySource: 'PROVIDER',
           rawFacts: frameworkMetadata,
@@ -497,40 +503,36 @@ export class CloudResourceProjectionService {
   }
 }
 
-/** 中文说明：账号级 CDN 资产本身是 ServiceAsset，覆盖范围是 Framework，域名实例是 Site。 */
+/** 中文说明：账号级资源由插件声明的 Framework 键分组，资源实例投影为 Site。 */
 function projectAccountFrameworkTopology(
   context: CloudResourceProjectionContext,
   resources: CloudServiceResourceV1[],
   providerKey: string,
 ): CloudResourceProjectionBatch {
   const ownerAssetId = projectionOwnerAssetId(context);
-  const providerDisplayName = context.providerDisplayName ?? `${context.provider} CDN`;
-  const byScope = new Map<string, CloudServiceResourceV1[]>([
-    ['mainland', []],
-    ['global', []],
-  ]);
+  const byFramework = new Map<string, CloudServiceResourceV1[]>();
   resources
     .filter((resource) => resource.resourceType !== 'cloud.region')
     .forEach((resource) => {
-      const scope = normalizeCdnScopeKey(textValue(resource.metadata?.cdnRegion) || resource.region);
-      byScope.set(scope, [...(byScope.get(scope) ?? []), resource]);
+      const frameworkKey = resource.frameworkKey ?? resource.resourceType;
+      byFramework.set(frameworkKey, [...(byFramework.get(frameworkKey) ?? []), resource]);
     });
   const frameworks: CloudResourceProjection['framework'][] = [];
   const sites: CloudResourceProjection['site'][] = [];
   const managedTargets: NonNullable<CloudResourceProjection['managedTarget']>[] = [];
-  for (const [scope, scopedResources] of [...byScope.entries()].sort(([left], [right]) => left.localeCompare(right))) {
-    // 中文说明：展示名称由稳定范围键决定，避免历史投影中的“全球”文案继续泄漏到当前界面。
-    const scopeName = scope === 'mainland' ? '中国大陆' : '国际站';
-    const frameworkId = `fw_${stableId(ownerAssetId, `cloud.account:framework:cdn:${scope}`)}`;
+  for (const [frameworkKey, scopedResources] of [...byFramework.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+    const frameworkId = `fw_${stableId(ownerAssetId, `cloud.account:framework:${frameworkKey}`)}`;
+    const frameworkDisplayName = scopedResources[0]?.frameworkDisplayName
+      ?? context.providerDisplayName
+      ?? `${context.provider} ${frameworkKey}`;
     const frameworkMetadata = {
       ...projectionOwnerFields(context),
       ...(context.cloudAccountAssetId ? { cloudAccountAssetId: context.cloudAccountAssetId } : {}),
       pluginId: context.pluginId,
       pluginVersionId: context.pluginVersionId,
       provider: context.provider,
-      scope,
-      scopeName,
-      resourceType: 'cdn.domain',
+      frameworkKey,
+      resourceType: scopedResources[0]?.resourceType,
       resourceCount: scopedResources.length,
     };
     frameworks.push({
@@ -539,9 +541,9 @@ function projectAccountFrameworkTopology(
       ...projectionOwnerFields(context),
       deviceId: undefined,
       frameworkType: 'cloud.resource',
-      frameworkKey: `cdn.${scope}`,
+      frameworkKey,
       discoveryProviderKey: providerKey,
-      displayName: `${providerDisplayName} · ${scopeName}`,
+      displayName: frameworkDisplayName,
       versionText: `${scopedResources.length} resources`,
       discoverySource: 'PROVIDER',
       rawFacts: frameworkMetadata,
@@ -701,14 +703,6 @@ function parseCertificateEndpoint(value: unknown, path: string): CloudCertificat
     executionLocations: locations,
     ...(metadata ? { metadata } : {}),
   };
-}
-
-/** 中文说明：账号级 CDN 只允许两个管理范围，旧资源的 cn-* 区域统一归入中国大陆。 */
-function normalizeCdnScopeKey(value: string): 'mainland' | 'global' {
-  const normalized = value.toLocaleLowerCase().replaceAll('_', '-').replaceAll(' ', '');
-  return normalized === 'mainland' || normalized === 'china' || normalized === 'domestic' || normalized.startsWith('cn-')
-    ? 'mainland'
-    : 'global';
 }
 
 /** 中文说明：同一云账号的下一次发现先退役上一版投影，随后用稳定 ID 恢复仍存在的设备、框架和站点。 */

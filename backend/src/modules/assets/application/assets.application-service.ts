@@ -86,10 +86,33 @@ export interface AssetPluginVersionResolver {
       };
     };
   }>;
+  getCurrentEnabledVersion?(tenantId: string, pluginId: string): Promise<{
+    id: string;
+    pluginId: string;
+    version: string;
+    runtime: string;
+    status: string;
+    manifest: {
+      capabilities?: Array<{ key: string }>;
+      compatibility?: {
+        productFamilies?: string[];
+      };
+    };
+  }>;
+}
+
+/** 云服务资产重扫所需的最小发现能力，避免资产模块依赖 Provider 控制器实现。 */
+export interface CloudServiceDiscoveryPort {
+  executeServiceAsset(
+    tenantId: string,
+    serviceAssetId: string,
+    operation: 'discover',
+  ): Promise<unknown>;
 }
 
 export class AssetsApplicationService {
   private executionCompatibility?: Pick<ApplicationExecutionCompatibilityService, 'recheckApplication' | 'recheckManagedTarget' | 'recheckHost' | 'recheckFrameworkInstance' | 'recheckSiteAsset'>;
+  private cloudDiscovery?: CloudServiceDiscoveryPort;
 
   constructor(
     private readonly repository: AssetsRepository = new PgAssetsRepository(),
@@ -168,6 +191,21 @@ export class AssetsApplicationService {
 
   setPluginVersionResolver(resolver: AssetPluginVersionResolver): void {
     this.pluginVersionResolver = resolver;
+  }
+
+  setCloudServiceDiscoveryService(service: CloudServiceDiscoveryPort): void {
+    this.cloudDiscovery = service;
+  }
+
+  /** 统一资产详情的云服务重扫入口，始终由当前启用插件版本执行。 */
+  async rescanApplicationAsset(tenantId: string, serviceAssetId: string, _actorId?: string): Promise<unknown> {
+    const asset = await this.repository.getServiceAsset(tenantId, serviceAssetId);
+    if (!asset) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId });
+    if (asset.assetKind !== 'CLOUD_SERVICE') {
+      throw new AppError('CAPABILITY_MISSING', '当前资产不是可通过云插件重扫的云服务资产', { serviceAssetId });
+    }
+    if (!this.cloudDiscovery) throw new AppError('SYSTEM_INTERNAL_ERROR', '云服务发现服务未接入');
+    return this.cloudDiscovery.executeServiceAsset(tenantId, serviceAssetId, 'discover');
   }
 
   async createHost(tenantId: string, input: CreateHostDto) {
@@ -318,9 +356,18 @@ export class AssetsApplicationService {
   /** 中文说明：列表和详情共用云服务资产投影，避免字段来源分叉。 */
   private async hydrateCloudServiceAsset<T extends ServiceAssetDto>(tenantId: string, asset: T): Promise<T> {
     const metadata = asRecord(asset.metadata);
-    const pluginVersionId = stringFromRecord(metadata, ['pluginVersionId', 'plugin_version_id']) ?? asset.pluginVersionId;
+    let pluginVersionId = stringFromRecord(metadata, ['pluginVersionId', 'plugin_version_id']) ?? asset.pluginVersionId;
     let plugin: Awaited<ReturnType<AssetPluginVersionResolver['getVersionForTenant']>> | undefined;
-    if (pluginVersionId && this.pluginVersionResolver) {
+    const pluginId = stringFromRecord(metadata, ['pluginId', 'provider']) ?? asset.pluginId;
+    if (pluginId && this.pluginVersionResolver?.getCurrentEnabledVersion) {
+      try {
+        plugin = await this.pluginVersionResolver.getCurrentEnabledVersion(tenantId, pluginId);
+        pluginVersionId = plugin.id;
+      } catch {
+        // 当前版本不可用时回退历史版本，保证旧资产仍可读。
+      }
+    }
+    if (!plugin && pluginVersionId && this.pluginVersionResolver) {
       try {
         plugin = await this.pluginVersionResolver.getVersionForTenant(tenantId, pluginVersionId);
       } catch {
@@ -477,7 +524,8 @@ export class AssetsApplicationService {
       certificates,
       logs: [],
       resourceCounts: { frameworks: projection.frameworks.length, sites: sites.length, certificates: certificates.length, logs: 0 },
-      allowedActions: [],
+      // 云服务详情沿用统一详情动作合同，重扫由控制面插件发现流程执行。
+      allowedActions: ['cloud.service.discover'],
       extension: { type: 'GENERIC', rawType: 'SERVICE_ASSET' },
       extensionSummary: { serviceAssetId: asset.id, provider: cloudProvider },
     } as ServiceAssetDetailDto;

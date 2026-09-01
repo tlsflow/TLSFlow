@@ -78,6 +78,17 @@ export interface OnboardingDeviceOptionDto {
   reasonCode?: string;
 }
 
+/** 应用接入向导统一资源候选；assetRef 与资产中心统一投影保持一致。 */
+export interface OnboardingResourceOptionDto {
+  assetRef: { rootType: 'DEVICE' | 'SERVICE_ASSET'; id: string };
+  resourceType: 'DEVICE' | 'SERVICE_ASSET';
+  displayName: string;
+  address?: string;
+  health: string;
+  selectable: boolean;
+  reasonCode?: string;
+}
+
 export interface ApplicationOnboardingSessionDto {
   id: string;
   tenantId: string;

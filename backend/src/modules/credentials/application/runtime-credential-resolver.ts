@@ -63,7 +63,7 @@ export class RuntimeCredentialResolver {
     if (!profile) throw new AppError('RESOURCE_NOT_FOUND', 'CredentialProfile 不存在', { credentialId });
     if (profile.status !== 'active') throw new AppError('VALIDATION_FAILED', 'CredentialProfile 当前不可用于执行', { credentialId, status: profile.status });
     if (profile.kind !== 'PASSWORD' && profile.kind !== 'USERNAME_PASSWORD') {
-      throw new AppError('VALIDATION_FAILED', 'Tomcat KeyStore 密码 Credential 类型不受支持', { credentialId, kind: profile.kind });
+      throw new AppError('VALIDATION_FAILED', '当前凭据类型不支持密码 Secret Slot', { credentialId, kind: profile.kind });
     }
     const secretRef = profile.secretSlots[slot];
     if (!secretRef) throw new AppError('VALIDATION_FAILED', 'Credential 缺少 password Secret Slot', { credentialId, slot });

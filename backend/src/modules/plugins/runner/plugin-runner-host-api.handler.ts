@@ -450,7 +450,7 @@ function resolveCloudServiceEndpoint(service: { providerKey?: string; scope?: { 
 }
 
 /** 中文说明：HTTP 出口必须登记完整的 Provider 标准端点集合；账号未自定义端点时，
- * 阿里云云账号同时允许 CDN 与 ECS 只读 API，避免发现可用区域时被误判为未绑定服务。 */
+ * 仅允许插件声明的服务端点，避免请求越权到未绑定地址。 */
 function resolveCloudServiceEndpoints(service: { providerKey?: string; scope?: { endpoint?: string }; metadata?: Record<string, unknown> }): string[] {
   if (typeof service.scope?.endpoint === 'string' && service.scope.endpoint.trim() !== '') return [service.scope.endpoint];
   const declared = service.metadata?.serviceEndpoints;

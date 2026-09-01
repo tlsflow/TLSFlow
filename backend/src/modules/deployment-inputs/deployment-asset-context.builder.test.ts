@@ -340,7 +340,7 @@ describe('DeploymentAssetContextBuilder', () => {
     assert.equal(context.target?.certificateLocation?.configFingerprint, 'c'.repeat(64));
   });
 
-  it('从 Site metadata 补齐旧 IIS Target 的配置指纹并使用固定 IIS 服务默认值', () => {
+  it('从 Site metadata 补齐旧证书目标的配置指纹且不猜测本地服务事实', () => {
     const topology = managedTargetContext();
     topology.host!.osType = 'WINDOWS';
     topology.frameworkType = 'web.iis';
@@ -377,8 +377,8 @@ describe('DeploymentAssetContextBuilder', () => {
       managedTargetContext: topology,
     });
 
-    assert.equal(context.target?.certificateLocation?.serviceName, 'W3SVC');
-    assert.equal(context.target?.certificateLocation?.programPath, 'C:/Windows/System32/inetsrv/appcmd.exe');
+    assert.equal(context.target?.certificateLocation?.serviceName, undefined);
+    assert.equal(context.target?.certificateLocation?.programPath, undefined);
     assert.equal(context.target?.certificateLocation?.configFingerprint, 'd'.repeat(64));
   });
 
@@ -477,7 +477,7 @@ describe('DeploymentAssetContextBuilder', () => {
       certificateBinding: certificateBinding(),
     });
 
-    assert.equal(context.target?.certificateLocation?.serviceName, 'W3SVC');
+    assert.equal(context.target?.certificateLocation?.serviceName, undefined);
     assert.equal(context.target?.certificateLocation?.configFingerprint, undefined);
   });
 

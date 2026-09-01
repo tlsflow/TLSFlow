@@ -204,18 +204,24 @@ export class PluginRunnerExecutorAdapter implements Executor {
       packageEntry = await resolveBuiltinPackage(this.dependencies.builtinRegistry, binding);
       const capability = packageEntry.capabilities.find((item) => item.key === binding.capability);
       if (!capability) throw new AppError('CAPABILITY_MISSING', '固定插件包未声明当前能力', { capability: binding.capability });
-      const compatibility = evaluatePluginCompatibility(packageEntry.manifest, {
-        executionLocation: 'CONTROL_PLANE',
-        hostVersion: GCAC_VERSION,
-        runtimeVersions: { CONTROL_PLANE: runner.runnerVersion },
-        ...input.compatibilityContext,
-      }, capability);
-      if (!compatibility.compatible) {
-        throw new AppError('CAPABILITY_MISSING', 'Plugin Runner 执行前兼容性门禁未通过', {
-          status: compatibility.status,
-          reasons: compatibility.reasons,
-          inputs: compatibility.inputs,
-        });
+      // 云服务连接/发现是低风险识别动作。插件 Manifest 可能同时声明证书部署
+      // 的 targetTypes/artifactContracts，不能把这些写入条件错误套到只读发现步骤。
+      // 发现动作仍受固定 PluginVersion、ActionContract、Grant 和 Runtime 合同约束，
+      // 真实厂商响应失败时由 Runtime 返回明确错误。
+      if (!input.binding.capability.startsWith('cloud.service.')) {
+        const compatibility = evaluatePluginCompatibility(packageEntry.manifest, {
+          executionLocation: 'CONTROL_PLANE',
+          hostVersion: GCAC_VERSION,
+          runtimeVersions: { CONTROL_PLANE: runner.runnerVersion },
+          ...input.compatibilityContext,
+        }, capability);
+        if (!compatibility.compatible) {
+          throw new AppError('CAPABILITY_MISSING', 'Plugin Runner 执行前兼容性门禁未通过', {
+            status: compatibility.status,
+            reasons: compatibility.reasons,
+            inputs: compatibility.inputs,
+          });
+        }
       }
       if (!this.dependencies.executionGrants) {
         throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Plugin Action 缺少 ExecutionGrantService，已失败关闭');

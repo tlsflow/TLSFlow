@@ -25,7 +25,6 @@ import type {
 import type {
   UnifiedAgentPlanAuthorizationDependenciesV1,
 } from './unified-agent-plan-authorization.port.js';
-import { certificateUpdatePluginIds } from '../canonical-plugin-id/canonical-plugin-id.registry.js';
 import { canonicalResourceHash } from '../../../shared/plugin-resource-hash.js';
 import { validateCertificateUpdateInputContract } from '../../deployment-inputs/certificate-update/certificate-update.contract.js';
 import { resolveCertificateUpdateSnapshot, assertCertificateUpdatePlanBinding } from '../../deployment-inputs/certificate-update/certificate-update-input.service.js';
@@ -136,7 +135,7 @@ export class UnifiedAgentPlanCompilerService {
         pluginVersionId: input.pluginVersionId,
       });
     }
-    if (input.purpose !== 'certificate_trust' && certificateUpdatePluginIds.includes(plan.pluginId as never)) {
+    if (input.purpose !== 'certificate_trust' && isCertificateUpdatePlan(plan)) {
       if (!input.resolvedInput) failClosed(input, '证书更新插件缺少统一部署输入快照');
       const contractPath = plugin.manifest.resources.inputContracts?.[plan.capability];
       const contractText = contractPath ? plugin.resources[contractPath] : undefined;
@@ -172,7 +171,7 @@ export class UnifiedAgentPlanCompilerService {
       }
     }
     const authorization = readAuthorizationRequest(request.authorization, input);
-    if (input.purpose !== 'certificate_trust' && certificateUpdatePluginIds.includes(plan.pluginId as never)) {
+    if (input.purpose !== 'certificate_trust' && isCertificateUpdatePlan(plan)) {
       // 执行时可能从 LATEST_AUTO/密封运行快照重建了新的证书 Artifact，
       // 不能继续沿用创建计划时的旧 artifactDigests。摘要必须从当前已验证
       // 的 Plan 重新投影，随后仍由 Policy Authority 对这组范围做最终授权。
@@ -180,10 +179,9 @@ export class UnifiedAgentPlanCompilerService {
       if (input.executionMode === 'ROLLBACK') {
         authorization.actions = [...new Set(plan.operations.map((operation) => operation.operationType))];
       }
-      if (plan.pluginId === 'web.iis') {
-        // IIS 原子操作不携带文件路径；旧执行快照可能仍保存发现阶段的
-        // applicationHost.config/appcmd/工作目录，不能把这些事实继续当成本次
-        // Agent 本地路径授权。
+      if (!plan.operations.some((operation) => operation.operationType.startsWith('filesystem.'))) {
+        // 非文件系统原子操作不携带本地路径；旧执行快照中的路径不能成为本次
+        // Agent 授权范围。
         authorization.allowedPaths = [];
       }
     }
@@ -259,7 +257,7 @@ export class UnifiedAgentPlanCompilerService {
     const pluginId = readStringValue(candidate?.pluginId);
     const capability = readStringValue(candidate?.capability);
     const operations = Array.isArray(candidate?.operations) ? candidate.operations : [];
-    if (!pluginId || !capability || !certificateUpdatePluginIds.includes(pluginId as never)
+    if (!pluginId || !capability || !isCertificateCapability(capability)
       || plugin.manifest.pluginId !== pluginId
       || !['certificate.deploy', 'certificate.rollback', 'certificate.verify'].includes(capability)
       || !operations.some((operation) => {
@@ -453,13 +451,20 @@ export function collectPlanArtifactDigests(plan: { operations: ReadonlyArray<{ o
   }))];
 }
 
+function isCertificateCapability(value: string): boolean {
+  return value === 'certificate.deploy' || value === 'certificate.rollback' || value === 'certificate.verify';
+}
+
+function isCertificateUpdatePlan(value: AgentPlanV1): boolean {
+  return isCertificateCapability(value.capability);
+}
+
 function looksLikeSanitizedCertificatePlan(value: unknown): boolean {
   const candidate = readRecord(value);
   const pluginId = readStringValue(candidate?.pluginId);
   const capability = readStringValue(candidate?.capability);
   const operations = Array.isArray(candidate?.operations) ? candidate.operations : [];
-  return Boolean(pluginId && certificateUpdatePluginIds.includes(pluginId as never)
-    && capability && ['certificate.deploy', 'certificate.rollback', 'certificate.verify'].includes(capability)
+  return Boolean(pluginId && capability && isCertificateCapability(capability)
     && operations.some((operation) => readStringValue(readRecord(operation)?.operationType)?.startsWith('certificate.') === true));
 }
 
@@ -468,7 +473,7 @@ function forceCertificateRollbackDraft(value: unknown): unknown {
   const candidate = readRecord(value);
   if (!candidate) return value;
   const pluginId = readStringValue(candidate.pluginId);
-  if (!pluginId || !certificateUpdatePluginIds.includes(pluginId as never)) return value;
+  if (!pluginId || !isCertificateCapability(readStringValue(candidate.capability) ?? '')) return value;
   return { ...candidate, capability: 'certificate.rollback', planId: 'certificate.rollback' };
 }
 

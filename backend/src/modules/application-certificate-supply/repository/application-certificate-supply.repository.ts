@@ -117,7 +117,7 @@ export class ApplicationCertificateSupplyRepository implements ApplicationCertif
     const locations = (row: Record<string, unknown>) => jsonStrings(row.execution_locations).map((item) => item.toLowerCase());
     const agent = rows.find((row) => hasCsr(row) && locations(row).some((item) => item === 'agent'));
     if (agent) return { mode: 'agent_local', evidence: { targetId: agent.managed_target_id, capability: 'key.generate_csr', executionLocation: 'agent' } };
-    const device = rows.find((row) => hasCsr(row) && (locations(row).some((item) => item === 'gateway' || item === 'device') || /citrix|f5|adc/i.test(String(row.target_type ?? ''))));
+    const device = rows.find((row) => hasCsr(row) && locations(row).some((item) => item === 'gateway' || item === 'device'));
     if (device) return { mode: 'device_local', evidence: { targetId: device.managed_target_id, capability: 'key.generate_csr', executionLocation: 'gateway' } };
     return { mode: 'managed_secret', evidence: { targetCount: rows.length, reason: rows.length ? 'target_without_local_csr' : 'target_missing' } };
   }
