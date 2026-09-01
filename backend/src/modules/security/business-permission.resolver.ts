@@ -8,6 +8,7 @@ import type {
   BusinessPermissionRelationEntity,
 } from '../../persistence/entities/business-permission.entity.js';
 import {
+  canonicalBusinessPermissionAction,
   getBusinessPermissionDefinition,
   type BusinessPermissionResourceRule,
 } from './business-permission.registry.js';
@@ -23,6 +24,20 @@ import { newId } from '../../shared/id.js';
 
 function accessRank(value: 'read' | 'edit' | 'control'): number {
   return value === 'control' ? 3 : value === 'edit' ? 2 : 1;
+}
+
+function mergeResource(resources: Map<string, BusinessPermissionResource>, key: string, next: BusinessPermissionResource): void {
+  const current = resources.get(key);
+  if (!current) {
+    resources.set(key, next);
+    return;
+  }
+  resources.set(key, {
+    ...current,
+    accessLevel: accessRank(next.accessLevel) > accessRank(current.accessLevel) ? next.accessLevel : current.accessLevel,
+    actions: [...new Set([...current.actions, ...next.actions])],
+    highRisk: current.highRisk || next.highRisk,
+  });
 }
 
 export interface BusinessPermissionResource {
@@ -72,6 +87,8 @@ export interface BusinessPermissionResolverOptions {
     rootObjectType: string;
     rootObjectId: string;
   }) => Promise<Array<Pick<BusinessPermissionRelationEntity, 'relatedObjectType' | 'relatedObjectId' | 'relation'>> | undefined>;
+  /** 只认当前租户内仍有效的 owner/admin 成员关系。 */
+  isTenantAdministrator?: (input: { subject: SecuritySubject; tenantId: string }) => Promise<boolean>;
 }
 
 export interface BusinessPermissionContextItem extends Pick<BusinessPermissionGrantEntity,
@@ -207,12 +224,22 @@ export class BusinessPermissionResolver {
       && item.rootObjectType === root.objectType
       && item.rootObjectId === root.objectId,
     );
-    if (candidates.length === 0) {
+    if (candidates.length === 0 && !await this.isTenantAdministrator(subject, root.tenantId)) {
       return this.deniedResolution(domain, level, root, 'no business permission grant');
     }
-    const allows = candidates.filter((item) => item.effect === 'allow');
     const denies = candidates.filter((item) => item.effect === 'deny');
     if (denies.length > 0) return this.deniedResolution(domain, level, root, 'explicit business deny');
+    if (await this.isTenantAdministrator(subject, root.tenantId)) {
+      return this.resolveGrant({
+        tenantId: root.tenantId,
+        domain,
+        level,
+        rootObjectType: root.objectType,
+        rootObjectId: root.objectId,
+        rootScope: root.rootScope,
+        effect: 'allow',
+      });
+    }
     const resolution = await this.resolveGrant({ tenantId: root.tenantId, domain, level, rootObjectType: root.objectType, rootObjectId: root.objectId, rootScope: root.rootScope, effect: 'allow' });
     if (!resolution.allowed) return resolution;
     for (const resource of resolution.relatedResources) {
@@ -243,11 +270,11 @@ export class BusinessPermissionResolver {
     const related = new Map<string, BusinessPermissionResource>();
     for (const rule of rules) {
       if (rule.objectType === input.rootObjectType) {
-        related.set(`${rule.objectType}:${input.rootObjectId ?? '*'}`, { objectType: rule.objectType, objectId: input.rootObjectId, accessLevel: rule.accessLevel, actions: [...rule.actions], highRisk: rule.highRisk ?? false });
+        mergeResource(related, `${rule.objectType}:${input.rootObjectId ?? '*'}`, { objectType: rule.objectType, objectId: input.rootObjectId, accessLevel: rule.accessLevel, actions: [...rule.actions], highRisk: rule.highRisk ?? false });
       }
       for (const relation of relationRows.filter((item) => item.relatedObjectType === rule.objectType)) {
         if (relation.tenantId !== input.tenantId) return this.deniedResolution(input.domain, input.level, { tenantId: input.tenantId, objectType: input.rootObjectType, objectId: input.rootObjectId }, 'related resource tenant mismatch');
-        related.set(`${rule.objectType}:${relation.relatedObjectId}`, { objectType: rule.objectType, objectId: relation.relatedObjectId, accessLevel: rule.accessLevel, actions: [...rule.actions], highRisk: rule.highRisk ?? false });
+        mergeResource(related, `${rule.objectType}:${relation.relatedObjectId}`, { objectType: rule.objectType, objectId: relation.relatedObjectId, accessLevel: rule.accessLevel, actions: [...rule.actions], highRisk: rule.highRisk ?? false });
       }
     }
     if (input.domain !== 'audit' && input.domain !== 'settings' && related.size === 0) {
@@ -338,19 +365,21 @@ export class BusinessPermissionResolver {
 
   /** RBAC action 的业务授权适配，供所有 Controller 共用。 */
   async isActionAllowed(subject: SecuritySubject, action: string, resource: { type: string; id?: string; tenantId?: string }): Promise<boolean> {
+    action = canonicalBusinessPermissionAction(action);
     const tenantId = resource.tenantId ?? subject.scope?.tenantId;
     if (!tenantId) return false;
     const principals = this.objectPermissions ? await this.objectPermissions.resolvePrincipals(subject) : [{ type: subject.type as PrincipalType, id: subject.id }];
     const principalKeys = new Set(principals.map((item) => `${item.type}:${item.id}`));
+    if (await this.isActionExplicitlyDenied(subject, action, resource)) return false;
+    if (await this.isTenantAdministrator(subject, tenantId)) return true;
     const grants = await this.grants.list((item) => item.status === 'active' && item.tenantId === tenantId && principalKeys.has(`${item.principalType}:${item.principalId}`));
     let allowed = false;
     for (const grant of grants) {
       const resolution = await this.resolveGrant(grant);
       const matchesResource = resolution.relatedResources.some((item) => item.objectType === resource.type && (!resource.id || item.objectId === resource.id));
       if (!matchesResource) continue;
-      const matchesAction = resolution.relatedResources.some((item) => item.objectType === resource.type && item.actions.includes(action));
+      const matchesAction = resolution.relatedResources.some((item) => item.objectType === resource.type && item.actions.some((candidate) => canonicalBusinessPermissionAction(candidate) === action));
       if (!matchesAction) continue;
-      if (grant.effect === 'deny') return false;
       allowed = true;
     }
     return allowed;
@@ -361,6 +390,7 @@ export class BusinessPermissionResolver {
    * 与 isActionAllowed 分开，避免把普通的“没有授权”误判为拒绝规则。
    */
   async isActionExplicitlyDenied(subject: SecuritySubject, action: string, resource: { type: string; id?: string; tenantId?: string }): Promise<boolean> {
+    action = canonicalBusinessPermissionAction(action);
     const tenantId = resource.tenantId ?? subject.scope?.tenantId;
     if (!tenantId) return false;
     const principals = this.objectPermissions ? await this.objectPermissions.resolvePrincipals(subject) : [{ type: subject.type as PrincipalType, id: subject.id }];
@@ -373,7 +403,7 @@ export class BusinessPermissionResolver {
       const resolution = await this.resolveGrant(grant);
       if (resolution.relatedResources.some((item) => item.objectType === resource.type
         && (!resource.id || item.objectId === resource.id)
-        && item.actions.includes(action))) {
+        && item.actions.some((candidate) => canonicalBusinessPermissionAction(candidate) === action))) {
         return true;
       }
     }
@@ -404,6 +434,48 @@ export class BusinessPermissionResolver {
     if (!object.objectId || !object.tenantId) return false;
     const ids = await this.authorizedObjectIds(subject, object.objectType, accessLevel);
     return ids.includes(object.objectId);
+  }
+
+  /** 显式业务 deny 必须在租户管理员全量授权之前判定。 */
+  async isResourceExplicitlyDenied(subject: SecuritySubject, object: ObjectRef, accessLevel: 'read' | 'edit' | 'control'): Promise<boolean> {
+    if (!object.objectId || !object.tenantId) return false;
+    const principals = this.objectPermissions ? await this.objectPermissions.resolvePrincipals(subject) : [{ type: subject.type as PrincipalType, id: subject.id }];
+    const principalKeys = new Set(principals.map((item) => `${item.type}:${item.id}`));
+    const grants = await this.grants.list((item) => item.status === 'active'
+      && item.effect === 'deny'
+      && item.tenantId === object.tenantId
+      && principalKeys.has(`${item.principalType}:${item.principalId}`));
+    for (const grant of grants) {
+      const resolution = await this.resolveGrant(grant);
+      if (resolution.relatedResources.some((resource) => resource.objectType === object.objectType
+        && resource.objectId === object.objectId
+        && accessRank(resource.accessLevel) >= accessRank(accessLevel))) return true;
+    }
+    return false;
+  }
+
+  async explicitlyDeniedObjectIds(subject: SecuritySubject, objectType: string, accessLevel: 'read' | 'edit' | 'control'): Promise<string[]> {
+    const tenantId = subject.scope?.tenantId;
+    if (!tenantId) return [];
+    const principals = this.objectPermissions ? await this.objectPermissions.resolvePrincipals(subject) : [{ type: subject.type as PrincipalType, id: subject.id }];
+    const principalKeys = new Set(principals.map((item) => `${item.type}:${item.id}`));
+    const grants = await this.grants.list((item) => item.status === 'active'
+      && item.effect === 'deny'
+      && item.tenantId === tenantId
+      && principalKeys.has(`${item.principalType}:${item.principalId}`));
+    const denied = new Set<string>();
+    for (const grant of grants) {
+      const resolution = await this.resolveGrant(grant);
+      for (const resource of resolution.relatedResources) {
+        if (resource.objectType === objectType && resource.objectId && accessRank(resource.accessLevel) >= accessRank(accessLevel)) denied.add(resource.objectId);
+      }
+    }
+    return [...denied];
+  }
+
+  async isTenantAdministrator(subject: SecuritySubject, tenantId = subject.scope?.tenantId): Promise<boolean> {
+    if (!tenantId || tenantId === '*' || !this.options.isTenantAdministrator) return false;
+    return this.options.isTenantAdministrator({ subject, tenantId });
   }
 
   private requireDefinition(domain: string, level: string) {

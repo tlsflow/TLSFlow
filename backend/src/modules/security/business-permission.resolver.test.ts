@@ -27,7 +27,7 @@ describe('BusinessPermissionResolver', () => {
     );
   });
 
-  it('应用关系缺失时失败关闭，关联完整时返回部署链路资源', async () => {
+  it('应用关系缺失时失败关闭，关联完整时返回应用业务资源', async () => {
     const { resolver } = createResolver();
     const denied = await resolver.resolveGrant({ tenantId: 'tenant_a', domain: 'application', level: 'manager', rootObjectType: 'service_asset', rootObjectId: 'app_1', effect: 'allow' });
     assert.equal(denied.allowed, false);
@@ -36,16 +36,16 @@ describe('BusinessPermissionResolver', () => {
     for (const [objectType, objectId, relation] of [
       ['device_asset', 'device_1', 'application-device'],
       ['certificate_binding', 'binding_1', 'application-certificate'],
-      ['deployment_plan', 'plan_1', 'application-plan'],
-      ['workflow', 'workflow_1', 'application-workflow'],
-      ['execution_run', 'run_1', 'application-execution'],
+      ['monitor_target', 'monitor_1', 'application-monitor-target'],
+      ['monitor_risk', 'risk_1', 'application-monitor-risk'],
+      ['monitor_dashboard', 'dashboard_1', 'application-monitor-dashboard'],
     ] as const) {
       await resolver.upsertRelation({ tenantId: 'tenant_a', rootDomain: 'application', rootObjectType: 'service_asset', rootObjectId: 'app_1', relatedObjectType: objectType, relatedObjectId: objectId, relation });
     }
     const resolved = await resolver.resolveGrant({ tenantId: 'tenant_a', domain: 'application', level: 'manager', rootObjectType: 'service_asset', rootObjectId: 'app_1', effect: 'allow' });
     assert.equal(resolved.allowed, true);
-    assert.deepEqual(new Set(resolved.relatedResources.map((item) => item.objectType)), new Set(['service_asset', 'device_asset', 'certificate_binding', 'deployment_plan', 'workflow', 'execution_run']));
-    assert.equal(resolved.relatedResources.some((item) => item.actions.includes('application.deployment.submit')), true);
+    assert.deepEqual(new Set(resolved.relatedResources.map((item) => item.objectType)), new Set(['service_asset', 'device_asset', 'certificate_binding', 'monitor_target', 'monitor_risk', 'monitor_dashboard']));
+    assert.equal(resolved.relatedResources.some((item) => item.actions.includes('application.monitor.read')), true);
   });
 
   it('投影关系使用有界稳定存储键，不会因长对象标识失败或重复写入', async () => {

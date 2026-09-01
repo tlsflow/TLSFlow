@@ -21,6 +21,30 @@ export interface BusinessPermissionDefinition {
 }
 
 /**
+ * 预置模板只是一组可复用的业务授权建议，不是角色，也不单独持久化。
+ * 实际授权仍然写入 business_permission_grants，并通过 RoleBinding 绑定主体。
+ */
+export interface BusinessPermissionPreset {
+  id: string;
+  label: string;
+  domain: BusinessPermissionDomain;
+  level: BusinessPermissionLevel;
+}
+
+export const BUSINESS_PERMISSION_PRESETS: readonly BusinessPermissionPreset[] = [
+  { id: 'certificate.viewer', label: '证书查看', domain: 'certificate', level: 'user' },
+  { id: 'certificate.manager', label: '证书管理', domain: 'certificate', level: 'manager' },
+  { id: 'application.viewer', label: '应用查看', domain: 'application', level: 'user' },
+  { id: 'application.manager', label: '应用管理', domain: 'application', level: 'manager' },
+];
+
+export const BUSINESS_PERMISSION_ACTION_ALIASES: Readonly<Record<string, string>> = {
+  'certificate.format.create': 'certificate.artifact.export',
+  'certificate.binding.update': 'application.certificate.update',
+  'binding.manage': 'application.certificate.update',
+};
+
+/**
  * 业务授权注册表是唯一的业务域/级别映射来源。Controller 不得复制这些分支。
  * manager 只增加业务所需的编辑能力，审批、Secret 和 Agent 最小权限仍由下游服务决定。
  */
@@ -42,10 +66,10 @@ export const BUSINESS_PERMISSION_REGISTRY: Readonly<Record<BusinessPermissionDom
       },
       manager: {
         resources: [
-          resource('certificate', 'edit', 'certificate.read', 'certificate.update', 'certificate.lifecycle', 'certificate.import', 'certificate.renew'),
-          resource('certificate_asset', 'edit', 'certificate.read', 'certificate.update', 'certificate.lifecycle', 'certificate.import', 'certificate.renew'),
-          resource('certificate_version', 'edit', 'certificate.version.read', 'certificate.version.update', 'certificate.lifecycle'),
-          resource('certificate_version_format', 'read', 'certificate.format.read'),
+          resource('certificate', 'edit', 'certificate.read', 'certificate.update', 'certificate.lifecycle', 'certificate.import', 'certificate.renew', 'certificate.auto_renew.update', 'certificate.artifact.export'),
+          resource('certificate_asset', 'edit', 'certificate.read', 'certificate.update', 'certificate.lifecycle', 'certificate.import', 'certificate.renew', 'certificate.auto_renew.update', 'certificate.artifact.export'),
+          resource('certificate_version', 'edit', 'certificate.version.read', 'certificate.version.update', 'certificate.lifecycle', 'certificate.artifact.export'),
+          resource('certificate_version_format', 'edit', 'certificate.format.read', 'certificate.artifact.export', 'certificate.format.create'),
           resource('certificate_binding', 'edit', 'certificate.binding.read', 'certificate.binding.update'),
           resource('certificate_request', 'edit', 'certificate.request.read', 'certificate.request.create', 'certificate.request.approve'),
           resource('certificate_renewal', 'edit', 'certificate.renew.read', 'certificate.renew.create', 'certificate.lifecycle'),
@@ -62,26 +86,24 @@ export const BUSINESS_PERMISSION_REGISTRY: Readonly<Record<BusinessPermissionDom
       user: {
         resources: [
           resource('application_asset', 'read', 'application.read'),
-          resource('service_asset', 'read', 'application.read'),
+          resource('service_asset', 'read', 'application.read', 'application.asset.rescan'),
           resource('device_asset', 'read', 'application.device.read'),
           resource('certificate_binding', 'read', 'application.certificate.read'),
-          resource('deployment_plan', 'read', 'application.deployment.read'),
-          resource('workflow', 'read', 'application.workflow.read'),
-          resource('execution_run', 'read', 'application.execution.read', 'execution.run.read'),
-          resource('execution_step', 'read', 'execution.step.read'),
+          resource('monitor_target', 'read', 'application.monitor.read', 'monitor.target.read'),
+          resource('monitor_risk', 'read', 'application.monitor.read', 'monitor.risk.read'),
+          resource('monitor_dashboard', 'read', 'application.monitor.read', 'monitor.dashboard.read'),
         ],
         forbiddenCapabilities: ['application.update', 'deployment.execute', 'deployment.rollback', 'permission.delegate'],
       },
       manager: {
         resources: [
           resource('application_asset', 'edit', 'application.read', 'application.update'),
-          resource('service_asset', 'edit', 'application.read', 'application.update', 'service_asset.manage'),
+          resource('service_asset', 'edit', 'application.read', 'application.update', 'service_asset.manage', 'application.asset.rescan'),
           resource('device_asset', 'read', 'application.device.read'),
-          resource('certificate_binding', 'edit', 'application.certificate.read', 'application.certificate.update'),
-          resource('deployment_plan', 'edit', 'application.deployment.read', 'application.deployment.update', 'application.deployment.create', 'application.deployment.submit', 'application.deployment.execute', 'application.deployment.rollback', 'deployment.plan.read', 'deployment.plan.create', 'deployment.plan.update', 'deployment.plan.submit', 'deployment.plan.execute', 'deployment.plan.rollback'),
-          resource('workflow', 'control', 'application.workflow.read', 'application.workflow.update', 'application.workflow.create', 'workflow.read', 'workflow.create', 'workflow.update', 'workflow.publish', 'workflow.test'),
-          resource('execution_run', 'control', 'application.execution.read', 'application.execution.update', 'application.execution.execute', 'application.execution.rollback', 'execution.run.read', 'execution.run.retry', 'execution.run.rollback', 'execution.run.recover', 'execution.read', 'execution.update', 'execution.rollback'),
-          resource('execution_step', 'read', 'execution.step.read'),
+          resource('certificate_binding', 'edit', 'application.certificate.read', 'application.certificate.update', 'binding.manage', 'certificate.binding.update'),
+          resource('monitor_target', 'read', 'application.monitor.read', 'monitor.target.read'),
+          resource('monitor_risk', 'read', 'application.monitor.read', 'monitor.risk.read'),
+          resource('monitor_dashboard', 'read', 'application.monitor.read', 'monitor.dashboard.read'),
         ],
         forbiddenCapabilities: ['permission.delegate', 'secret.resolve', 'certificate.private_key.export'],
       },
@@ -121,6 +143,14 @@ export const BUSINESS_PERMISSION_REGISTRY: Readonly<Record<BusinessPermissionDom
 
 export function getBusinessPermissionDefinition(domain: string): BusinessPermissionDefinition | undefined {
   return BUSINESS_PERMISSION_REGISTRY[domain as BusinessPermissionDomain];
+}
+
+export function getBusinessPermissionPreset(id: string): BusinessPermissionPreset | undefined {
+  return BUSINESS_PERMISSION_PRESETS.find((preset) => preset.id === id);
+}
+
+export function canonicalBusinessPermissionAction(action: string): string {
+  return BUSINESS_PERMISSION_ACTION_ALIASES[action] ?? action;
 }
 
 function resource(
