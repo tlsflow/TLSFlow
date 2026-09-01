@@ -23,7 +23,7 @@ describe('统一资产导航', () => {
     expect(assetRoute?.redirect).toBeUndefined()
 
     const assetsMenu = mainMenuItems.find((item) => item.path === '/applications')
-    expect(assetsMenu?.children?.find((item) => item.path === '/assets')).toMatchObject({ titleKey: 'devices.page.title' })
+    expect(assetsMenu?.children?.find((item) => item.path === '/assets')).toMatchObject({ titleKey: 'assets.inventory.title' })
     expect(assetsMenu?.children?.some((item) => item.path === '/agents')).toBe(false)
   })
 
@@ -34,7 +34,7 @@ describe('统一资产导航', () => {
 
   it('资产列表使用站点列并约束操作按钮在单元格内', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/views/assets/AssetsView.vue'), 'utf8')
-    expect(source).toContain("title: t('devices.columns.sites')")
+    expect(source).toContain("title: t('assets.inventory.columns.sites')")
     expect(source).toContain('max-width: 100%')
     expect(source).toContain('white-space: nowrap')
     expect(devicesZhCN.columns.sites).toBe('站点')

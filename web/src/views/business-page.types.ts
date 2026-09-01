@@ -79,6 +79,8 @@ export interface BusinessPageConfig {
   readonly showMetrics?: boolean
   readonly showEmptyState?: boolean
   readonly readPermission: string
+  /** 统一资产等跨根对象页面的读取权限候选；服务端仍是最终授权边界。 */
+  readonly readPermissions?: readonly string[]
   readonly primaryPermission: string
   readonly primaryActionLabel: string
   readonly primaryAction?: () => Promise<unknown> | unknown

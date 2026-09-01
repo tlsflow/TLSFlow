@@ -1,5 +1,5 @@
 import { AppError } from '../../../common/errors/app-error.js';
-import { parsePageQuery, withAuthorization, type PageQuery } from '../../../common/pagination/pagination.js';
+import { applyAuthorizationFilter, parsePageQuery, withAuthorization, type PageQuery } from '../../../common/pagination/pagination.js';
 import type { Router } from '../../../common/http/router.js';
 import type { HttpRequest } from '../../../common/http/http-types.js';
 import { requireTenantId } from '../../../common/http/tenant-context.js';
@@ -14,6 +14,8 @@ import type { SecuritySubject } from '../../../shared/security-types.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import type { DevicesApplicationService } from '../../devices/application/devices.application-service.js';
 import type { ManagedDeviceSummaryDto } from '../../devices/dto/devices.dto.js';
+import type { DeviceAssetsApplicationService } from '../../device-assets/application/device-assets.application-service.js';
+import type { AgentsApplicationService } from '../../agents/application/agents.application-service.js';
 import { AssetsApplicationService } from '../application/assets.application-service.js';
 import { ApplicationAssetExecutionService, type SaveStandaloneWorkflowExecutionInput } from '../application/application-asset-execution.service.js';
 import type { ApplicationExecutionCompatibilityService } from '../application/application-execution-compatibility.service.js';
@@ -47,11 +49,15 @@ export class AssetsController {
     private readonly executionService?: ApplicationAssetExecutionService,
     private readonly executionCompatibility?: ApplicationExecutionCompatibilityService,
     private readonly devices?: DevicesApplicationService,
+    private readonly deviceAssets?: DeviceAssetsApplicationService,
+    private readonly agents?: AgentsApplicationService,
   ) {}
 
   register(router: Router): void {
     // 统一资产入口由服务端完成设备与云服务投影；应用入口严格只返回 APPLICATION。
     router.get('/api/v1/assets', '查询统一资产列表', tags, (request) => this.listUnifiedAssets(request));
+    router.get('/api/v1/assets/detail', '查询统一资产详情', tags, (request) => this.getUnifiedAssetDetail(request));
+    router.post('/api/v1/assets/actions', '执行统一资产动作', tags, (request) => this.executeUnifiedAssetAction(request));
     router.get('/api/v1/applications', '查询应用列表', tags, (request) => this.listServiceAssets(request, 'APPLICATION'));
     router.get('/api/v1/applications/edit-detail', '查询 Application 编辑详情', tags, (request) => this.getApplicationEditDetail(request));
     router.get('/api/v1/applications/detail', '查询 Application 详情', tags, (request) => this.getApplicationDetail(request));
@@ -128,32 +134,43 @@ export class AssetsController {
     const hostManageAllowed = await this.canPermission(subject, 'host.update', 'host', request);
     const serviceManageAllowed = await this.canPermission(subject, 'service_asset.manage', 'service_asset', request)
       || await this.canPermission(subject, 'application.update', 'service_asset', request);
-    if (!hostAllowed && !serviceAllowed) {
+    const hostReadAuthorization = await this.authorizedQuery(subject, 'host', 'read', query);
+    const serviceReadAuthorization = await this.authorizedQuery(subject, 'service_asset', 'read', {
+      ...query,
+      page: 1,
+      pageSize: 5000,
+      filter: { ...query.filter, assetKind: 'CLOUD_SERVICE' },
+    });
+    const hostScopedAllowed = hostAllowed || hasAuthorizedReadScope(hostReadAuthorization.authorization);
+    const serviceScopedAllowed = serviceAllowed || hasAuthorizedReadScope(serviceReadAuthorization.authorization);
+    if (!hostScopedAllowed && !serviceScopedAllowed) {
       await this.assertCan(subject, 'host.read', 'host', request);
     }
 
     const items: Array<Record<string, unknown>> = [];
-    if (hostAllowed && this.devices) {
+    if (hostScopedAllowed && this.devices) {
+      const hostAuthorization = hostReadAuthorization.authorization;
+      const hostManageAuthorization = (await this.authorizedQuery(subject, 'host', 'edit', query)).authorization;
       const deviceQuery = {
         page: 1,
         pageSize: 5000,
         filter: pickDeviceFilters(query.filter),
         ...(query.sort ? { sort: query.sort } : {}),
-        authorizedHostIds: (await this.authorizedQuery(subject, 'host', 'read', query)).authorization?.objectIds,
+        authorizedHostIds: hostAuthorization?.empty ? [] : hostAuthorization?.objectIds,
       } as Parameters<DevicesApplicationService['list']>[1];
       const devicePage = await this.devices.list(tenantId(request), deviceQuery);
-      for (const device of devicePage.items) items.push(projectDeviceAsset(device, hostManageAllowed));
+      const authorizedDevices = hostAuthorization
+        ? applyAuthorizationFilter(devicePage.items, { page: 1, pageSize: 5000, filter: {}, authorization: { ...hostAuthorization, objectIdField: 'id' } })
+        : devicePage.items;
+      for (const device of authorizedDevices) {
+        items.push(projectDeviceAsset(device, hostManageAllowed && isObjectAllowed(hostManageAuthorization, device.id)));
+      }
     }
-    if (serviceAllowed) {
-      const serviceQuery = await this.authorizedQuery(subject, 'service_asset', 'read', {
-        ...query,
-        page: 1,
-        pageSize: 5000,
-        filter: { ...query.filter, assetKind: 'CLOUD_SERVICE' },
-      });
-      const servicePage = await this.service.listServiceAssets(tenantId(request), serviceQuery);
+    if (serviceScopedAllowed) {
+      const serviceManageAuthorization = (await this.authorizedQuery(subject, 'service_asset', 'edit', query)).authorization;
+      const servicePage = await this.service.listServiceAssets(tenantId(request), serviceReadAuthorization);
       for (const asset of servicePage.items) {
-        const projected = projectServiceAsset(asset as unknown as Record<string, unknown>, serviceManageAllowed);
+        const projected = projectServiceAsset(asset as unknown as Record<string, unknown>, serviceManageAllowed && isObjectAllowed(serviceManageAuthorization, String(asset.id)));
         if (matchesUnifiedAssetFilter(projected, query.filter)) items.push(projected);
       }
     }
@@ -165,6 +182,97 @@ export class AssetsController {
       pageSize: query.pageSize,
       total: items.length,
     };
+  }
+
+  private async getUnifiedAssetDetail(request: HttpRequest) {
+    const assetRef = readUnifiedAssetRef(request.query.rootType, request.query.id);
+    const subject = this.subjectFromRequest(request);
+    const canManage = await this.canManageUnifiedAsset(subject, assetRef, request);
+    if (assetRef.rootType === 'DEVICE') {
+      if (!this.devices) throw new AppError('CAPABILITY_MISSING', '设备服务未注册');
+      await this.assertCan(subject, 'host.read', 'host', request, assetRef.id);
+      const detail = await this.devices.get(tenantId(request), assetRef.id, readQueryString(request.query.locale) ?? 'zh-CN');
+      return { ...detail, assetKind: 'DEVICE', assetRef, availableActions: availableDeviceActions(detail as unknown as Record<string, unknown>, canManage) };
+    }
+    await this.assertServiceAssetRead(subject, request, assetRef.id);
+    const detail = await this.service.getServiceAssetDetail(tenantId(request), assetRef.id);
+    if (!detail) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId: assetRef.id });
+    return { ...projectServiceAsset(detail as unknown as Record<string, unknown>, canManage), ...detail, assetKind: 'CLOUD_SERVICE', assetRef, availableActions: canManage ? ['VIEW', 'EDIT', 'DELETE'] : ['VIEW'] };
+  }
+
+  private async executeUnifiedAssetAction(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      assetRef: { type: 'object', required: true },
+      action: { type: 'string', required: true, enum: ['DELETE'] },
+    });
+    const assetRefBody = body.assetRef as Record<string, unknown>;
+    const assetRef = readUnifiedAssetRef(assetRefBody.rootType, assetRefBody.id);
+    const subject = this.subjectFromRequest(request);
+    if (assetRef.rootType === 'SERVICE_ASSET') {
+      await this.assertServiceAssetManage(subject, request, assetRef.id);
+      const before = await this.service.getRepository().getServiceAsset(tenantId(request), assetRef.id);
+      if (!before) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId: assetRef.id });
+      const deleted = await this.service.deleteServiceAsset(tenantId(request), assetRef.id);
+      this.audit(request, subject, 'service_asset.deleted', 'asset.delete', 'service_asset', assetRef.id, before, deleted);
+      return deleted;
+    }
+    await this.assertCan(subject, 'host.delete', 'host', request, assetRef.id);
+    if (!this.devices) throw new AppError('CAPABILITY_MISSING', '设备服务未注册');
+    const device = await this.devices.get(tenantId(request), assetRef.id);
+    const extension = (device.extension ?? {}) as Record<string, unknown>;
+    const summary = (device.extensionSummary ?? {}) as Record<string, unknown>;
+    const agentId = String(extension.agentId ?? summary.agentId ?? '').trim();
+    if (String(extension.type ?? device.extensionType ?? '').toUpperCase() === 'AGENT' && agentId) {
+      if (!this.agents) throw new AppError('CAPABILITY_MISSING', 'Agent 服务未注册');
+      const deleted = await this.agents.deleteAgent(tenantId(request), { agentId, actorId: subject.id });
+      this.audit(request, subject, 'agent.deleted', 'asset.delete', 'host', assetRef.id, device, deleted);
+      return deleted;
+    }
+    const deviceAssetId = String(extension.deviceAssetId ?? summary.deviceAssetId ?? '').trim();
+    if (!deviceAssetId || !this.deviceAssets) throw new AppError('CAPABILITY_MISSING', '设备资产服务未注册');
+    const deleted = await this.deviceAssets.delete(tenantId(request), deviceAssetId);
+    this.audit(request, subject, 'device_asset.deleted', 'asset.delete', 'host', assetRef.id, device, deleted);
+    return deleted;
+  }
+
+  private async canManageUnifiedAsset(subject: SecuritySubject, assetRef: UnifiedAssetRef, request: HttpRequest): Promise<boolean> {
+    if (assetRef.rootType === 'DEVICE') {
+      return this.canObjectAction(subject, 'host.update', 'host', assetRef.id, request)
+        || this.canObjectAction(subject, 'host.delete', 'host', assetRef.id, request);
+    }
+    return this.canObjectAction(subject, 'service_asset.manage', 'service_asset', assetRef.id, request)
+      || this.canObjectAction(subject, 'application.update', 'service_asset', assetRef.id, request);
+  }
+
+  private async assertServiceAssetRead(subject: SecuritySubject, request: HttpRequest, id: string): Promise<void> {
+    if (await this.canObjectAction(subject, 'service_asset.read', 'service_asset', id, request)
+      || await this.canObjectAction(subject, 'application.read', 'service_asset', id, request)) return;
+    await this.assertCan(subject, 'application.read', 'service_asset', request, id);
+  }
+
+  private async assertServiceAssetManage(subject: SecuritySubject, request: HttpRequest, id: string): Promise<void> {
+    if (await this.canObjectAction(subject, 'service_asset.manage', 'service_asset', id, request)
+      || await this.canObjectAction(subject, 'application.update', 'service_asset', id, request)) return;
+    await this.assertCan(subject, 'application.update', 'service_asset', request, id);
+  }
+
+  private async canObjectAction(subject: SecuritySubject, action: string, objectType: string, objectId: string, request: HttpRequest): Promise<boolean> {
+    if (!this.security) return true;
+    const objectAllowed = await this.security.objectPermissions.isAllowed(subject, action.endsWith('.read') ? 'read' : 'edit', {
+      objectType,
+      objectId,
+      tenantId: request.context.tenantId,
+    });
+    // 没有对象授权上下文时，RBAC 仍可作为兼容入口；一旦对象服务明确拒绝则必须失败关闭。
+    if (!objectAllowed) {
+      const scoped = await this.security.objectPermissions.buildAuthorizedQuery(subject, objectType, action.endsWith('.read') ? 'read' : 'edit');
+      if (scoped.empty || scoped.deniedObjectIds?.includes(objectId) || (!scoped.unrestricted && !(scoped.objectIds ?? []).includes(objectId))) return false;
+    }
+    return (await this.security.rbac.can(subject, action, {
+      type: objectType,
+      id: objectId,
+      scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
+    }, this.securityContext(request, subject))).allowed;
   }
 
   getApplicationService(): AssetsApplicationService {
@@ -1006,12 +1114,22 @@ function pickDeviceFilters(filter: Record<string, string>): Record<string, strin
   return Object.fromEntries(allowed.flatMap((key) => filter[key] ? [[key, filter[key]]] : []));
 }
 
+export function isObjectAllowed(authorization: PageQuery['authorization'] | undefined, objectId: string): boolean {
+  if (!authorization) return true;
+  if (authorization.deniedObjectIds?.includes(objectId)) return false;
+  if (authorization.unrestricted) return true;
+  if (authorization.empty) return false;
+  return authorization.objectIds?.includes(objectId) ?? false;
+}
+
 export function projectDeviceAsset(device: ManagedDeviceSummaryDto, canManage: boolean): Record<string, unknown> {
+  const availableActions = canManage ? ['VIEW', 'EDIT', 'DELETE'] : ['VIEW'];
+  if (canManage && device.upgradeAvailable === true && device.agentId) availableActions.push('UPGRADE');
   return {
     ...device,
     assetKind: 'DEVICE',
     assetRef: { rootType: 'DEVICE', id: device.id },
-    availableActions: canManage ? ['VIEW', 'EDIT', 'DELETE'] : ['VIEW'],
+    availableActions,
   };
 }
 
@@ -1048,6 +1166,24 @@ export function compareUnifiedAssets(left: Record<string, unknown>, right: Recor
   return leftValue.localeCompare(rightValue) * direction;
 }
 
+type UnifiedAssetRef = { rootType: 'DEVICE' | 'SERVICE_ASSET'; id: string };
+
+function readUnifiedAssetRef(rootType: unknown, id: unknown): UnifiedAssetRef {
+  if (rootType !== 'DEVICE' && rootType !== 'SERVICE_ASSET') {
+    throw new AppError('VALIDATION_FAILED', 'assetRef.rootType 必须是 DEVICE 或 SERVICE_ASSET', { field: 'assetRef.rootType' });
+  }
+  if (typeof id !== 'string' || id.trim() === '') {
+    throw new AppError('VALIDATION_FAILED', 'assetRef.id 不能为空', { field: 'assetRef.id' });
+  }
+  return { rootType, id: id.trim() };
+}
+
+function availableDeviceActions(detail: Record<string, unknown>, canManage: boolean): string[] {
+  const actions = canManage ? ['VIEW', 'EDIT', 'DELETE'] : ['VIEW'];
+  if (canManage && detail.upgradeAvailable === true && String(detail.agentId ?? '').trim()) actions.push('UPGRADE');
+  return actions;
+}
+
 function tenantId(request: HttpRequest): string {
   return requireTenantId(request);
 }
@@ -1075,9 +1211,48 @@ function readPathId(request: HttpRequest, name: string): string {
   return decodeURIComponent(value);
 }
 
+function readQueryString(value: string | string[] | undefined): string | undefined {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  const normalized = candidate?.trim();
+  return normalized || undefined;
+}
+
 export function getAssetsRouteContracts(): RouteContract[] {
   return [
     { method: 'GET', path: '/api/v1/assets', operationId: 'listAssets', summary: '查询统一资产入口', tags, responseSchema: pageSchema() },
+    {
+      method: 'GET',
+      path: '/api/v1/assets/detail',
+      operationId: 'getAssetDetail',
+      summary: '查询统一资产详情',
+      tags,
+      responseSchema: objectSchema(),
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/assets/actions',
+      operationId: 'executeAssetAction',
+      summary: '执行统一资产动作',
+      tags,
+      requestSchema: {
+        type: 'object',
+        required: ['assetRef', 'action'],
+        properties: {
+          assetRef: {
+            type: 'object',
+            required: ['rootType', 'id'],
+            properties: {
+              rootType: { type: 'string', enum: ['DEVICE', 'SERVICE_ASSET'] },
+              id: { type: 'string' },
+            },
+            additionalProperties: false,
+          },
+          action: { type: 'string', enum: ['DELETE'] },
+        },
+        additionalProperties: false,
+      },
+      responseSchema: objectSchema(),
+    },
     { method: 'GET', path: '/api/v1/applications', operationId: 'listApplications', summary: '查询 Application 列表', tags, responseSchema: pageSchema() },
     { method: 'GET', path: '/api/v1/applications/edit-detail', operationId: 'getApplicationEditDetail', summary: '查询 Application 编辑详情', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/applications/detail', operationId: 'getApplicationDetail', summary: '查询 Application 详情', tags, responseSchema: objectSchema() },

@@ -37,6 +37,7 @@ test('标准 ServiceAsset 云资源接入会投影 Framework、Site 和真实 Ma
   const assets = new AssetsApplicationService(new PgAssetsRepository(db));
   const bindings = new PluginBindingsApplicationService(new PluginBindingsRepository(db));
   const projection = new CloudResourceProjectionService(db);
+  assets.setCloudResourceProjectionService(projection);
   const operations: Array<{ assetId: string; operation: string }> = [];
   const discovery = {
     executeServiceAsset: async (currentTenantId: string, assetId: string, operation: 'connection-test' | 'discover'): Promise<CloudAccountDiscoveryResult> => {
@@ -142,4 +143,13 @@ test('标准 ServiceAsset 云资源接入会投影 Framework、Site 和真实 Ma
   assert.equal(persisted.managedTargets[0]?.targetKey, 'global.example');
   assert.equal(persisted.frameworks.every((item) => item.serviceAssetId === result.assetId), true);
   assert.equal(persisted.sites.every((item) => item.serviceAssetId === result.assetId), true);
+
+  const detail = await assets.getServiceAssetDetail(tenantId, result.assetId as string);
+  const standardDetail = detail as (Record<string, any> | undefined);
+  assert.equal(standardDetail?.category, 'CLOUD');
+  assert.equal(standardDetail?.frameworks?.length, 2);
+  assert.equal(standardDetail?.sites?.length, 2);
+  assert.equal(standardDetail?.resourceCounts?.frameworks, 2);
+  assert.equal(standardDetail?.resourceCounts?.sites, 2);
+  assert.equal(standardDetail?.sites?.find((site: Record<string, unknown>) => site.name === 'global.example')?.managedTargetId !== undefined, true);
 });

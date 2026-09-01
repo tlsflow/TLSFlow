@@ -22,18 +22,21 @@ describe('统一资产列表操作区契约', () => {
     expect(source).toContain("label: t('assets.inventory.actions.edit')")
     expect(source).toContain("label: t('assets.inventory.actions.delete')")
     expect(source).toContain("label: t('assets.inventory.actions.upgrade')")
-    expect(source).toContain('upgradeAvailable !== true')
+    expect(source).toContain("includesAction(row, 'UPGRADE')")
   })
 
   it('资产列表只调用统一入口并按服务端动作显示按钮', () => {
     expect(source).toContain('listAssets({ page: query.page')
     expect(source).not.toContain('listManagedDevices')
     expect(source).not.toContain('listCloudServiceAssets')
-    expect(source).toContain("permissions: ['host.read', 'service_asset.read']")
+    expect(source).toContain("permissions: ['host.read', 'service_asset.read', 'application.read']")
     expect(source).toContain('availableActions')
-    expect(source).toContain('getServiceAssetDetail(row.id)')
-    expect(source).toContain('updateServiceAsset(cloudEditId.value')
-    expect(source).toContain('await deleteServiceAsset(row.id)')
+    expect(source).toContain("UnifiedAssetDetailModal")
+    expect(source).toContain("UnifiedAssetEditModal")
+    expect(source).toContain('assetRefOf(row)')
+    expect(source).toContain("executeAssetAction(assetRefOf(row), 'DELETE')")
+    expect(source).not.toContain('isCloudServiceRow')
+    expect(source).not.toContain('deleteServiceAsset')
   })
 
   it('菜单触发器具备可访问性并复用删除确认', () => {

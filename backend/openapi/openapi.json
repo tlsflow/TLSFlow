@@ -3321,6 +3321,111 @@
         }
       }
     },
+    "/api/v1/assets/detail": {
+      "get": {
+        "operationId": "getAssetDetail",
+        "summary": "查询统一资产详情",
+        "tags": [
+          "Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/assets/actions": {
+      "post": {
+        "operationId": "executeAssetAction",
+        "summary": "执行统一资产动作",
+        "tags": [
+          "Assets"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "assetRef",
+                  "action"
+                ],
+                "properties": {
+                  "assetRef": {
+                    "type": "object",
+                    "required": [
+                      "rootType",
+                      "id"
+                    ],
+                    "properties": {
+                      "rootType": {
+                        "type": "string",
+                        "enum": [
+                          "DEVICE",
+                          "SERVICE_ASSET"
+                        ]
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "DELETE"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/applications": {
       "get": {
         "operationId": "listApplications",
@@ -25402,5 +25507,5 @@
       "description": "证书绑定生产事实中心"
     }
   ],
-  "x-generatedAt": "2026-08-30T12:17:06.292Z"
+  "x-generatedAt": "2026-08-30T13:24:25.619Z"
 }

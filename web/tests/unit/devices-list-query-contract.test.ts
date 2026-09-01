@@ -5,10 +5,10 @@ import { describe, expect, it } from 'vitest'
 const source = readFileSync(resolve(process.cwd(), 'src/views/assets/AssetsView.vue'), 'utf8')
 
 describe('统一资产列表查询契约', () => {
-  it('为设备和云服务使用各自接口允许的排序字段', () => {
+  it('只通过服务端统一入口完成分页、筛选和排序', () => {
     expect(source).toContain("sort: 'displayName:asc'")
-    expect(source).toContain("sort: 'updatedAt:desc'")
-    expect(source).toContain('listManagedDevices({ ...devicesQuery, filters: filters.value })')
-    expect(source).toContain('listCloudServiceAssets(cloudAssetsQuery)')
+    expect(source).toContain('listAssets({ page: query.page')
+    expect(source).not.toContain('listManagedDevices')
+    expect(source).not.toContain('listCloudServiceAssets')
   })
 })

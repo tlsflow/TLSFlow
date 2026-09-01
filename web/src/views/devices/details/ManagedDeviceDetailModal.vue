@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { listCertificateVersions } from '@/api/modules/certificates.api'
 import { executeManagedDeviceCapability, getManagedDevice } from '@/api/modules/devices.api'
-import { getServiceAssetDetail } from '@/api/modules/assets.api'
+import { getAssetDetail, getServiceAssetDetail, type UnifiedAssetRef } from '@/api/modules/assets.api'
 import type { ApiRecord } from '@/api/modules/common'
 import { GcModal, GcStatusTag, type DevicePresentationSchema } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
@@ -90,6 +90,10 @@ async function open(deviceId: string) {
 
 async function openServiceAsset(serviceAssetId: string) {
   await openWithLoader(serviceAssetId, () => getServiceAssetDetail(serviceAssetId), true)
+}
+
+async function openUnified(assetRef: UnifiedAssetRef) {
+  await openWithLoader(assetRef.id, () => getAssetDetail(assetRef), assetRef.rootType === 'SERVICE_ASSET')
 }
 
 async function openWithLoader(resourceId: string, loadDetail: () => Promise<{ data?: ApiRecord }>, loadAllResources: boolean) {
@@ -269,7 +273,7 @@ function asRecord(value: unknown): ApiRecord {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as ApiRecord : {}
 }
 
-defineExpose({ open, openServiceAsset })
+defineExpose({ open, openServiceAsset, openUnified })
 </script>
 
 <template>

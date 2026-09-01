@@ -275,7 +275,7 @@ export class AssetsApplicationService {
   }
 
   /** 中文说明：云服务详情复用标准设备详情合同，只读取已持久化的 Framework/Site/ManagedTarget 和既有绑定。 */
-  private async hydrateCloudServiceDetail(tenantId: string, asset: ServiceAssetDetailDto): Promise<ServiceAssetDetailDto & Record<string, unknown>> {
+  private async hydrateCloudServiceDetail(tenantId: string, asset: ServiceAssetDetailDto): Promise<ServiceAssetDetailDto> {
     if (!this.cloudResourceProjection) return asset;
     const projection = await this.cloudResourceProjection.listForAsset(tenantId, asset.id, 'SERVICE_ASSET');
     const bindings = (await this.bindingsRepository?.listCertificateBindings(tenantId, { page: 1, pageSize: 5000, filter: {} }))?.items ?? [];
@@ -312,7 +312,7 @@ export class AssetsApplicationService {
         metadata,
       };
     });
-    const certificates = uniqueCertificates(sites.flatMap((site) => site.bindings.map((binding) => binding.certificate).filter(Boolean)));
+    const certificates = uniqueCertificates(sites.flatMap((site) => site.bindings.map((binding) => binding.certificate as Record<string, unknown> | undefined).filter(Boolean)));
     const status = String(asset.status ?? 'UNKNOWN');
     return {
       ...asset,
@@ -353,7 +353,7 @@ export class AssetsApplicationService {
       allowedActions: [],
       extension: { type: 'GENERIC', rawType: 'SERVICE_ASSET' },
       extensionSummary: { serviceAssetId: asset.id, provider: stringFromRecord(asset.metadata, ['provider', 'pluginId']) },
-    };
+    } as ServiceAssetDetailDto;
   }
 
   async updateServiceAssetDeploymentStrategy(tenantId: string, serviceAssetId: string, strategy: DeploymentStrategyDto, actorId?: string): Promise<ServiceAssetDto> {
@@ -1063,6 +1063,10 @@ function standardSiteBinding(binding: CertificateBindingDto): Record<string, unk
       ? { allowed: true, managedTargetId: binding.managedTargetId }
       : { allowed: false, reasonCode: 'MANAGED_TARGET_UNAVAILABLE' },
   };
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 function uniqueCertificates(values: Array<Record<string, unknown> | undefined>): Array<Record<string, unknown>> {

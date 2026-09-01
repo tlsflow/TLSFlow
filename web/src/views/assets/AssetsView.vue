@@ -4,12 +4,11 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
-import { deleteManagedDeviceAsset, getManagedDevice } from '@/api/modules/devices.api'
-import { checkAgentUpgrade, deleteAgent, deleteServiceAsset, dispatchAgentUpgrade, listAssets } from '@/api/modules/assets.api'
+import { checkAgentUpgrade, dispatchAgentUpgrade, executeAssetAction, listAssets, type UnifiedAssetRef } from '@/api/modules/assets.api'
 import { GcButton, GcModal, GcStatusTag } from '@/design-system/components'
 import DeviceOnboardingWizard from '@/views/devices/DeviceOnboardingWizard.vue'
-import DeviceAssetEditModal from '@/views/devices/DeviceAssetEditModal.vue'
-import ManagedDeviceDetailModal from '@/views/devices/details/ManagedDeviceDetailModal.vue'
+import UnifiedAssetDetailModal from './UnifiedAssetDetailModal.vue'
+import UnifiedAssetEditModal from './UnifiedAssetEditModal.vue'
 import { readString, type ViewRow } from '@/composables/useBusinessPage'
 
 const PRODUCT_FAMILY_LABEL_KEYS: Readonly<Record<string, string>> = {
@@ -33,11 +32,9 @@ const filters = ref<Record<string, string>>({
   health: readQueryString('health'),
 })
 const onboardingOpen = ref(false)
-const editOpen = ref(false)
-const editDeviceId = ref('')
-const editServiceAssetId = ref('')
 const reloadKey = ref(0)
-const deviceDetailModal = ref<{ open: (deviceId: string) => Promise<void>; openServiceAsset: (serviceAssetId: string) => Promise<void> } | null>(null)
+const assetDetailModal = ref<{ open: (assetRef: UnifiedAssetRef) => Promise<void> } | null>(null)
+const assetEditModal = ref<{ open: (assetRef: UnifiedAssetRef) => void } | null>(null)
 const upgradingAgentId = ref('')
 const upgradeConfirmationOpen = ref(false)
 const upgradeConfirmationBusy = ref(false)
@@ -63,63 +60,40 @@ async function loadUnifiedAssets(query: { page: number; pageSize: number }) {
   return listAssets({ page: query.page, pageSize: query.pageSize, sort: 'displayName:asc', filters: filters.value })
 }
 
-function isCloudServiceRow(row: ViewRow): boolean {
-  return String(row.raw.assetKind ?? '').toUpperCase() === 'CLOUD_SERVICE'
-}
-
 function includesAction(row: ViewRow, action: string): boolean {
   return Array.isArray(row.raw.availableActions) && (row.raw.availableActions as unknown[]).includes(action)
 }
 
+function assetRefOf(row: ViewRow): UnifiedAssetRef {
+  const ref = asRecord(row.raw.assetRef)
+  const rootType = ref.rootType
+  const id = String(ref.id ?? row.id).trim()
+  if ((rootType !== 'DEVICE' && rootType !== 'SERVICE_ASSET') || !id) {
+    throw new Error(t('assets.inventory.errors.deleteTargetMissing'))
+  }
+  return { rootType, id }
+}
 
 async function openDetail(row: ViewRow) {
-  if (isCloudServiceRow(row)) {
-    await deviceDetailModal.value?.openServiceAsset(row.id)
-    return
-  }
-  await deviceDetailModal.value?.open(row.id)
+  await assetDetailModal.value?.open(assetRefOf(row))
 }
 
 function openEdit(row: ViewRow): void {
-  if (isCloudServiceRow(row)) {
-    editServiceAssetId.value = row.id
-    editDeviceId.value = ''
-    editOpen.value = true
-    return
-  }
-  editServiceAssetId.value = ''
-  editDeviceId.value = row.id
-  editOpen.value = true
+  assetEditModal.value?.open(assetRefOf(row))
 }
 
 onMounted(() => {
   const deviceId = typeof route.query.deviceId === 'string' ? route.query.deviceId : ''
   if (route.query.detailModal === '1' && deviceId) {
-    void deviceDetailModal.value?.open(deviceId)
+    void assetDetailModal.value?.open({ rootType: 'DEVICE', id: deviceId })
   }
 })
 
 async function deleteAsset(row: ViewRow) {
-  if (isCloudServiceRow(row)) {
-    await deleteServiceAsset(row.id)
-    return
-  }
-  const response = await getManagedDevice(row.id)
-  const extension = (response.data?.extension ?? {}) as Record<string, unknown>
-  const extensionSummary = (response.data?.extensionSummary ?? {}) as Record<string, unknown>
-  if (extension.type === 'AGENT' || response.data?.extensionType === 'AGENT') {
-    const agentId = String(extension.agentId ?? extensionSummary.agentId ?? '')
-    if (!agentId) throw new Error(t('assets.inventory.errors.deleteTargetMissing'))
-    await deleteAgent(agentId)
-    return
-  }
-  const deviceAssetId = String(extension.deviceAssetId ?? extensionSummary.deviceAssetId ?? '')
-  if (!deviceAssetId) throw new Error(t('assets.inventory.errors.deleteTargetMissing'))
-  await deleteManagedDeviceAsset(deviceAssetId)
+  await executeAssetAction(assetRefOf(row), 'DELETE')
 }
 
 async function upgradeAgent(row: ViewRow) {
-  if (isCloudServiceRow(row)) return
   if (upgradingAgentId.value || upgradeConfirmationOpen.value) return
   const agentId = String(row.raw.agentId ?? '').trim()
   if (!agentId) throw new Error(t('devices.errors.upgradeTargetMissing'))
@@ -176,7 +150,8 @@ function closeUpgradeConfirmation(): void {
 const config = computed<BusinessPageConfig>(() => ({
   title: t('assets.inventory.title'),
   description: t('assets.inventory.description'),
-  readPermission: 'host.read',
+  readPermission: 'service_asset.read',
+  readPermissions: ['host.read', 'service_asset.read', 'application.read'],
   primaryPermission: 'host.create',
   primaryActionLabel: t('assets.inventory.actions.add'),
   primaryAction: () => { onboardingOpen.value = true },
@@ -277,19 +252,19 @@ const config = computed<BusinessPageConfig>(() => ({
   },
   actions: [],
   rowActions: [{
-    label: t('assets.inventory.actions.detail'), permission: 'host.read', permissions: ['host.read', 'service_asset.read'], reloadAfterRun: false,
+    label: t('assets.inventory.actions.detail'), permission: 'host.read', permissions: ['host.read', 'service_asset.read', 'application.read'], reloadAfterRun: false,
     hidden: (row) => !row.raw.availableActions || !Array.isArray(row.raw.availableActions) || !(row.raw.availableActions as unknown[]).includes('VIEW'), run: openDetail,
   }, {
-    label: t('assets.inventory.actions.operation'), permission: 'host.read', permissions: ['host.update', 'host.delete', 'service_asset.manage'], reloadAfterRun: false,
+    label: t('assets.inventory.actions.operation'), permission: 'host.read', permissions: ['host.update', 'host.delete', 'service_asset.manage', 'application.update'], reloadAfterRun: false,
     hidden: (row) => !row.raw.availableActions || !Array.isArray(row.raw.availableActions) || !(row.raw.availableActions as unknown[]).some((item) => ['EDIT', 'DELETE'].includes(String(item))),
     menu: [{
-      label: t('assets.inventory.actions.edit'), permission: 'host.update', permissions: ['host.update', 'service_asset.manage'], reloadAfterRun: false, hidden: (row) => !includesAction(row, 'EDIT'), run: async (row) => { openEdit(row) },
+       label: t('assets.inventory.actions.edit'), permission: 'host.update', permissions: ['host.update', 'service_asset.manage', 'application.update'], reloadAfterRun: false, hidden: (row) => !includesAction(row, 'EDIT'), run: async (row) => { openEdit(row) },
     }, {
-      label: t('assets.inventory.actions.delete'), permission: 'host.delete', permissions: ['host.delete', 'service_asset.manage'], danger: true, confirmText: 'DELETE',
+       label: t('assets.inventory.actions.delete'), permission: 'host.delete', permissions: ['host.delete', 'service_asset.manage', 'application.update'], danger: true, confirmText: 'DELETE',
       riskText: t('assets.inventory.deleteImpact'), hidden: (row) => !includesAction(row, 'DELETE'), run: deleteAsset,
     }, {
       label: t('assets.inventory.actions.upgrade'), permission: 'host.update', reloadAfterRun: true,
-      hidden: (row) => row.raw.upgradeAvailable !== true || !String(row.raw.agentId ?? '').trim(),
+      hidden: (row) => !includesAction(row, 'UPGRADE') || !String(row.raw.agentId ?? '').trim(),
       run: upgradeAgent,
     }],
   }],
@@ -318,8 +293,8 @@ const config = computed<BusinessPageConfig>(() => ({
       </template>
     </BusinessResourcePage>
     <DeviceOnboardingWizard v-model:open="onboardingOpen" @completed="reloadKey += 1" />
-    <DeviceAssetEditModal v-model:open="editOpen" :device-id="editDeviceId" :service-asset-id="editServiceAssetId" @completed="reloadKey += 1" />
-    <ManagedDeviceDetailModal ref="deviceDetailModal" />
+    <UnifiedAssetEditModal ref="assetEditModal" @completed="reloadKey += 1" />
+    <UnifiedAssetDetailModal ref="assetDetailModal" />
     <GcModal
       v-model:open="upgradeConfirmationOpen"
       size="sm"
@@ -435,29 +410,6 @@ const config = computed<BusinessPageConfig>(() => ({
   margin: 0;
   color: var(--gc-color-text-muted);
   line-height: var(--gc-line-height-relaxed);
-}
-
-.devices-page__cloud-state,
-.devices-page__cloud-error {
-  margin: 0;
-  font-size: var(--gc-font-size-sm);
-}
-
-.devices-page__cloud-error {
-  color: var(--gc-color-danger);
-}
-
-.devices-page__cloud-detail {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--gc-space-3);
-  margin: 0;
-}
-
-.devices-page__cloud-detail div {
-  display: grid;
-  gap: var(--gc-space-1);
-  min-width: 0;
 }
 
 @media (max-width: 640px) {

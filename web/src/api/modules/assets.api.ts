@@ -15,8 +15,24 @@ const CAPABILITY_REQUIREMENTS_PATH = '/api/v1/capabilities/requirements'
 const AGENTS_PATH = '/api/v1/agents'
 const APPLICATION_CERTIFICATE_SUPPLY_POLICY_PATH = '/api/v1/application-assets'
 
+export interface UnifiedAssetRef {
+  readonly rootType: 'DEVICE' | 'SERVICE_ASSET'
+  readonly id: string
+}
+
 export function listAssets(query?: BusinessListQuery) {
   return listRecords('/api/v1/assets', query)
+}
+
+/** 读取统一资产详情；具体根资产由服务端根据 assetRef 解析。 */
+export function getAssetDetail(assetRef: UnifiedAssetRef): Promise<ApiRecordResult> {
+  const params = new URLSearchParams({ rootType: assetRef.rootType, id: assetRef.id })
+  return apiClient.get<ApiRecord>(`${toClientPath('/api/v1/assets/detail')}?${params.toString()}`)
+}
+
+/** 执行统一资产生命周期动作；权限与根资产派发由服务端完成。 */
+export function executeAssetAction(assetRef: UnifiedAssetRef, action: 'DELETE'): Promise<ApiRecordResult> {
+  return postAction('/api/v1/assets/actions', { assetRef, action }, `asset_${action.toLowerCase()}`)
 }
 
 /** 查询统一资产列表中的云服务资产。 */

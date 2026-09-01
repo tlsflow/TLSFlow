@@ -264,7 +264,7 @@ export const businessRoutes: GcRouteRecord[] = [
       heroTitle: true,
       module: 'asset',
       requiresAuth: true,
-      permissions: ['host.read', 'service_asset.read'],
+      permissions: ['host.read', 'service_asset.read', 'application.read'],
       resourceType: 'asset',
       riskLevel: 'medium',
       breadcrumbKeys: ['nav.assetCenter', 'assets.inventory.title'],

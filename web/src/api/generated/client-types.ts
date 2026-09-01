@@ -121,6 +121,8 @@ export const apiContractMetadata: ApiContractMetadata = {
     "/api/v1/asset-conflicts",
     "/api/v1/asset-conflicts/resolve",
     "/api/v1/assets",
+    "/api/v1/assets/actions",
+    "/api/v1/assets/detail",
     "/api/v1/assets/refresh-from-agent",
     "/api/v1/audit-events",
     "/api/v1/auth/external-login",
