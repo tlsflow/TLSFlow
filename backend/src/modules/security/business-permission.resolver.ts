@@ -138,7 +138,8 @@ export class BusinessPermissionResolver {
       && item.rootObjectId === input.rootObjectId
       && item.effect === (input.effect ?? 'allow'),
     );
-    if (existing.length > 0) throw securityErrors.permissionDenied({ reason: 'business permission grant already exists' });
+    // 同一角色、主体、范围和效果的重复提交直接返回现有记录，保证网络重试不会产生第二份授权。
+    if (existing.length > 0) return existing[0];
     const resolution = await this.resolveGrant({
       tenantId: input.tenantId,
       domain: input.domain,
@@ -189,6 +190,10 @@ export class BusinessPermissionResolver {
       && (!principalKeys || principalKeys.has(`${item.principalType}:${item.principalId}`)),
     );
     return rows.map((item) => this.contextItem(item));
+  }
+
+  async get(id: string): Promise<BusinessPermissionGrantEntity | undefined> {
+    return this.grants.get(id);
   }
 
   async revoke(id: string, expectedVersion?: number): Promise<BusinessPermissionGrantEntity | undefined> {

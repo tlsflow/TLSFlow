@@ -2517,7 +2517,9 @@ export default {
         delete: 'Delete',
         deleteRole: 'Delete role',
         deleting: 'Deleting...',
-        clearSelection: 'Clear selection'
+        clearSelection: 'Clear selection',
+        revokePermission: 'Revoke permission',
+        revoking: 'Revoking...'
       },
       columns: {
         roleId: 'Role ID',
@@ -2561,6 +2563,14 @@ export default {
       levels: {
         user: 'User',
         manager: 'Manager'
+      },
+      presets: {
+        label: 'Preset authorization template',
+        custom: 'Custom business authorization',
+        certificateViewer: 'Certificate viewer',
+        certificateManager: 'Certificate manager',
+        applicationViewer: 'Application viewer',
+        applicationManager: 'Application manager'
       },
       effect: {
         allow: 'Allow',
@@ -2640,10 +2650,13 @@ export default {
         roleNoObjectScopes: 'This role has no authorized object scopes yet. Grant permissions to the role first.',
         assignMembersFailed: 'Failed to assign members',
         deleteRoleFailed: 'Failed to delete role',
-        missingObjectSetId: 'The backend did not return an object scope ID'
+        missingObjectSetId: 'The backend did not return an object scope ID',
+        presetScopeMismatch: 'The preset does not match the selected object scope',
+        revokePermissionFailed: 'Failed to revoke permission'
       },
       confirm: {
-        deleteRole: 'Delete role "{name}"? This also removes its user assignments and object authorizations.'
+        deleteRole: 'Delete role "{name}"? This also removes its user assignments and object authorizations.',
+        revokePermission: 'Revoke this business permission? Its compatibility object permission will also be removed.'
       },
       auditLogs: {
         auth: {

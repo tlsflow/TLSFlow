@@ -2371,7 +2371,7 @@ export default {
         delete: '삭제',
         deleteRole: '역할 삭제',
         deleting: '삭제하는 중...',
-        clearSelection: '선택 비우기'
+        clearSelection: '선택 비우기', revokePermission: '권한 취소', revoking: '취소 중...'
       },
       columns: {
         roleId: '캐릭터 ID',
@@ -2416,6 +2416,7 @@ export default {
         user: '사용자',
         manager: '관리자'
       },
+      presets: { label: '사전 권한 템플릿', custom: '사용자 지정 업무 권한', certificateViewer: '인증서 보기', certificateManager: '인증서 관리', applicationViewer: '애플리케이션 보기', applicationManager: '애플리케이션 관리' },
       effect: {
         allow: '허용',
         deny: '거부'
@@ -2494,10 +2495,10 @@ export default {
         roleNoObjectScopes: '이 역할에는 권한이 부여된 객체 범위가 없습니다. 먼저 역할에 권한을 부여하세요.',
         assignMembersFailed: '구성원 할당 실패',
         deleteRoleFailed: '역할 지우기 실패',
-        missingObjectSetId: '객체 범위가 ID를 얻지 못했습니다'
+        missingObjectSetId: '객체 범위가 ID를 얻지 못했습니다', presetScopeMismatch: '사전 설정과 선택한 객체 범위가 일치하지 않습니다', revokePermissionFailed: '권한 취소에 실패했습니다'
       },
       confirm: {
-        deleteRole: '캐릭터\'{name}\'삭제 확인?이 역할은 사용자 할당 및 객체 인증과 함께 제거됩니다.'
+        deleteRole: '캐릭터\'{name}\'삭제 확인?이 역할은 사용자 할당 및 객체 인증과 함께 제거됩니다.', revokePermission: '이 업무 권한을 취소하시겠습니까? 호환 객체 권한도 삭제됩니다.'
       },
       auditLogs: {
         auth: {

@@ -8,6 +8,7 @@ import { securityErrors } from '../../shared/security-error.js';
 import type { AuditService } from '../audits/audit.service.js';
 import { AUDIT_EVENT_TYPES } from '../audits/audit-event-types.js';
 import { TenantScopeService } from '../security/tenant-scope.service.js';
+import { canonicalBusinessPermissionAction } from '../security/business-permission.registry.js';
 
 export interface RbacDecision {
   allowed: boolean;
@@ -207,8 +208,15 @@ export class RBACService {
   }
 
   async can(subject: SecuritySubject, action: string, resource: ResourceDescriptor, context: RequestContext = {}): Promise<RbacDecision> {
+    const requestedAction = action;
+    action = canonicalBusinessPermissionAction(action);
     const subjectIds = new Set<string>([subject.id, ...(subject.roleIds ?? [])]);
     if (subject.type === 'user') {
+      const user = await this.users.get(subject.id);
+      if (user && user.status !== 'active') {
+        await this.auditDeny(subject, requestedAction, resource, context, 'user disabled');
+        return { allowed: false, reason: 'user disabled', matchedPolicyIds: [] };
+      }
       for (const userRole of await this.userRoles.list((row) => row.userId === subject.id)) {
         subjectIds.add(userRole.roleId);
       }
@@ -242,25 +250,25 @@ export class RBACService {
       return { allowed: false, reason: 'explicit deny', matchedPolicyIds: denied.map((policy) => policy.id) };
     }
 
-    const allowed = matched.filter((policy) => policy.effect === 'allow');
-    if (allowed.length > 0) {
-      return { allowed: true, reason: 'allow', matchedPolicyIds: allowed.map((policy) => policy.id) };
-    }
-
     const businessResource = {
       type: resource.type,
       id: resource.id,
       tenantId: resource.scope?.tenantId,
     };
     if (await this.businessPermissionResolver?.isActionExplicitlyDenied(subject, action, businessResource) === true) {
-      await this.auditDeny(subject, action, resource, context, 'explicit business deny');
+      await this.auditDeny(subject, requestedAction, resource, context, 'explicit business deny');
       return { allowed: false, reason: 'explicit deny', matchedPolicyIds: [] };
     }
+    const allowed = matched.filter((policy) => policy.effect === 'allow');
+    if (allowed.length > 0) {
+      return { allowed: true, reason: 'allow', matchedPolicyIds: allowed.map((policy) => policy.id) };
+    }
+
     if (await this.businessPermissionResolver?.isActionAllowed(subject, action, businessResource) === true) {
       return { allowed: true, reason: 'business permission allow', matchedPolicyIds: [] };
     }
 
-    await this.auditDeny(subject, action, resource, context, 'no allow policy');
+    await this.auditDeny(subject, requestedAction, resource, context, 'no allow policy');
     return { allowed: false, reason: 'no allow policy', matchedPolicyIds: [] };
   }
 
@@ -272,7 +280,10 @@ export class RBACService {
   }
 
   private matchesAction(actions: string[], action: string): boolean {
-    return actions.includes('*') || actions.includes(action) || actions.some((candidate) => candidate.endsWith('.*') && action.startsWith(candidate.slice(0, -1)));
+    return actions.includes('*') || actions.some((candidate) => {
+      const canonical = canonicalBusinessPermissionAction(candidate);
+      return canonical === action || canonical.endsWith('.*') && action.startsWith(canonical.slice(0, -1));
+    });
   }
 
   private matchesResource(resourceTypes: string[], resourceType: string): boolean {

@@ -40,8 +40,10 @@ export const BUSINESS_PERMISSION_PRESETS: readonly BusinessPermissionPreset[] = 
 
 export const BUSINESS_PERMISSION_ACTION_ALIASES: Readonly<Record<string, string>> = {
   'certificate.format.create': 'certificate.artifact.export',
-  'certificate.binding.update': 'application.certificate.update',
+  'binding.read': 'application.certificate.read',
   'binding.manage': 'application.certificate.update',
+  'service_asset.read': 'application.read',
+  'service_asset.manage': 'application.update',
 };
 
 /**
@@ -60,7 +62,7 @@ export const BUSINESS_PERMISSION_REGISTRY: Readonly<Record<BusinessPermissionDom
           resource('certificate_asset', 'read', 'certificate.read'),
           resource('certificate_version', 'read', 'certificate.version.read'),
           resource('certificate_version_format', 'read', 'certificate.format.read'),
-          resource('certificate_binding', 'read', 'certificate.binding.read'),
+          resource('certificate_binding', 'read', 'certificate.binding.read', 'binding.read'),
         ],
         forbiddenCapabilities: ['certificate.private_key.export', 'secret.resolve', 'certificate.import', 'certificate.renew'],
       },
@@ -70,7 +72,7 @@ export const BUSINESS_PERMISSION_REGISTRY: Readonly<Record<BusinessPermissionDom
           resource('certificate_asset', 'edit', 'certificate.read', 'certificate.update', 'certificate.lifecycle', 'certificate.import', 'certificate.renew', 'certificate.auto_renew.update', 'certificate.artifact.export'),
           resource('certificate_version', 'edit', 'certificate.version.read', 'certificate.version.update', 'certificate.lifecycle', 'certificate.artifact.export'),
           resource('certificate_version_format', 'edit', 'certificate.format.read', 'certificate.artifact.export', 'certificate.format.create'),
-          resource('certificate_binding', 'edit', 'certificate.binding.read', 'certificate.binding.update'),
+          resource('certificate_binding', 'edit', 'certificate.binding.read', 'certificate.binding.update', 'binding.read'),
           resource('certificate_request', 'edit', 'certificate.request.read', 'certificate.request.create', 'certificate.request.approve'),
           resource('certificate_renewal', 'edit', 'certificate.renew.read', 'certificate.renew.create', 'certificate.lifecycle'),
         ],
@@ -85,25 +87,29 @@ export const BUSINESS_PERMISSION_REGISTRY: Readonly<Record<BusinessPermissionDom
     levels: {
       user: {
         resources: [
-          resource('application_asset', 'read', 'application.read'),
-          resource('service_asset', 'read', 'application.read', 'application.asset.rescan'),
+          resource('application_asset', 'read', 'application.read', 'application.asset.rescan', 'application.monitor.read'),
+          resource('service_asset', 'read', 'application.read', 'application.asset.rescan', 'application.monitor.read'),
           resource('device_asset', 'read', 'application.device.read'),
           resource('certificate_binding', 'read', 'application.certificate.read'),
           resource('monitor_target', 'read', 'application.monitor.read', 'monitor.target.read'),
           resource('monitor_risk', 'read', 'application.monitor.read', 'monitor.risk.read'),
           resource('monitor_dashboard', 'read', 'application.monitor.read', 'monitor.dashboard.read'),
+          resource('monitor_probe_result', 'read', 'application.monitor.read'),
+          resource('monitor_certificate_observation', 'read', 'application.monitor.read'),
         ],
         forbiddenCapabilities: ['application.update', 'deployment.execute', 'deployment.rollback', 'permission.delegate'],
       },
       manager: {
         resources: [
-          resource('application_asset', 'edit', 'application.read', 'application.update'),
-          resource('service_asset', 'edit', 'application.read', 'application.update', 'service_asset.manage', 'application.asset.rescan'),
+          resource('application_asset', 'edit', 'application.read', 'application.update', 'application.asset.rescan', 'application.monitor.read'),
+          resource('service_asset', 'edit', 'application.read', 'application.update', 'service_asset.manage', 'application.asset.rescan', 'application.monitor.read'),
           resource('device_asset', 'read', 'application.device.read'),
           resource('certificate_binding', 'edit', 'application.certificate.read', 'application.certificate.update', 'binding.manage', 'certificate.binding.update'),
           resource('monitor_target', 'read', 'application.monitor.read', 'monitor.target.read'),
           resource('monitor_risk', 'read', 'application.monitor.read', 'monitor.risk.read'),
           resource('monitor_dashboard', 'read', 'application.monitor.read', 'monitor.dashboard.read'),
+          resource('monitor_probe_result', 'read', 'application.monitor.read'),
+          resource('monitor_certificate_observation', 'read', 'application.monitor.read'),
         ],
         forbiddenCapabilities: ['permission.delegate', 'secret.resolve', 'certificate.private_key.export'],
       },

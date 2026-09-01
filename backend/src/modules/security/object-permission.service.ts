@@ -22,6 +22,7 @@ import type { AuditService } from '../audits/audit.service.js';
 import { AUDIT_EVENT_TYPES } from '../audits/audit-event-types.js';
 import { TenantScopeService } from './tenant-scope.service.js';
 import type { BusinessPermissionResolver } from './business-permission.resolver.js';
+import type { BusinessPermissionGrantEntity } from '../../persistence/entities/business-permission.entity.js';
 
 export interface ObjectRef {
   objectType: string;
@@ -74,7 +75,7 @@ export class ObjectPermissionService {
   // 中文说明：同一个 HTTP 请求会复用同一个 SecuritySubject。只在该对象生命周期内缓存，
   // 避免跨请求持有旧权限，既减少重复扫描，又不延迟权限回收。
   private authorizationStateCache = new WeakMap<SecuritySubject, Promise<AuthorizationState>>();
-  private businessPermissionResolver?: Pick<BusinessPermissionResolver, 'isResourceAllowed' | 'authorizedObjectIds'>;
+  private businessPermissionResolver?: Pick<BusinessPermissionResolver, 'isResourceAllowed' | 'isResourceExplicitlyDenied' | 'authorizedObjectIds' | 'explicitlyDeniedObjectIds' | 'isTenantAdministrator'>;
 
   constructor(
     private readonly groups: AsyncRepositoryPort<GroupEntity> = ObjectPermissionService.repo<GroupEntity>('security.groups'),
@@ -90,7 +91,7 @@ export class ObjectPermissionService {
     private readonly audit?: AuditService,
   ) {}
 
-  attachBusinessPermissionResolver(resolver: Pick<BusinessPermissionResolver, 'isResourceAllowed' | 'authorizedObjectIds'>): void {
+  attachBusinessPermissionResolver(resolver: Pick<BusinessPermissionResolver, 'isResourceAllowed' | 'isResourceExplicitlyDenied' | 'authorizedObjectIds' | 'explicitlyDeniedObjectIds' | 'isTenantAdministrator'>): void {
     this.businessPermissionResolver = resolver;
     this.invalidateAuthorizationStateCache();
   }
@@ -317,6 +318,43 @@ export class ObjectPermissionService {
     return { roleBindings: roleBindings.length, accessGrants: accessGrants.length };
   }
 
+  /**
+   * 回收角色页面为业务授权生成的兼容对象权限记录。
+   * 只有带有业务授权来源标记的记录会被处理，历史技术授权保持不变。
+   */
+  async revokeBusinessPermissionCompatibility(input: Pick<BusinessPermissionGrantEntity, 'id' | 'roleId' | 'rootObjectType' | 'rootObjectId'> & { domain: string }): Promise<{ roleBindings: number; accessGrants: number; objectSets: number }> {
+    const markedAccessGrants = await this.accessGrants.list((item) => businessPermissionGrantIdFromConstraints(item.constraints) === input.id);
+    // 没有来源标记时无法证明记录由该业务授权生成，宁可保留历史技术授权，也不能按对象范围猜测删除。
+    const candidateAccessGrants = markedAccessGrants;
+    const accessGrants: AccessGrantEntity[] = [];
+    for (const grant of candidateAccessGrants) {
+      accessGrants.push(grant);
+    }
+    let roleBindings = 0;
+    let objectSets = 0;
+    for (const grant of accessGrants) {
+      const relatedAccessGrants = await this.accessGrants.list((item) => item.roleId === grant.roleId && item.objectSetId === grant.objectSetId && item.id !== grant.id);
+      if (relatedAccessGrants.length > 0) {
+        await this.accessGrants.delete(grant.id);
+        continue;
+      }
+      const bindings = await this.roleBindings.list((item) => item.roleId === grant.roleId && item.objectSetId === grant.objectSetId && item.principalType === 'group' && item.principalId === grant.roleId);
+      for (const binding of bindings) {
+        await this.roleBindings.delete(binding.id);
+        roleBindings += 1;
+      }
+      const members = await this.objectSetMembers.list((item) => item.objectSetId === grant.objectSetId);
+      for (const member of members) await this.objectSetMembers.delete(member.id);
+      await this.accessGrants.delete(grant.id);
+      if (await this.objectSets.get(grant.objectSetId)) {
+        await this.objectSets.delete(grant.objectSetId);
+        objectSets += 1;
+      }
+    }
+    this.invalidateAuthorizationStateCache();
+    return { roleBindings, accessGrants: accessGrants.length, objectSets };
+  }
+
   async permissionContext(subject: SecuritySubject): Promise<{
     objectSets: Array<Pick<ObjectSetEntity, 'id' | 'name' | 'kind' | 'objectTypes' | 'status'>>;
     roleBindings: Array<Pick<RoleBindingEntity, 'id' | 'roleId' | 'objectSetId' | 'effect'>>;
@@ -373,8 +411,15 @@ export class ObjectPermissionService {
       await this.auditDeny(subject, action, object, context, 'explicit deny');
       return decision(false, accessLevel, action, 'explicit deny', matchedBindings, matchedObjectSets);
     }
+    if (await this.businessPermissionResolver?.isResourceExplicitlyDenied(subject, object, accessLevel) === true) {
+      await this.auditDeny(subject, action, object, context, 'explicit business deny');
+      return decision(false, accessLevel, action, 'explicit deny', matchedBindings, matchedObjectSets);
+    }
     if (matchedGrants.some((item) => item.effect === 'allow')) {
       return decision(true, accessLevel, action, 'allow', matchedBindings, matchedObjectSets);
+    }
+    if (await this.businessPermissionResolver?.isTenantAdministrator(subject, object.tenantId) === true) {
+      return decision(true, accessLevel, action, 'tenant administrator', [], []);
     }
     if (authorizationState.adminWildcard) {
       return {
@@ -425,6 +470,8 @@ export class ObjectPermissionService {
 
     if (matchedBindings.some((item) => item.effect === 'deny')) return false;
     if (matchedGrants.some((item) => item.effect === 'deny')) return false;
+    if (await this.businessPermissionResolver?.isResourceExplicitlyDenied(subject, object, accessLevel) === true) return false;
+    if (await this.businessPermissionResolver?.isTenantAdministrator(subject, object.tenantId) === true) return true;
     if (authorizationState.adminWildcard) return true;
     if (await this.businessPermissionResolver?.isResourceAllowed(subject, object, accessLevel) === true) return true;
     return matchedGrants.some((item) => item.effect === 'allow');
@@ -441,6 +488,10 @@ export class ObjectPermissionService {
     const tenantFilter = subject.scope?.tenantScope ? this.tenantScope.toFilter(subject.scope.tenantScope) : {};
     const authorizationState = await this.getAuthorizationState(subject);
     const businessObjectIds = await this.businessPermissionResolver?.authorizedObjectIds(subject, objectType, accessLevel) ?? [];
+    const businessDeniedObjectIds = await this.businessPermissionResolver?.explicitlyDeniedObjectIds(subject, objectType, accessLevel) ?? [];
+    const businessAdministrator = subject.scope?.tenantId
+      ? await this.businessPermissionResolver?.isTenantAdministrator(subject, subject.scope.tenantId) === true
+      : false;
     const tenantId = subject.scope?.tenantId;
     const bindings = authorizationState.bindings.filter((item) =>
       item.enabled
@@ -488,12 +539,12 @@ export class ObjectPermissionService {
     return {
       ...tenantFilter,
       ...(ownerTypes ? { ownerTypes } : {}),
-      empty: staticIds.length === 0 && dynamicConditions.length === 0 && businessObjectIds.length === 0 && !authorizationState.adminWildcard,
+      empty: staticIds.length === 0 && dynamicConditions.length === 0 && businessObjectIds.length === 0 && !authorizationState.adminWildcard && !businessAdministrator,
       objectIds: [...new Set([...staticIds, ...businessObjectIds])],
       dynamicConditions,
-      deniedObjectIds: [...new Set(deniedStaticIds)],
+      deniedObjectIds: [...new Set([...deniedStaticIds, ...businessDeniedObjectIds])],
       deniedDynamicConditions,
-      ...(authorizationState.adminWildcard ? { unrestricted: true } : {}),
+      ...((authorizationState.adminWildcard || businessAdministrator) ? { unrestricted: true } : {}),
     };
   }
 
@@ -803,6 +854,11 @@ function groupGrantsByRoleAndSet(grants: AccessGrantEntity[]): Map<string, Acces
     result.set(key, [...(result.get(key) ?? []), grant]);
   }
   return result;
+}
+
+function businessPermissionGrantIdFromConstraints(constraints: Record<string, unknown> | undefined): string | undefined {
+  const value = constraints?.businessPermissionGrantId;
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 function actionFor(objectType: string, level: AccessLevel): string {

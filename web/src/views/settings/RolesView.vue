@@ -20,7 +20,8 @@ import {
   listObjectSets,
   listRoleBindings,
   listRoles,
-  listUsers
+  listUsers,
+  revokeBusinessPermissionGrant
 } from '@/api/modules/security.api'
 import { GcDataTable, GcModal, GcPageToolbar } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
@@ -35,8 +36,16 @@ interface RoleDraft {
 
 interface AccessGrantDraft {
   roleId: string
+  presetId: string
   businessLevel: BusinessPermissionLevel
   effect: 'allow' | 'deny'
+}
+
+interface PermissionPresetOption {
+  id: string
+  labelKey: string
+  domain: BusinessPermissionDomain
+  level: BusinessPermissionLevel
 }
 
 interface MemberOption {
@@ -88,6 +97,7 @@ const roleDetailOpen = ref(false)
 const grantEditorOpen = ref(false)
 const memberEditorOpen = ref(false)
 const deletingRoleId = ref('')
+const revokingGrantId = ref('')
 const selectedRole = ref<ApiRecord | null>(null)
 const selectedObjectNodes = ref<ObjectTreeNode[]>([])
 const memberPrincipalType = ref<'user' | 'group'>('user')
@@ -99,7 +109,14 @@ const hiddenCompatibilityRoleIds = new Set(['role_external_user'])
 const hiddenCompatibilityRoleCodes = new Set(['external_user'])
 
 const roleDraft = reactive<RoleDraft>({ name: '', description: '' })
-const grantDraft = reactive<AccessGrantDraft>({ roleId: '', businessLevel: 'user', effect: 'allow' })
+const grantDraft = reactive<AccessGrantDraft>({ roleId: '', presetId: '', businessLevel: 'user', effect: 'allow' })
+
+const permissionPresets: readonly PermissionPresetOption[] = [
+  { id: 'certificate.viewer', labelKey: 'settings.roles.presets.certificateViewer', domain: 'certificate', level: 'user' },
+  { id: 'certificate.manager', labelKey: 'settings.roles.presets.certificateManager', domain: 'certificate', level: 'manager' },
+  { id: 'application.viewer', labelKey: 'settings.roles.presets.applicationViewer', domain: 'application', level: 'user' },
+  { id: 'application.manager', labelKey: 'settings.roles.presets.applicationManager', domain: 'application', level: 'manager' }
+]
 
 const assignableCategories: readonly AssignableObjectCategory[] = [
   { key: 'certificate', labelKey: 'settings.roles.categories.certificate', objectType: 'certificate', load: () => loadPageItems(listCertificates) },
@@ -133,7 +150,8 @@ const accessGrantColumns = computed<DataTableColumn<ApiRecord>[]>(() => [
   { key: 'roleId', title: t('settings.roles.columns.roleId'), width: '24%' },
   { key: 'objectSetName', title: t('settings.roles.columns.objectScope'), width: '28%' },
   { key: 'businessLevel', title: t('settings.roles.columns.businessLevel'), width: '16%' },
-  { key: 'effect', title: t('settings.roles.columns.effect'), width: '12%' }
+  { key: 'effect', title: t('settings.roles.columns.effect'), width: '12%' },
+  { key: 'actions', title: t('settings.roles.columns.actions'), width: '12%' }
 ])
 
 const roleMemberColumns = computed<DataTableColumn<ApiRecord>[]>(() => [
@@ -257,6 +275,7 @@ const objectTreeNodes = computed<ObjectTreeNode[]>(() => {
 
 const roleEditorDisabled = computed(() => saving.value || !roleDraft.name.trim())
 const grantEditorDisabled = computed(() => saving.value || !grantDraft.roleId.trim() || selectedObjectNodes.value.length === 0)
+const selectedPermissionPreset = computed(() => permissionPresets.find((item) => item.id === grantDraft.presetId))
 const selectedObjectSummary = computed(() =>
   selectedObjectNodes.value.length > 0
     ? t('settings.roles.summary.selectedScopes', { count: selectedObjectNodes.value.length })
@@ -533,6 +552,13 @@ function toggleObjectNodeSelection(node: ObjectTreeNode): void {
   if (node.kind !== 'record' && !isExpanded(node.key)) toggleTreeNode(node)
 }
 
+function onPermissionPresetChange(): void {
+  const preset = selectedPermissionPreset.value
+  if (!preset) return
+  grantDraft.businessLevel = preset.level
+  selectedObjectNodes.value = selectedObjectNodes.value.filter((node) => categoryByObjectType(node.objectType ?? '')?.key === preset.domain)
+}
+
 function clearSelectedObjectNodes(): void {
   selectedObjectNodes.value = []
 }
@@ -626,6 +652,7 @@ function openCreateRole(): void {
   Object.assign(roleDraft, { name: '', description: '' })
   Object.assign(grantDraft, {
     roleId: '',
+    presetId: '',
     businessLevel: 'user',
     effect: 'allow'
   })
@@ -645,6 +672,7 @@ function openGrantRole(): void {
   const roleId = selectedRole.value ? readValue(selectedRole.value, 'id') : ''
   Object.assign(grantDraft, {
     roleId,
+    presetId: '',
     businessLevel: 'user',
     effect: 'allow'
   })
@@ -704,13 +732,31 @@ async function submitRole(): Promise<void> {
     const roleId = readValue(roleResult.data ?? {}, 'id')
     if (nodes.length > 0) {
       if (!roleId) throw new Error(t('settings.roles.errors.missingRoleId'))
-      await createGrantsForRole(roleId, nodes, grantDraft.businessLevel, grantDraft.effect)
+      await createGrantsForRole(roleId, nodes, grantDraft.businessLevel, grantDraft.effect, grantDraft.presetId)
     }
     roleEditorOpen.value = false
     await reloadAll()
   } catch (cause) {
     modalError.value = toErrorMessage(cause, t('settings.roles.errors.createRoleFailed'))
   } finally {
+    saving.value = false
+  }
+}
+
+async function revokeGrant(row: ApiRecord): Promise<void> {
+  const grantId = readValue(row, 'id')
+  if (!grantId || saving.value || revokingGrantId.value) return
+  if (!window.confirm(t('settings.roles.confirm.revokePermission'))) return
+  saving.value = true
+  revokingGrantId.value = grantId
+  modalError.value = ''
+  try {
+    await revokeBusinessPermissionGrant(grantId, Number(readValue(row, 'version')) || undefined)
+    await reloadAll()
+  } catch (cause) {
+    modalError.value = toErrorMessage(cause, t('settings.roles.errors.revokePermissionFailed'))
+  } finally {
+    revokingGrantId.value = ''
     saving.value = false
   }
 }
@@ -722,7 +768,7 @@ async function submitGrant(): Promise<void> {
   saving.value = true
   modalError.value = ''
   try {
-    await createGrantsForRole(grantDraft.roleId.trim(), nodes, grantDraft.businessLevel, grantDraft.effect)
+    await createGrantsForRole(grantDraft.roleId.trim(), nodes, grantDraft.businessLevel, grantDraft.effect, grantDraft.presetId)
     grantEditorOpen.value = false
     await reloadAll()
   } catch (cause) {
@@ -820,8 +866,13 @@ async function createGrantsForRole(
   roleId: string,
   nodes: readonly ObjectTreeNode[],
   businessLevel: BusinessPermissionLevel,
-  effect: AccessGrantDraft['effect']
+  effect: AccessGrantDraft['effect'],
+  presetId = ''
 ): Promise<void> {
+  const preset = permissionPresets.find((item) => item.id === presetId)
+  if (preset && nodes.some((node) => categoryByObjectType(node.objectType ?? '')?.key !== preset.domain)) {
+    throw new Error(t('settings.roles.errors.presetScopeMismatch'))
+  }
   const existingRoleBindingKeys = new Set(roleBindingRows.value
     .filter((item) =>
       readValue(item, 'principalType') === 'group'
@@ -852,12 +903,18 @@ async function createGrantsForRole(
       readValue(item, 'rootObjectId'),
       readValue(item, 'effect')
     ].join(':')))
+  const existingBusinessGrantIds = new Map(businessPermissionRows.value
+    .filter((item) => readValue(item, 'roleId') === roleId)
+    .map((item) => [[
+      readValue(item, 'domain'), readValue(item, 'level'), readValue(item, 'rootObjectType'), readValue(item, 'rootObjectId'), readValue(item, 'effect')
+    ].join(':'), readValue(item, 'id')] as const))
   for (const node of uniqueObjectNodes(nodes.filter((item) => item.selectable))) {
     const category = categoryByObjectType(node.objectType ?? '')
     if (!category) throw new Error(t('settings.roles.errors.invalidBusinessScope'))
     const businessGrantKey = [category.key, businessLevel, node.objectType, node.objectId ?? '', effect].join(':')
+    let businessPermissionGrantId = existingBusinessGrantIds.get(businessGrantKey)
     if (!existingBusinessGrantKeys.has(businessGrantKey)) {
-      await createBusinessPermissionGrant({
+      const businessGrantResult = await createBusinessPermissionGrant({
         principalType: 'group',
         principalId: roleId,
         roleId,
@@ -867,7 +924,9 @@ async function createGrantsForRole(
         rootObjectId: node.objectId,
         effect
       })
+      businessPermissionGrantId = readValue(businessGrantResult.data ?? {}, 'id')
       existingBusinessGrantKeys.add(businessGrantKey)
+      if (businessPermissionGrantId) existingBusinessGrantIds.set(businessGrantKey, businessPermissionGrantId)
     }
     const existingObjectSetIds = existingScopeObjectSetIds.get(node.key) ?? []
     if (existingObjectSetIds.length > 0) {
@@ -897,7 +956,8 @@ async function createGrantsForRole(
       roleId,
       objectSetId,
       accessLevel: accessLevelForBusinessLevel(businessLevel),
-      effect
+      effect,
+      ...(businessPermissionGrantId ? { constraints: { businessPermissionGrantId } } : {})
     })
     existingScopeObjectSetIds.set(node.key, [...(existingScopeObjectSetIds.get(node.key) ?? []), objectSetId])
   }
@@ -970,6 +1030,11 @@ onMounted(() => void reloadAll())
               <strong>{{ t('settings.roles.table.currentPermissions') }}</strong>
               <button class="gc-button" type="button" @click="openGrantRole()">{{ t('settings.roles.actions.grantPermission') }}</button>
             </div>
+          </template>
+          <template #cell-actions="{ row }">
+            <button class="gc-button gc-button--danger" type="button" :disabled="saving" @click="revokeGrant(row)">
+              {{ revokingGrantId === readValue(row, 'id') ? t('settings.roles.actions.revoking') : t('settings.roles.actions.revokePermission') }}
+            </button>
           </template>
         </GcDataTable>
 
@@ -1060,6 +1125,13 @@ onMounted(() => void reloadAll())
               <option value="deny">{{ t('settings.roles.effect.deny') }}</option>
             </select>
           </label>
+          <label>
+            <span>{{ t('settings.roles.presets.label') }}</span>
+            <select v-model="grantDraft.presetId" @change="onPermissionPresetChange">
+              <option value="">{{ t('settings.roles.presets.custom') }}</option>
+              <option v-for="preset in permissionPresets" :key="preset.id" :value="preset.id">{{ t(preset.labelKey) }}</option>
+            </select>
+          </label>
         </section>
       </section>
       <p v-if="modalError" class="roles-view__error">{{ modalError }}</p>
@@ -1131,6 +1203,13 @@ onMounted(() => void reloadAll())
             <select v-model="grantDraft.effect">
               <option value="allow">{{ t('settings.roles.effect.allow') }}</option>
               <option value="deny">{{ t('settings.roles.effect.deny') }}</option>
+            </select>
+          </label>
+          <label>
+            <span>{{ t('settings.roles.presets.label') }}</span>
+            <select v-model="grantDraft.presetId" @change="onPermissionPresetChange">
+              <option value="">{{ t('settings.roles.presets.custom') }}</option>
+              <option v-for="preset in permissionPresets" :key="preset.id" :value="preset.id">{{ t(preset.labelKey) }}</option>
             </select>
           </label>
         </section>

@@ -497,9 +497,9 @@ export class InternalCaController {
   }
 
   private async updateAcmeCertificate(request: HttpRequest) {
-    await this.assertAcmeWrite(request, 'certificate.lifecycle', 'certificate_renewal');
-    const body = objectBody(request);
     const assetId = pathId(request);
+    await this.assertAcmeWrite(request, 'certificate.auto_renew.update', 'certificate_renewal', assetId);
+    const body = objectBody(request);
     const policy = (await this.requireAcme().policies.list(tenantId(request)))
       .find((item) => item.certificateAssetId === assetId);
     const providerId = optionalString(body.providerId) ?? policy?.providerId;
@@ -528,15 +528,16 @@ export class InternalCaController {
   }
 
   private async deleteAcmeCertificate(request: HttpRequest) {
-    await this.assertAcmeWrite(request, 'certificate.lifecycle', 'certificate_renewal');
-    return this.requireAcme().certificates.delete(tenantId(request), pathId(request), actorId(request), request.context);
+    const assetId = pathId(request);
+    await this.assertAcmeWrite(request, 'certificate.lifecycle', 'certificate_renewal', assetId);
+    return this.requireAcme().certificates.delete(tenantId(request), assetId, actorId(request), request.context);
   }
 
   private async manualRenewAcmeCertificate(request: HttpRequest) {
-    await this.assertAcmeWrite(request, 'certificate.lifecycle', 'certificate_renewal');
     const tenant = tenantId(request);
     const actor = actorId(request);
     const assetId = pathId(request);
+    await this.assertAcmeWrite(request, 'certificate.renew', 'certificate_renewal', assetId);
     const job = await this.requireAcme().scheduler.scheduleManualRenewal(tenant, assetId, actor, new Date());
     enqueueTaskBestEffort(this.tasks, {
       tenantId: tenant,
@@ -576,8 +577,11 @@ export class InternalCaController {
   }
 
   private async updateAcmePolicy(request: HttpRequest) {
-    await this.assertAcmeWrite(request, 'certificate.lifecycle', 'certificate_renewal');
-    return this.requireAcme().policies.update(tenantId(request), pathId(request), {
+    const policyId = pathId(request);
+    const policy = (await this.requireAcme().policies.list(tenantId(request))).find((item) => item.id === policyId);
+    if (!policy) throw new AppError('RESOURCE_NOT_FOUND', 'ACME 续签策略不存在', { policyId });
+    await this.assertAcmeWrite(request, 'certificate.auto_renew.update', 'certificate_renewal', policy.certificateAssetId);
+    return this.requireAcme().policies.update(tenantId(request), policyId, {
       ...objectBody(request),
       actorId: actorId(request),
     });
@@ -595,8 +599,13 @@ export class InternalCaController {
   }
 
   private async retryAcmeRenewalJob(request: HttpRequest) {
-    await this.assertAction(request, 'ca.request.retry', 'certificate_renewal');
-    const job = await this.requireAcme().repository.retryRenewalJob(tenantId(request), pathId(request), new Date().toISOString());
+    const renewalJobId = pathId(request);
+    const current = await this.requireAcme().repository.getRenewalJob(tenantId(request), renewalJobId);
+    if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'ACME 续签任务不存在', { renewalJobId });
+    const certificateAssetId = await this.renewalCertificateAssetId(tenantId(request), current);
+    if (!certificateAssetId) throw new AppError('AUTH_FORBIDDEN', '续签任务未关联可授权的证书资产', { renewalJobId });
+    await this.assertAcmeWrite(request, 'certificate.renew', 'certificate_renewal', certificateAssetId);
+    const job = await this.requireAcme().repository.retryRenewalJob(tenantId(request), renewalJobId, new Date().toISOString());
     enqueueTaskBestEffort(this.tasks, {
       tenantId: job.tenantId,
       taskType: 'ACME_CERTIFICATE_RENEWAL',
@@ -610,12 +619,17 @@ export class InternalCaController {
   }
 
   private async cancelAcmeRenewalJob(request: HttpRequest) {
-    await this.assertAcmeWrite(request, 'certificate.lifecycle', 'certificate_renewal');
+    const renewalJobId = pathId(request);
+    const current = await this.requireAcme().repository.getRenewalJob(tenantId(request), renewalJobId);
+    if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'ACME 续签任务不存在', { renewalJobId });
+    const certificateAssetId = await this.renewalCertificateAssetId(tenantId(request), current);
+    if (!certificateAssetId) throw new AppError('AUTH_FORBIDDEN', '续签任务未关联可授权的证书资产', { renewalJobId });
+    await this.assertAcmeWrite(request, 'certificate.auto_renew.update', 'certificate_renewal', certificateAssetId);
     const body = objectBody(request);
     const reason = optionalString(body.reason) ?? '用户请求取消 ACME 续签任务';
     return this.requireAcme().repository.cancelRenewalJob(
       tenantId(request),
-      pathId(request),
+      renewalJobId,
       new Date().toISOString(),
       reason,
     );
@@ -808,10 +822,11 @@ export class InternalCaController {
    * ACME 的申请、续签和删除属于证书生命周期写操作。
    * 保留 ca.request.retry 回退，避免旧租户权限在迁移期间突然失效。
    */
-  private async assertAcmeWrite(request: HttpRequest, action: string, resourceType: string): Promise<void> {
+  private async assertAcmeWrite(request: HttpRequest, action: string, resourceType: string, resourceId?: string): Promise<void> {
     const subject = subjectFromRequest(request);
     const certificateResource = {
       type: 'certificate_asset',
+      ...(resourceId ? { id: resourceId } : {}),
       scope: {
         tenantId: tenantId(request),
         tenantScope: request.context.tenantScope,
@@ -819,7 +834,10 @@ export class InternalCaController {
         resourceType: 'certificate_asset',
       },
     };
-    for (const candidate of [action, action === 'certificate.create' ? 'certificate.lifecycle' : 'certificate.create'] as const) {
+    const candidates = action === 'certificate.create'
+      ? ['certificate.create', 'certificate.lifecycle']
+      : [action, 'certificate.lifecycle'];
+    for (const candidate of candidates) {
       try {
         await this.security.rbac.assertCan(subject, candidate, certificateResource, request.context);
         return;
@@ -836,6 +854,14 @@ export class InternalCaController {
         resourceType,
       },
     }, request.context);
+  }
+
+  private async renewalCertificateAssetId(tenant: string, job: { policyId?: string; certificateVersionId?: string }): Promise<string | undefined> {
+    if (job.policyId) {
+      const policy = (await this.requireAcme().policies.list(tenant)).find((item) => item.id === job.policyId);
+      if (policy?.certificateAssetId) return policy.certificateAssetId;
+    }
+    return undefined;
   }
 
   private async assertAuthorityRead(request: HttpRequest, caId: string): Promise<void> {

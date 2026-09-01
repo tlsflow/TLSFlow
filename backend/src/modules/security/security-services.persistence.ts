@@ -72,6 +72,7 @@ export function createPersistedSecurityServices(db: DatabasePort, options: { ini
   const businessPermissionGrants = new PgDocumentRepository<BusinessPermissionGrantEntity>(db, 'security.business_permission_grants');
   const businessPermissionRelations = new PgDocumentRepository<BusinessPermissionRelationEntity>(db, 'security.business_permission_relations');
   const tenantIdentity = new TenantIdentityService(db);
+  const tenantRepository = new PgTenantRepository(db);
 
   const audit = new AuditService(auditLogs, undefined, () => resolveUnambiguousDefaultTenant(db, tenantIdentity), db);
   const approvals = new ApprovalService(approvalsRepo, audit, {
@@ -85,11 +86,26 @@ export function createPersistedSecurityServices(db: DatabasePort, options: { ini
     businessPermissionGrants,
     businessPermissionRelations,
     objectPermissions,
-    createBusinessPermissionRelationProjector(db),
+    {
+      ...createBusinessPermissionRelationProjector(db),
+      isTenantAdministrator: async ({ subject, tenantId }) => {
+        if (subject.type !== 'user') return false;
+        const tenant = await tenantRepository.getTenant(tenantId);
+        if (!tenant || tenant.status !== 'ACTIVE') return false;
+        const memberships = await tenantRepository.listMemberships({
+          subjectType: 'user',
+          subjectId: subject.id,
+          tenantId,
+          status: 'ACTIVE',
+          at: new Date().toISOString(),
+        });
+        return memberships.some((membership) => membership.membershipType === 'owner' || membership.membershipType === 'admin');
+      },
+    },
   );
   rbac.attachBusinessPermissionResolver(businessPermissions);
   objectPermissions.attachBusinessPermissionResolver(businessPermissions);
-  const tenantHierarchy = new TenantHierarchyService(new PgTenantRepository(db), audit);
+  const tenantHierarchy = new TenantHierarchyService(tenantRepository, audit);
   const tenantMode = new TenantModeService(db, tenantModeStates, tenantModeBatches, audit, tenantHierarchy, objectPermissions, options.initialTenantMode ?? 'single');
   const tenantContext = new TenantContextService(tenantIdentity, tenantHierarchy, tenantContextStates, tenantMode);
   tenantMode.attachTenantContext(tenantContext);

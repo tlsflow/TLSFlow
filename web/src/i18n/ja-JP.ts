@@ -2393,7 +2393,7 @@ export default {
         delete: '削除',
         deleteRole: '削除ロール',
         deleting: '削除中...',
-        clearSelection: '清空選択'
+        clearSelection: '清空選択', revokePermission: '権限を取り消す', revoking: '取り消し中...'
       },
       columns: {
         roleId: 'ロール ID',
@@ -2438,6 +2438,7 @@ export default {
         user: '使用者',
         manager: '管理者'
       },
+      presets: { label: '事前設定テンプレート', custom: 'カスタム業務権限', certificateViewer: '証明書閲覧', certificateManager: '証明書管理', applicationViewer: 'アプリ閲覧', applicationManager: 'アプリ管理' },
       effect: {
         allow: '允許',
         deny: '拒否'
@@ -2516,10 +2517,10 @@ export default {
         roleNoObjectScopes: 'このロールまだありません認可対象範囲、先にロールへ権限を付与してください。',
         assignMembersFailed: '分配成员に失敗しました',
         deleteRoleFailed: '削除ロールに失敗しました',
-        missingObjectSetId: 'オブジェクト範囲 ID を取得していません'
+        missingObjectSetId: 'オブジェクト範囲 ID を取得していません', presetScopeMismatch: 'テンプレートと選択範囲が一致しません', revokePermissionFailed: '権限の取り消しに失敗しました'
       },
       confirm: {
-        deleteRole: '確認削除ロール“{name}”？削除後は同時に削除このロールのユーザー分配とオブジェクト授権。'
+        deleteRole: '確認削除ロール“{name}”？削除後は同時に削除このロールのユーザー分配とオブジェクト授権。', revokePermission: 'この業務権限を取り消しますか？互換オブジェクト権限も削除されます。'
       },
       auditLogs: {
         auth: {

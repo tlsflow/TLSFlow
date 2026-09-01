@@ -2371,7 +2371,7 @@ export default {
         delete: 'Удалить',
         deleteRole: 'Удалить роль',
         deleting: 'Удаление...',
-        clearSelection: 'Очистить выбор'
+        clearSelection: 'Очистить выбор', revokePermission: 'Отозвать разрешение', revoking: 'Отзыв...'
       },
       columns: {
         roleId: 'ID роли',
@@ -2416,6 +2416,7 @@ export default {
         user: 'Пользователь',
         manager: 'Менеджер'
       },
+      presets: { label: 'Предустановленный шаблон авторизации', custom: 'Пользовательская бизнес-авторизация', certificateViewer: 'Просмотр сертификатов', certificateManager: 'Управление сертификатами', applicationViewer: 'Просмотр приложений', applicationManager: 'Управление приложениями' },
       effect: {
         allow: 'Разрешить',
         deny: 'Запретить'
@@ -2494,10 +2495,10 @@ export default {
         roleNoObjectScopes: 'У этой роли пока нет авторизованных областей объектов; сначала выдайте права роли.',
         assignMembersFailed: 'Не удалось назначить участников',
         deleteRoleFailed: 'Не удалось удалить роль',
-        missingObjectSetId: 'Не получен ID области объектов'
+        missingObjectSetId: 'Не получен ID области объектов', presetScopeMismatch: 'Шаблон не соответствует выбранной области объектов', revokePermissionFailed: 'Не удалось отозвать разрешение'
       },
       confirm: {
-        deleteRole: 'Подтвердить удаление роли "{name}"? После удаления будут также удалены назначения пользователей и объектные авторизации этой роли.'
+        deleteRole: 'Подтвердить удаление роли "{name}"? После удаления будут также удалены назначения пользователей и объектные авторизации этой роли.', revokePermission: 'Отозвать это бизнес-разрешение? Совместимое разрешение объекта также будет удалено.'
       },
       auditLogs: {
         auth: {

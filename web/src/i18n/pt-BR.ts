@@ -2371,7 +2371,7 @@ export default {
         delete: 'Excluir',
         deleteRole: 'Excluir função',
         deleting: 'Excluindo...',
-        clearSelection: 'Limpar seleção'
+        clearSelection: 'Limpar seleção', revokePermission: 'Revogar permissão', revoking: 'Revogando...'
       },
       columns: {
         roleId: 'ID da função',
@@ -2416,6 +2416,7 @@ export default {
         user: 'Usuário',
         manager: 'Gerente'
       },
+      presets: { label: 'Modelo de autorização predefinido', custom: 'Autorização de negócio personalizada', certificateViewer: 'Visualizador de certificados', certificateManager: 'Administrador de certificados', applicationViewer: 'Visualizador de aplicações', applicationManager: 'Administrador de aplicações' },
       effect: {
         allow: 'Permitir',
         deny: 'Negar'
@@ -2494,10 +2495,10 @@ export default {
         roleNoObjectScopes: 'Esta função ainda não tem escopos de objeto autorizados. Conceda permissões à função primeiro.',
         assignMembersFailed: 'Falha ao atribuir membros',
         deleteRoleFailed: 'Falha ao excluir função',
-        missingObjectSetId: 'ID do escopo de objeto não recebido'
+        missingObjectSetId: 'ID do escopo de objeto não recebido', presetScopeMismatch: 'O modelo não corresponde ao escopo selecionado', revokePermissionFailed: 'Falha ao revogar permissão'
       },
       confirm: {
-        deleteRole: 'Confirmar exclusão da função "{name}"? Após a exclusão, as atribuições de usuários e autorizações de objetos desta função também serão removidas.'
+        deleteRole: 'Confirmar exclusão da função "{name}"? Após a exclusão, as atribuições de usuários e autorizações de objetos desta função também serão removidas.', revokePermission: 'Revogar esta permissão de negócio? A permissão de objeto compatível também será removida.'
       },
       auditLogs: {
         auth: {

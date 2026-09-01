@@ -257,7 +257,7 @@ export class CertificatesController {
     const subject = this.subjectFromRequest(request);
     const tenantId = requireTenantId(request);
     const importResourceId = body.certificateAssetId === undefined ? undefined : String(body.certificateAssetId);
-    await this.assertCan(subject, 'certificate.import', importResourceId ? 'certificate_asset' : 'certificate_version', request, importResourceId);
+    await this.assertCertificateImport(subject, request, importResourceId);
     return {
       statusCode: 201,
       body: await this.services.certificates.importVersion({
@@ -299,7 +299,7 @@ export class CertificatesController {
     const subject = this.subjectFromRequest(request);
     const tenantId = requireTenantId(request);
     const importResourceId = body.certificateAssetId === undefined ? undefined : String(body.certificateAssetId);
-    await this.assertCan(subject, 'certificate.import', importResourceId ? 'certificate_asset' : 'certificate_version', request, importResourceId);
+    await this.assertCertificateImport(subject, request, importResourceId);
     return {
       statusCode: 200,
       body: this.services.certificates.validateImportVersion({
@@ -332,7 +332,14 @@ export class CertificatesController {
     const body = this.readFormatExportBody(request);
     const subject = this.subjectFromRequest(request);
     const tenantId = requireTenantId(request);
-    await this.assertCan(subject, 'certificate.format.create', 'certificate_version_format', request);
+    const certificateVersionId = body.certificateVersionId === undefined ? undefined : String(body.certificateVersionId);
+    await this.assertCan(
+      subject,
+      'certificate.format.create',
+      certificateVersionId ? 'certificate_version' : 'certificate_version_format',
+      request,
+      certificateVersionId,
+    );
     return {
       statusCode: 201,
       body: await this.services.certificates.createFormat({
@@ -352,7 +359,14 @@ export class CertificatesController {
     const body = this.readFormatExportBody(request);
     const subject = this.subjectFromRequest(request);
     const tenantId = requireTenantId(request);
-    await this.assertCan(subject, 'certificate.format.create', 'certificate_version_format', request);
+    const certificateVersionId = body.certificateVersionId === undefined ? undefined : String(body.certificateVersionId);
+    await this.assertCan(
+      subject,
+      'certificate.artifact.export',
+      certificateVersionId ? 'certificate_version' : 'certificate_version_format',
+      request,
+      certificateVersionId,
+    );
     return {
       statusCode: 201,
       body: await this.services.certificates.planFormatExport({
@@ -372,7 +386,15 @@ export class CertificatesController {
     const body = this.readFormatExportBody(request);
     const subject = this.subjectFromRequest(request);
     const tenantId = requireTenantId(request);
-    await this.assertCan(subject, 'certificate.format.create', 'certificate_version_format', request);
+    const certificateFormatId = body.certificateFormatId === undefined ? undefined : String(body.certificateFormatId);
+    const certificateVersionId = body.certificateVersionId === undefined ? undefined : String(body.certificateVersionId);
+    await this.assertCan(
+      subject,
+      'certificate.artifact.export',
+      certificateFormatId ? 'certificate_version_format' : 'certificate_version',
+      request,
+      certificateFormatId ?? certificateVersionId,
+    );
     return {
       statusCode: 201,
       body: await this.services.certificates.exportFormatArtifact({
@@ -395,7 +417,8 @@ export class CertificatesController {
     });
     const subject = this.subjectFromRequest(request);
     const tenantId = requireTenantId(request);
-    await this.assertCan(subject, 'certificate.format.create', 'certificate_version_format', request);
+    const artifactFormatId = parseCertificateArtifactFormatId(String(body.artifactRef));
+    await this.assertCan(subject, 'certificate.artifact.export', 'certificate_version_format', request, artifactFormatId);
     const artifact = await this.services.certificates.getFormatArtifact(String(body.artifactRef), tenantId);
     return {
       statusCode: 200,
@@ -433,7 +456,7 @@ export class CertificatesController {
     });
     const subject = this.subjectFromRequest(request);
     const tenantId = requireTenantId(request);
-    await this.assertCan(subject, 'certificate.format.create', 'certificate_version_format', request);
+    await this.assertCan(subject, 'certificate.format.create', 'certificate_version_format', request, String(body.id));
     return {
       statusCode: 200,
       body: await this.services.certificates.updateFormat({
@@ -456,7 +479,7 @@ export class CertificatesController {
     });
     const subject = this.subjectFromRequest(request);
     const tenantId = requireTenantId(request);
-    await this.assertCan(subject, 'certificate.format.create', 'certificate_version_format', request);
+    await this.assertCan(subject, 'certificate.format.create', 'certificate_version_format', request, String(body.id));
     return {
       statusCode: 200,
       body: await this.services.certificates.deleteFormat({
@@ -591,6 +614,27 @@ export class CertificatesController {
       id: resourceId,
       scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
     }, this.securityContext(request, subject));
+  }
+
+  private async assertCertificateImport(subject: SecuritySubject, request: HttpRequest, certificateAssetId?: string): Promise<void> {
+    if (certificateAssetId) {
+      await this.assertCan(subject, 'certificate.import', 'certificate_asset', request, certificateAssetId);
+      return;
+    }
+
+    const resource = {
+      type: 'certificate_asset',
+      scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
+    };
+    const context = this.securityContext(request, subject);
+    const current = await this.security.rbac.can(subject, 'certificate.create', resource, context);
+    if (current.allowed) return;
+    // 仅保留明确旧技术策略的兼容回退，业务证书管理授权不能借无对象 ID 创建新证书。
+    if (current.reason === 'no allow policy') {
+      const legacy = await this.security.rbac.can(subject, 'certificate.import', resource, context);
+      if (legacy.allowed && legacy.reason === 'allow' && legacy.matchedPolicyIds.length > 0) return;
+    }
+    await this.security.rbac.assertCan(subject, 'certificate.create', resource, context);
   }
 
   private async assertCanAny(subject: SecuritySubject, actions: string[], resourceType: string, request: HttpRequest): Promise<void> {
@@ -791,6 +835,12 @@ function readTrustRootId(request: HttpRequest): string {
     throw new AppError('VALIDATION_FAILED', 'id 不能为空', { field: 'id' });
   }
   return id;
+}
+
+function parseCertificateArtifactFormatId(artifactRef: string): string {
+  const match = artifactRef.match(/^artifact:\/\/certificate-format\/([^/]+)(?:\/|$)/);
+  if (!match?.[1]) throw new AppError('VALIDATION_FAILED', 'artifactRef 缺少证书格式配置标识');
+  return match[1];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

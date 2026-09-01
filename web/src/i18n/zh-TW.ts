@@ -2396,7 +2396,7 @@ export default {
         delete: "刪除",
         deleteRole: "刪除角色",
         deleting: "刪除中...",
-        clearSelection: "清空選擇"
+        clearSelection: "清空選擇", revokePermission: "撤銷授權", revoking: "撤銷中..."
       },
       columns: {
         roleId: "角色 ID",
@@ -2441,6 +2441,7 @@ export default {
         user: "使用者",
         manager: "管理者"
       },
+      presets: { label: "預置授權範本", custom: "自訂業務授權", certificateViewer: "憑證檢視", certificateManager: "憑證管理", applicationViewer: "應用程式檢視", applicationManager: "應用程式管理" },
       effect: {
         allow: "允許",
         deny: "拒絕"
@@ -2519,10 +2520,10 @@ export default {
         roleNoObjectScopes: "該角色還沒有授權物件範圍，請先為角色授予權限。",
         assignMembersFailed: "分配成員失敗",
         deleteRoleFailed: "刪除角色失敗",
-        missingObjectSetId: "未取得物件範圍 ID"
+        missingObjectSetId: "未取得物件範圍 ID", presetScopeMismatch: "預置範本與所選物件範圍不相符", revokePermissionFailed: "撤銷授權失敗"
       },
       confirm: {
-        deleteRole: "確認刪除角色“{name}”？刪除後會同步移除該角色的使用者分配和物件授權。"
+        deleteRole: "確認刪除角色“{name}”？刪除後會同步移除該角色的使用者分配和物件授權。", revokePermission: "確認撤銷這筆業務授權？相容物件授權也會一併回收。"
       },
       auditLogs: {
         auth: {

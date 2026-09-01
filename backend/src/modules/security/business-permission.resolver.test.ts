@@ -5,12 +5,17 @@ import type { BusinessPermissionGrantEntity, BusinessPermissionRelationEntity } 
 import { BUSINESS_PERMISSION_DOMAINS, BUSINESS_PERMISSION_LEVELS } from '../../persistence/entities/business-permission.entity.js';
 import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
 import { BusinessPermissionResolver } from './business-permission.resolver.js';
+import { BUSINESS_PERMISSION_ACTION_ALIASES, BUSINESS_PERMISSION_PRESETS } from './business-permission.registry.js';
+import type { SecuritySubject } from '../../shared/security-types.js';
 
-function createResolver(rootExists?: (input: { tenantId: string; objectType: string; objectId: string }) => Promise<boolean>) {
+function createResolver(
+  rootExists?: (input: { tenantId: string; objectType: string; objectId: string }) => Promise<boolean>,
+  isTenantAdministrator?: (input: { subject: SecuritySubject; tenantId: string }) => Promise<boolean>,
+) {
   const db = new PgliteDatabase();
   const grants = new PgDocumentRepository<BusinessPermissionGrantEntity>(db, 'test.business_permission_grants');
   const relations = new PgDocumentRepository<BusinessPermissionRelationEntity>(db, 'test.business_permission_relations');
-  return { resolver: new BusinessPermissionResolver(grants, relations, undefined, { rootExists }), grants, relations };
+  return { resolver: new BusinessPermissionResolver(grants, relations, undefined, { rootExists, isTenantAdministrator }), grants, relations };
 }
 
 describe('BusinessPermissionResolver', () => {
@@ -25,6 +30,26 @@ describe('BusinessPermissionResolver', () => {
       }),
       (error: unknown) => error instanceof Error && error.message.includes('权限不足'),
     );
+  });
+
+  it('预置模板只是业务域和级别组合，历史动作名统一归一化', async () => {
+    assert.deepEqual(BUSINESS_PERMISSION_PRESETS.map((item) => item.id), [
+      'certificate.viewer', 'certificate.manager', 'application.viewer', 'application.manager',
+    ]);
+    assert.equal(BUSINESS_PERMISSION_ACTION_ALIASES['service_asset.manage'], 'application.update');
+    assert.equal(BUSINESS_PERMISSION_ACTION_ALIASES['certificate.format.create'], 'certificate.artifact.export');
+  });
+
+  it('重复提交同一业务授权保持幂等', async () => {
+    const { resolver } = createResolver(async ({ tenantId, objectId }) => tenantId === 'tenant_a' && objectId === 'cert_1');
+    const input = {
+      tenantId: 'tenant_a', principalType: 'user' as const, principalId: 'u1', roleId: 'r1',
+      domain: 'certificate' as const, level: 'user' as const, rootObjectType: 'certificate', rootObjectId: 'cert_1', createdBy: 'admin',
+    };
+    const first = await resolver.create(input);
+    const second = await resolver.create(input);
+    assert.equal(second.id, first.id);
+    assert.equal((await resolver.list()).length, 1);
   });
 
   it('应用关系缺失时失败关闭，关联完整时返回应用业务资源', async () => {
@@ -46,6 +71,97 @@ describe('BusinessPermissionResolver', () => {
     assert.equal(resolved.allowed, true);
     assert.deepEqual(new Set(resolved.relatedResources.map((item) => item.objectType)), new Set(['service_asset', 'device_asset', 'certificate_binding', 'monitor_target', 'monitor_risk', 'monitor_dashboard']));
     assert.equal(resolved.relatedResources.some((item) => item.actions.includes('application.monitor.read')), true);
+  });
+
+  it('应用管理授权只能编辑已有应用，不能匹配无对象 ID 的创建动作', async () => {
+    const { resolver } = createResolver();
+    await resolver.upsertRelation({
+      tenantId: 'tenant_a',
+      rootDomain: 'application',
+      rootObjectType: 'service_asset',
+      rootObjectId: 'app_1',
+      relatedObjectType: 'device_asset',
+      relatedObjectId: 'device_1',
+      relation: 'application-device',
+    });
+    await resolver.create({
+      tenantId: 'tenant_a',
+      principalType: 'user',
+      principalId: 'u1',
+      roleId: 'r1',
+      domain: 'application',
+      level: 'manager',
+      rootObjectType: 'service_asset',
+      rootObjectId: 'app_1',
+      createdBy: 'admin',
+    });
+    const subject = { id: 'u1', type: 'user' as const, scope: { tenantId: 'tenant_a' } };
+    assert.equal(await resolver.isActionAllowed(subject, 'application.update', { type: 'service_asset', id: 'app_1', tenantId: 'tenant_a' }), true);
+    assert.equal(await resolver.isActionAllowed(subject, 'application.create', { type: 'service_asset', tenantId: 'tenant_a' }), false);
+  });
+
+  it('证书产物导出按证书版本或格式对象分别校验，不混用对象 ID', async () => {
+    const { resolver } = createResolver();
+    await resolver.upsertRelation({
+      tenantId: 'tenant_a',
+      rootDomain: 'certificate',
+      rootObjectType: 'certificate',
+      rootObjectId: 'cert_1',
+      relatedObjectType: 'certificate_version',
+      relatedObjectId: 'version_1',
+      relation: 'certificate-version',
+    });
+    await resolver.upsertRelation({
+      tenantId: 'tenant_a',
+      rootDomain: 'certificate',
+      rootObjectType: 'certificate',
+      rootObjectId: 'cert_1',
+      relatedObjectType: 'certificate_version_format',
+      relatedObjectId: 'format_1',
+      relation: 'certificate-format',
+    });
+    await resolver.create({
+      tenantId: 'tenant_a',
+      principalType: 'user',
+      principalId: 'u1',
+      roleId: 'r1',
+      domain: 'certificate',
+      level: 'manager',
+      rootObjectType: 'certificate',
+      rootObjectId: 'cert_1',
+      createdBy: 'admin',
+    });
+    const subject = { id: 'u1', type: 'user' as const, scope: { tenantId: 'tenant_a' } };
+    assert.equal(await resolver.isActionAllowed(subject, 'certificate.artifact.export', { type: 'certificate_version', id: 'version_1', tenantId: 'tenant_a' }), true);
+    assert.equal(await resolver.isActionAllowed(subject, 'certificate.artifact.export', { type: 'certificate_version_format', id: 'format_1', tenantId: 'tenant_a' }), true);
+    assert.equal(await resolver.isActionAllowed(subject, 'certificate.artifact.export', { type: 'certificate_version_format', id: 'version_1', tenantId: 'tenant_a' }), false);
+  });
+
+  it('证书管理授权只能向已有证书导入版本，不能凭空创建新证书', async () => {
+    const { resolver } = createResolver();
+    await resolver.upsertRelation({
+      tenantId: 'tenant_a',
+      rootDomain: 'certificate',
+      rootObjectType: 'certificate',
+      rootObjectId: 'cert_1',
+      relatedObjectType: 'certificate_asset',
+      relatedObjectId: 'cert_1',
+      relation: 'certificate-asset',
+    });
+    await resolver.create({
+      tenantId: 'tenant_a',
+      principalType: 'user',
+      principalId: 'u1',
+      roleId: 'r1',
+      domain: 'certificate',
+      level: 'manager',
+      rootObjectType: 'certificate',
+      rootObjectId: 'cert_1',
+      createdBy: 'admin',
+    });
+    const subject = { id: 'u1', type: 'user' as const, scope: { tenantId: 'tenant_a' } };
+    assert.equal(await resolver.isActionAllowed(subject, 'certificate.import', { type: 'certificate_asset', id: 'cert_1', tenantId: 'tenant_a' }), true);
+    assert.equal(await resolver.isActionAllowed(subject, 'certificate.create', { type: 'certificate_asset', tenantId: 'tenant_a' }), false);
   });
 
   it('投影关系使用有界稳定存储键，不会因长对象标识失败或重复写入', async () => {
@@ -124,6 +240,21 @@ describe('BusinessPermissionResolver', () => {
     const result = await resolver.resolveForSubject({ id: 'u1', type: 'user', scope: { tenantId: 'tenant_a' } }, 'certificate', 'user', { tenantId: 'tenant_a', objectType: 'certificate', objectId: 'cert_1' });
     assert.equal(result.allowed, false);
     assert.equal(result.reason, 'legacy technical deny');
+  });
+
+  it('租户 owner/admin 只在当前有效租户内派生全功能，显式 deny 仍优先', async () => {
+    let active = true;
+    const { resolver } = createResolver(undefined, async ({ subject, tenantId }) => active && subject.id === 'owner_1' && tenantId === 'tenant_a');
+    const subject = { id: 'owner_1', type: 'user' as const, scope: { tenantId: 'tenant_a' } };
+    assert.equal((await resolver.resolveForSubject(subject, 'settings', 'manager', { tenantId: 'tenant_a', objectType: 'system_setting' })).allowed, true);
+    assert.equal((await resolver.resolveForSubject(subject, 'settings', 'manager', { tenantId: 'tenant_b', objectType: 'system_setting' })).allowed, false);
+    await resolver.create({
+      tenantId: 'tenant_a', principalType: 'user', principalId: 'owner_1', roleId: 'role_owner',
+      domain: 'settings', level: 'manager', rootObjectType: 'system_setting', effect: 'deny', createdBy: 'system',
+    });
+    assert.equal((await resolver.resolveForSubject(subject, 'settings', 'manager', { tenantId: 'tenant_a', objectType: 'system_setting' })).reason, 'explicit business deny');
+    active = false;
+    assert.equal((await resolver.resolveForSubject(subject, 'settings', 'manager', { tenantId: 'tenant_a', objectType: 'system_setting' })).allowed, false);
   });
 
 });

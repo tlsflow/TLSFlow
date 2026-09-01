@@ -2539,7 +2539,9 @@ export default {
         delete: '删除',
         deleteRole: '删除角色',
         deleting: '删除中...',
-        clearSelection: '清空选择'
+        clearSelection: '清空选择',
+        revokePermission: '撤销授权',
+        revoking: '撤销中...'
       },
       columns: {
         roleId: '角色 ID',
@@ -2583,6 +2585,14 @@ export default {
       levels: {
         user: '使用者',
         manager: '管理者'
+      },
+      presets: {
+        label: '预置授权模板',
+        custom: '自定义业务授权',
+        certificateViewer: '证书查看',
+        certificateManager: '证书管理',
+        applicationViewer: '应用查看',
+        applicationManager: '应用管理'
       },
       effect: {
         allow: '允许',
@@ -2662,10 +2672,13 @@ export default {
         roleNoObjectScopes: '该角色还没有授权对象范围，请先为角色授予权限。',
         assignMembersFailed: '分配成员失败',
         deleteRoleFailed: '删除角色失败',
-        missingObjectSetId: '未获取到对象范围 ID'
+        missingObjectSetId: '未获取到对象范围 ID',
+        presetScopeMismatch: '预置模板与所选对象范围不匹配',
+        revokePermissionFailed: '撤销授权失败'
       },
       confirm: {
-        deleteRole: '确认删除角色“{name}”？删除后会同步移除该角色的用户分配和对象授权。'
+        deleteRole: '确认删除角色“{name}”？删除后会同步移除该角色的用户分配和对象授权。',
+        revokePermission: '确认撤销这条业务授权？撤销后关联的兼容对象权限也会回收。'
       },
       auditLogs: {
         auth: {

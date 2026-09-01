@@ -325,8 +325,8 @@ export class MonitorsApplicationService {
     return (await this.repository.listAlertRules(tenantId)).find((item) => item.id === id);
   }
 
-  async getDashboard(tenantId?: string): Promise<MonitorDashboardDto> {
-    return this.domain.aggregateDashboard(await this.listRiskEvents({ tenantId }));
+  async getDashboard(tenantId?: string, risks?: RiskEventDto[]): Promise<MonitorDashboardDto> {
+    return this.domain.aggregateDashboard(risks ?? await this.listRiskEvents({ tenantId }));
   }
 
   async probeServiceAsset(input: ProbeServiceAssetInput): Promise<ProbeServiceAssetResult> {

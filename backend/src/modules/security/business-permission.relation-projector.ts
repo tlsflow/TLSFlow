@@ -90,6 +90,11 @@ async function projectApplicationRelations(
     relatedObjectId: input.rootObjectId,
     relation: 'application-root',
   }];
+  relations.push({
+    relatedObjectType: input.rootObjectType === 'application_asset' ? 'service_asset' : 'application_asset',
+    relatedObjectId: input.rootObjectId,
+    relation: 'application-service-asset',
+  });
   const deviceAssets = (await db.query<IdRow>(
     `select distinct target.device_asset_id as id
        from pg_application_asset_targets relation
@@ -112,6 +117,32 @@ async function projectApplicationRelations(
   )).rows;
   relations.push(...deviceAssets.map((item) => ({ relatedObjectType: 'device_asset', relatedObjectId: item.id, relation: 'application-device' })));
   relations.push(...bindings.map((item) => ({ relatedObjectType: 'certificate_binding', relatedObjectId: item.id, relation: 'application-certificate' })));
+
+  const monitorTargets = await queryOptional<IdRow>(db,
+    `select id from pg_monitor_targets
+      where tenant_id=$1 and service_asset_id=$2 and deleted_at is null`,
+    [input.tenantId, input.rootObjectId],
+  );
+  relations.push(...monitorTargets.map((item) => ({ relatedObjectType: 'monitor_target', relatedObjectId: item.id, relation: 'application-monitor-target' })));
+  relations.push({ relatedObjectType: 'monitor_dashboard', relatedObjectId: input.rootObjectId, relation: 'application-monitor-dashboard' });
+  const monitorRisks = await queryOptional<IdRow>(db,
+    `select id from pg_monitor_risk_events
+      where coalesce(tenant_id,$1)=$1 and scope->>'serviceAssetId'=$2`,
+    [input.tenantId, input.rootObjectId],
+  );
+  relations.push(...monitorRisks.map((item) => ({ relatedObjectType: 'monitor_risk', relatedObjectId: item.id, relation: 'application-monitor-risk' })));
+  const probeResults = await queryOptional<IdRow>(db,
+    `select id from pg_monitor_probe_results
+      where tenant_id=$1 and service_asset_id=$2`,
+    [input.tenantId, input.rootObjectId],
+  );
+  relations.push(...probeResults.map((item) => ({ relatedObjectType: 'monitor_probe_result', relatedObjectId: item.id, relation: 'application-monitor-probe' })));
+  const observations = await queryOptional<IdRow>(db,
+    `select id from pg_monitor_certificate_observations
+      where coalesce(tenant_id,$1)=$1 and service_asset_id=$2`,
+    [input.tenantId, input.rootObjectId],
+  );
+  relations.push(...observations.map((item) => ({ relatedObjectType: 'monitor_certificate_observation', relatedObjectId: item.id, relation: 'application-monitor-observation' })));
 
   const targets = (await db.query<DocumentRow>(
     `select document_id, payload from pg_documents where namespace='deployment-plans:targets'`,
@@ -148,6 +179,17 @@ async function ensureDocumentStore(db: DatabasePort): Promise<void> {
       primary key (namespace, document_id)
     );
   `);
+}
+
+async function queryOptional<T extends Record<string, unknown>>(db: DatabasePort, sql: string, params: unknown[]): Promise<T[]> {
+  try {
+    return (await db.query<T>(sql, params)).rows;
+  } catch (error) {
+    // 中文说明：监控表在旧租户迁移期间可能尚未创建；只跳过明确的缺表错误，
+    // 连接、权限和 SQL 语义错误必须继续抛出，避免授权关系静默失真。
+    if ((error as { code?: string } | undefined)?.code === '42P01') return [];
+    throw error;
+  }
 }
 
 function workflowIdFromTarget(target: Record<string, unknown>): string | undefined {

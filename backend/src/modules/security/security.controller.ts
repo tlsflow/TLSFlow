@@ -1447,13 +1447,17 @@ export class SecurityController {
     const subject = await this.subjectFromRequest(request);
     await this.assertSecurityCan(subject, 'security.permission.write', request, 'businessPermission');
     const body = validateObject(request.body, { id: { type: 'string', required: true }, version: { type: 'number' } });
+    const current = await this.requireBusinessPermissions().get(String(body.id));
+    if (!current || current.tenantId !== requireTenantId(request)) throw new AppError('RESOURCE_NOT_FOUND', '业务授权不存在');
     const revoked = await this.requireBusinessPermissions().revoke(String(body.id), body.version === undefined ? undefined : Number(body.version));
-    if (!revoked || revoked.tenantId !== requireTenantId(request)) throw new AppError('RESOURCE_NOT_FOUND', '业务授权不存在');
+    if (!revoked) throw new AppError('RESOURCE_NOT_FOUND', '业务授权不存在');
+    const compatibilityCleanup = await this.services.objectPermissions.revokeBusinessPermissionCompatibility(revoked);
     await this.writeAudit(request, subject, 'security.business_permission.revoked', 'security.business_permission.revoke', 'businessPermission', revoked.id, {
       domain: revoked.domain,
       rootObjectType: revoked.rootObjectType,
       rootObjectId: revoked.rootObjectId,
       version: revoked.version,
+      compatibilityCleanup,
     });
     return { id: revoked.id, revoked: true, version: revoked.version };
   }

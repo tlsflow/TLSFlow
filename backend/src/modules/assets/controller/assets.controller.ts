@@ -46,6 +46,7 @@ export class AssetsController {
     router.get('/api/v1/applications', '查询 Application 列表', tags, (request) => this.listServiceAssets(request));
     router.get('/api/v1/applications/detail', '查询 Application 详情', tags, (request) => this.getApplicationDetail(request));
     router.get('/api/v1/applications/:applicationAssetId/linkage-status', '查询插件 Agent 联动状态', tags, (request) => this.getLinkageStatus(request));
+    router.post('/api/v1/applications/:applicationAssetId/rescan', '重扫应用关联资产', tags, (request) => this.rescanApplicationAsset(request));
     router.post('/api/v1/applications/:applicationAssetId/linkage-repair', '修复插件 Agent 联动状态', tags, (request) => this.repairLinkage(request));
     router.post('/api/v1/applications', '创建 Application', tags, (request) => this.createServiceAsset(request));
     router.patch('/api/v1/applications', '更新 Application', tags, (request) => this.updateServiceAsset(request));
@@ -285,9 +286,10 @@ export class AssetsController {
       siteAssetId: { type: 'string' },
     });
     const subject = this.subjectFromRequest(request);
-    await this.assertCan(subject, 'service_asset.manage', 'service_asset', request);
+    // 创建是租户级能力，不应因拥有某个已有应用的编辑权而放大到新增应用。
+    await this.assertApplicationCreate(subject, request);
     return this.service.createServiceAsset(tenantId(request), body as unknown as CreateServiceAssetDto).then((created) => {
-      this.audit(request, subject, 'service_asset.created', 'service_asset.manage', 'service_asset', created.id, undefined, created);
+      this.audit(request, subject, 'service_asset.created', 'application.create', 'service_asset', created.id, undefined, created);
       return { statusCode: 201, body: created };
     });
   }
@@ -299,8 +301,8 @@ export class AssetsController {
     });
     const subject = this.subjectFromRequest(request);
     const authorized = await this.authorizedQuery(subject, 'service_asset', 'read', query);
-    if (!hasAuthorizedReadScope(authorized.authorization) && !await this.canReadObject(subject, 'service_asset.read', 'service_asset', request)) {
-      await this.assertCan(subject, 'service_asset.read', 'service_asset', request);
+    if (!hasAuthorizedReadScope(authorized.authorization) && !await this.canReadObject(subject, 'application.read', 'service_asset', request)) {
+      await this.assertCan(subject, 'application.read', 'service_asset', request);
     }
     return this.service.listServiceAssets(tenantId(request), authorized);
   }
@@ -309,8 +311,8 @@ export class AssetsController {
     const serviceAssetId = String(request.query.serviceAssetId ?? request.query.id ?? '').trim();
     if (!serviceAssetId) throw new AppError('VALIDATION_FAILED', 'serviceAssetId 不能为空', { field: 'serviceAssetId' });
     const subject = this.subjectFromRequest(request);
-    if (!await this.canReadObject(subject, 'service_asset.read', 'service_asset', request, serviceAssetId, true)) {
-      await this.assertCan(subject, 'service_asset.read', 'service_asset', request, serviceAssetId);
+    if (!await this.canReadObject(subject, 'application.read', 'service_asset', request, serviceAssetId, true)) {
+      await this.assertCan(subject, 'application.read', 'service_asset', request, serviceAssetId);
     }
     return this.service.getServiceAssetDetail(tenantId(request), serviceAssetId).then((detail) => {
       if (!detail) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId });
@@ -360,10 +362,10 @@ export class AssetsController {
     });
     const subject = this.subjectFromRequest(request);
     const serviceAssetId = readServiceAssetId(request, body.id);
-    await this.assertCan(subject, 'service_asset.manage', 'service_asset', request, serviceAssetId);
+    await this.assertCan(subject, 'application.update', 'service_asset', request, serviceAssetId);
     return this.service.getRepository().getServiceAsset(tenantId(request), serviceAssetId).then((before) =>
       this.service.updateServiceAssetDeploymentStrategy(tenantId(request), serviceAssetId, body.deploymentStrategy as DeploymentStrategyDto, subject?.id).then((updated) => {
-        this.audit(request, subject, 'service_asset.deployment_strategy.updated', 'service_asset.manage', 'service_asset', serviceAssetId, before, updated);
+        this.audit(request, subject, 'service_asset.deployment_strategy.updated', 'application.update', 'service_asset', serviceAssetId, before, updated);
         return updated;
       }),
     );
@@ -373,7 +375,7 @@ export class AssetsController {
     const applicationId = String(request.query.applicationId ?? request.query.id ?? '').trim();
     if (!applicationId) throw new AppError('VALIDATION_FAILED', 'applicationId 不能为空', { field: 'applicationId' });
     const subject = this.subjectFromRequest(request);
-    await this.assertCan(subject, 'service_asset.read', 'service_asset', request, applicationId);
+    await this.assertCan(subject, 'application.read', 'service_asset', request, applicationId);
     return this.service.getServiceAssetDetail(tenantId(request), applicationId).then((detail) => {
       if (!detail) throw new AppError('RESOURCE_NOT_FOUND', 'Application 不存在', { applicationId });
       return detail;
@@ -383,14 +385,24 @@ export class AssetsController {
   private async getLinkageStatus(request: HttpRequest) {
     const applicationAssetId = readPathId(request, 'applicationAssetId');
     const subject = this.subjectFromRequest(request);
-    await this.assertCan(subject, 'service_asset.read', 'service_asset', request, applicationAssetId);
+    await this.assertCan(subject, 'application.read', 'service_asset', request, applicationAssetId);
     return this.service.getApplicationAssetLinkageStatus(tenantId(request), applicationAssetId);
+  }
+
+  private async rescanApplicationAsset(request: HttpRequest) {
+    const applicationAssetId = readPathId(request, 'applicationAssetId');
+    const subject = this.subjectFromRequest(request);
+    await this.assertCan(subject, 'application.asset.rescan', 'service_asset', request, applicationAssetId);
+    return {
+      statusCode: 202,
+      body: await this.service.rescanApplicationAsset(tenantId(request), applicationAssetId, subject.id),
+    };
   }
 
   private async repairLinkage(request: HttpRequest) {
     const applicationAssetId = readPathId(request, 'applicationAssetId');
     const subject = this.subjectFromRequest(request);
-    await this.assertCan(subject, 'service_asset.manage', 'service_asset', request, applicationAssetId);
+    await this.assertCan(subject, 'application.update', 'service_asset', request, applicationAssetId);
     return this.service.repairApplicationAssetLinkage(tenantId(request), applicationAssetId);
   }
 
@@ -405,10 +417,10 @@ export class AssetsController {
   private async deleteServiceAsset(request: HttpRequest) {
     const body = validateObject(request.body, { id: { type: 'string', required: true } });
     const subject = this.subjectFromRequest(request);
-    await this.assertCan(subject, 'service_asset.manage', 'service_asset', request, String(body.id));
+    await this.assertCan(subject, 'application.update', 'service_asset', request, String(body.id));
     return this.service.getRepository().getServiceAsset(tenantId(request), String(body.id)).then((before) =>
       this.service.deleteServiceAsset(tenantId(request), String(body.id)).then((deleted) => {
-        this.audit(request, subject, 'service_asset.deleted', 'service_asset.manage', 'service_asset', String(body.id), before, deleted);
+        this.audit(request, subject, 'service_asset.deleted', 'application.update', 'service_asset', String(body.id), before, deleted);
         return deleted;
       }),
     );
@@ -416,7 +428,7 @@ export class AssetsController {
 
   private async listApplicationAssetTargets(request: HttpRequest) {
     const subject = this.subjectFromRequest(request);
-    await this.assertCanAsync(subject, 'service_asset.read', 'service_asset', request);
+    await this.assertCanAsync(subject, 'application.read', 'service_asset', request);
     const query = parsePageQuery(request.query, {
       allowedSortFields: ['createdAt', 'updatedAt', 'status', 'applicationAssetId', 'managedTargetId', 'siteAssetId'],
       allowedFilterFields: ['id', 'applicationAssetId', 'managedTargetId', 'status'],
@@ -431,7 +443,7 @@ export class AssetsController {
   private async createApplicationAssetTarget(request: HttpRequest) {
     const body = this.readApplicationAssetTargetBody(request, true);
     const subject = this.subjectFromRequest(request);
-    await this.assertCanAsync(subject, 'service_asset.manage', 'service_asset', request, String(body.applicationAssetId));
+    await this.assertCanAsync(subject, 'application.update', 'service_asset', request, String(body.applicationAssetId));
     const enriched = await this.enrichApplicationAssetTargetInput(tenantId(request), body);
     return { statusCode: 201, body: await this.service.getRepository().createApplicationAssetTarget(tenantId(request), enriched as any) };
   }
@@ -440,7 +452,7 @@ export class AssetsController {
     const body = this.readApplicationAssetTargetBody(request, false);
     const id = String(body.id);
     const subject = this.subjectFromRequest(request);
-    await this.assertCanAsync(subject, 'service_asset.manage', 'service_asset', request, id);
+    await this.assertCanAsync(subject, 'application.update', 'service_asset', request, id);
     const { id: _id, ...patch } = body;
     void _id;
     return { statusCode: 200, body: await this.service.getRepository().updateApplicationAssetTarget(tenantId(request), id, patch as any) };
@@ -449,7 +461,7 @@ export class AssetsController {
   private async deleteApplicationAssetTarget(request: HttpRequest) {
     const body = validateObject(request.body, { id: { type: 'string', required: true } });
     const subject = this.subjectFromRequest(request);
-    await this.assertCanAsync(subject, 'service_asset.manage', 'service_asset', request, String(body.id));
+    await this.assertCanAsync(subject, 'application.update', 'service_asset', request, String(body.id));
     return { statusCode: 200, body: await this.service.getRepository().deleteApplicationAssetTarget(tenantId(request), String(body.id)) };
   }
 
@@ -803,6 +815,23 @@ export class AssetsController {
     }, this.securityContext(request, subject));
   }
 
+  private async assertApplicationCreate(subject: SecuritySubject, request: HttpRequest): Promise<void> {
+    if (!this.security) return;
+    const resource = {
+      type: 'service_asset',
+      scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
+    };
+    const context = this.securityContext(request, subject);
+    const current = await this.security.rbac.can(subject, 'application.create', resource, context);
+    if (current.allowed) return;
+    // 仅为历史显式技术策略保留兼容回退；业务应用管理授权的 resolver 结果不构成创建权限。
+    if (current.reason === 'no allow policy') {
+      const legacy = await this.security.rbac.can(subject, 'service_asset.manage', resource, context);
+      if (legacy.allowed && legacy.reason === 'allow' && legacy.matchedPolicyIds.length > 0) return;
+    }
+    await this.security.rbac.assertCan(subject, 'application.create', resource, context);
+  }
+
   private async assertCanAsync(subject: SecuritySubject, action: string, resourceType: string, request: HttpRequest, resourceId?: string): Promise<void> {
     if (!this.security) return;
     await this.security.rbac.assertCan(subject, action, {
@@ -885,7 +914,7 @@ function readServiceAssetId(request: HttpRequest, bodyId?: unknown): string {
 }
 
 function readPathId(request: HttpRequest, name: string): string {
-  const match = request.path.match(new RegExp(`/api/v1/applications/([^/]+)/${name === 'applicationAssetId' ? '(?:linkage-status|linkage-repair)' : name}$`));
+  const match = request.path.match(new RegExp(`/api/v1/applications/([^/]+)/${name === 'applicationAssetId' ? '(?:linkage-status|rescan|linkage-repair)' : name}$`));
   const value = match?.[1]?.trim();
   if (!value) throw new AppError('VALIDATION_FAILED', '应用资产 ID 无效', { field: name });
   return decodeURIComponent(value);
@@ -897,6 +926,7 @@ export function getAssetsRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/applications', operationId: 'listApplications', summary: '查询 Application 列表', tags, responseSchema: pageSchema() },
     { method: 'GET', path: '/api/v1/applications/detail', operationId: 'getApplicationDetail', summary: '查询 Application 详情', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/applications/:applicationAssetId/linkage-status', operationId: 'getApplicationAssetLinkageStatus', summary: '查询插件 Agent 联动状态', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/applications/:applicationAssetId/rescan', operationId: 'rescanApplicationAsset', summary: '重扫应用关联资产', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/applications/:applicationAssetId/linkage-repair', operationId: 'repairApplicationAssetLinkage', summary: '修复插件 Agent 联动状态', tags, requestSchema: objectSchema(), responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/applications', operationId: 'createApplication', summary: '创建 Application', tags, responseSchema: objectSchema() },
     { method: 'PATCH', path: '/api/v1/applications', operationId: 'updateApplication', summary: '更新 Application', tags, responseSchema: objectSchema() },

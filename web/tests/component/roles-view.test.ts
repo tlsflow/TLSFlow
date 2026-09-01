@@ -121,6 +121,7 @@ describe('RolesView', () => {
       objectSetId: 'object-set-all',
       accessLevel: 'edit',
       effect: 'allow',
+      constraints: { businessPermissionGrantId: 'business-grant-app-manager' },
     })
     expect(securityMocks.createRoleBinding).toHaveBeenCalledWith({
       principalType: 'group',

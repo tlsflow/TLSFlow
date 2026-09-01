@@ -152,6 +152,29 @@ test('角色绑定把成员解析为业务授权角色主体，deny 绑定不能
   assert.equal(principals.some((item) => item.type === 'group' && item.id === 'role_denied_only' && item.source === 'role-binding'), false);
 });
 
+test('撤销业务授权同时回收标记的兼容对象权限，但保留历史技术授权', async () => {
+  const { service, roles } = createServiceWithRepos();
+  await roles.create({ id: 'role_business_revoke', code: 'business_revoke', name: '业务撤销', builtin: false });
+  await service.ensureDefaultObjectTypes();
+  const objectSet = await service.createObjectSet({ id: 'oset_business_revoke', tenantId: 'tenant_a', name: '业务范围', kind: 'static', objectTypes: ['service_asset'], status: 'active' });
+  await service.addObjectSetMember({ objectSetId: objectSet.id, objectType: 'service_asset', objectId: 'app_revoke', addedBy: 'admin' });
+  await service.createRoleBinding({ tenantId: 'tenant_a', principalType: 'group', principalId: 'role_business_revoke', roleId: 'role_business_revoke', objectSetId: objectSet.id, effect: 'allow', enabled: true });
+  await service.createAccessGrant({ tenantId: 'tenant_a', roleId: 'role_business_revoke', objectSetId: objectSet.id, accessLevel: 'edit', effect: 'allow', constraints: { businessPermissionGrantId: 'bpgr_revoke' } });
+  const historicalSet = await service.createObjectSet({ id: 'oset_historical', tenantId: 'tenant_a', name: '历史范围', kind: 'static', objectTypes: ['service_asset'], status: 'active' });
+  await service.addObjectSetMember({ objectSetId: historicalSet.id, objectType: 'service_asset', objectId: 'app_old', addedBy: 'admin' });
+  await service.createRoleBinding({ tenantId: 'tenant_a', principalType: 'group', principalId: 'role_business_revoke', roleId: 'role_business_revoke', objectSetId: historicalSet.id, effect: 'allow', enabled: true });
+  await service.createAccessGrant({ tenantId: 'tenant_a', roleId: 'role_business_revoke', objectSetId: historicalSet.id, accessLevel: 'read', effect: 'allow' });
+
+  const cleanup = await service.revokeBusinessPermissionCompatibility({ id: 'bpgr_revoke', roleId: 'role_business_revoke', domain: 'application', rootObjectType: 'service_asset', rootObjectId: 'app_revoke' });
+  assert.equal(cleanup.accessGrants, 1);
+  assert.equal(await service.can({ id: 'role_business_revoke', type: 'group', scope: { tenantId: 'tenant_a' } }, 'edit', { objectType: 'service_asset', objectId: 'app_revoke', tenantId: 'tenant_a' }).then((item) => item.allowed), false);
+  assert.equal(await service.can({ id: 'role_business_revoke', type: 'group', scope: { tenantId: 'tenant_a' } }, 'read', { objectType: 'service_asset', objectId: 'app_old', tenantId: 'tenant_a' }).then((item) => item.allowed), true);
+
+  const withoutSourceMarker = await service.revokeBusinessPermissionCompatibility({ id: 'bpgr_unknown', roleId: 'role_business_revoke', domain: 'application', rootObjectType: 'service_asset', rootObjectId: 'app_old' });
+  assert.deepEqual(withoutSourceMarker, { roleBindings: 0, accessGrants: 0, objectSets: 0 });
+  assert.equal(await service.can({ id: 'role_business_revoke', type: 'group', scope: { tenantId: 'tenant_a' } }, 'read', { objectType: 'service_asset', objectId: 'app_old', tenantId: 'tenant_a' }).then((item) => item.allowed), true);
+});
+
 test('对象级权限兼容管理员通配权限，但租户边界始终优先', async () => {
   const { service, policies } = createServiceWithRepos();
   await policies.create({
