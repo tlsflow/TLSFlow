@@ -5757,6 +5757,199 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/application-assets/:applicationAssetId/certificate-supply-policy:
+    get:
+      operationId: "getApplicationCertificateSupplyPolicy"
+      summary: "查询应用证书供应策略"
+      tags:
+        - "ApplicationCertificateSupply"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+    put:
+      operationId: "updateApplicationCertificateSupplyPolicy"
+      summary: "保存应用证书供应策略"
+      tags:
+        - "ApplicationCertificateSupply"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              additionalProperties: false
+              required:
+                - "supplyMode"
+              properties:
+                supplyMode:
+                  type: "string"
+                  enum:
+                    - "manual"
+                    - "dedicated"
+                certificateAssetId:
+                  type: "string"
+                certificateVersionId:
+                  type: "string"
+                providerType:
+                  type: "string"
+                  enum:
+                    - "internal_ca"
+                    - "acme"
+                providerId:
+                  type: "string"
+                certificateAuthorityId:
+                  type: "string"
+                acmeProviderProfileId:
+                  type: "string"
+                dnsProviderId:
+                  type: "string"
+                credentialRef:
+                  type: "string"
+                  description: "仅允许 SecretRef，不接受明文凭据"
+                certificateProfileVersionId:
+                  type: "string"
+                custodyMode:
+                  type: "string"
+                  enum:
+                    - "agent_local"
+                    - "device_local"
+                    - "managed_secret"
+                deploymentArtifactMode:
+                  type: "string"
+                  enum:
+                    - "certificate_only"
+                    - "certificate_with_private_key"
+                autoRenew:
+                  type: "boolean"
+                renewalWindowDays:
+                  type: "number"
+                rotateKeyOnRenewal:
+                  type: "boolean"
+                status:
+                  type: "string"
+                  enum:
+                    - "draft"
+                    - "provisioning"
+                    - "issued"
+                    - "ready_to_deploy"
+                    - "deployed"
+                    - "tls_verified"
+                    - "trust_pending"
+                    - "renewing"
+                    - "needs_attention"
+                    - "disabled"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/application-assets/:applicationAssetId/certificate-supply-policy/preview:
+    post:
+      operationId: "previewApplicationCertificateSupplyPolicy"
+      summary: "预览应用证书供应策略"
+      tags:
+        - "ApplicationCertificateSupply"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              additionalProperties: false
+              required:
+                - "supplyMode"
+              properties:
+                supplyMode:
+                  type: "string"
+                  enum:
+                    - "manual"
+                    - "dedicated"
+                certificateAssetId:
+                  type: "string"
+                certificateVersionId:
+                  type: "string"
+                providerType:
+                  type: "string"
+                  enum:
+                    - "internal_ca"
+                    - "acme"
+                providerId:
+                  type: "string"
+                certificateAuthorityId:
+                  type: "string"
+                acmeProviderProfileId:
+                  type: "string"
+                dnsProviderId:
+                  type: "string"
+                credentialRef:
+                  type: "string"
+                  description: "仅允许 SecretRef，不接受明文凭据"
+                certificateProfileVersionId:
+                  type: "string"
+                custodyMode:
+                  type: "string"
+                  enum:
+                    - "agent_local"
+                    - "device_local"
+                    - "managed_secret"
+                deploymentArtifactMode:
+                  type: "string"
+                  enum:
+                    - "certificate_only"
+                    - "certificate_with_private_key"
+                autoRenew:
+                  type: "boolean"
+                renewalWindowDays:
+                  type: "number"
+                rotateKeyOnRenewal:
+                  type: "boolean"
+                status:
+                  type: "string"
+                  enum:
+                    - "draft"
+                    - "provisioning"
+                    - "issued"
+                    - "ready_to_deploy"
+                    - "deployed"
+                    - "tls_verified"
+                    - "trust_pending"
+                    - "renewing"
+                    - "needs_attention"
+                    - "disabled"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/public/ca-crl/:tenantId/:caId:
     get:
       operationId: "getPublicCaCrl"
@@ -14782,6 +14975,26 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/automation-external/:id/certificate-versions:
+    get:
+      operationId: "listAutomationExternalCertificateVersions"
+      summary: "外部 API 查询可用证书版本"
+      tags:
+        - "Automations"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/automation-runs:
     get:
       operationId: "listAutomationRuns"
@@ -16319,4 +16532,4 @@ tags:
   -
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-08-27T13:07:34.915Z"
+x-generatedAt: "2026-08-27T15:05:58.262Z"
