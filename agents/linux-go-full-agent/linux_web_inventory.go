@@ -424,24 +424,53 @@ func linuxApacheDefine(output, name string) string {
 }
 
 func linuxApacheEnv() []string {
-	values := make([]string, 0, 8)
 	for _, path := range []string{"/etc/apache2/envvars", "/etc/httpd/envvars"} {
 		content, err := os.ReadFile(path)
 		if err != nil {
 			continue
 		}
-		for _, line := range strings.Split(string(content), "\n") {
-			line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
-			parts := strings.SplitN(line, "=", 2)
-			if len(parts) != 2 || !regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`).MatchString(parts[0]) {
-				continue
-			}
-			value := strings.Trim(strings.TrimSpace(parts[1]), "\"'")
-			if value != "" && !strings.Contains(value, "${") {
-				values = append(values, parts[0]+"="+value)
-			}
+		return parseLinuxApacheEnv(string(content))
+	}
+	return nil
+}
+
+func parseLinuxApacheEnv(content string) []string {
+	assignments := make(map[string]string)
+	values := make([]string, 0, 8)
+	variablePattern := regexp.MustCompile(`\$\{([A-Z][A-Z0-9_]*)(:-([^}]*))?\}|\$([A-Z][A-Z0-9_]*)`)
+	namePattern := regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+		if strings.HasPrefix(line, "#") {
+			continue
 		}
-		break
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		name := strings.TrimSpace(parts[0])
+		if !namePattern.MatchString(name) {
+			continue
+		}
+		raw := strings.Trim(strings.TrimSpace(parts[1]), "\"'")
+		value := variablePattern.ReplaceAllStringFunc(raw, func(match string) string {
+			submatches := variablePattern.FindStringSubmatch(match)
+			name := submatches[1]
+			if name == "" {
+				name = submatches[4]
+			}
+			if resolved, ok := assignments[name]; ok {
+				return resolved
+			}
+			if submatches[3] != "" {
+				return submatches[3]
+			}
+			return ""
+		})
+		assignments[name] = value
+		if value != "" {
+			values = append(values, name+"="+value)
+		}
 	}
 	return values
 }

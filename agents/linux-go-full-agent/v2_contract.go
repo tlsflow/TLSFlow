@@ -1689,7 +1689,7 @@ func executeAllowlistedProgram(ctx context.Context, operation agentPlanAction) (
 	args, _ := v2StringArray(operation.Input, "args")
 	command := exec.CommandContext(ctx, program, args...)
 	command.Dir = workingDirectory
-	command.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+	command.Env = allowlistedCommandEnvironment(program, args)
 	var stdout, stderr bytes.Buffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
@@ -1708,6 +1708,16 @@ func executeAllowlistedProgram(ctx context.Context, operation agentPlanAction) (
 		return detail, err
 	}
 	return detail, commandErr
+}
+
+// allowlistedCommandEnvironment 只为 Apache 配置检查补齐发行版 envvars；计划本身不能传入任意环境值。
+func allowlistedCommandEnvironment(program string, args []string) []string {
+	environment := []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+	base := strings.ToLower(filepath.Base(program))
+	if (base == "apache2" || strings.HasPrefix(base, "httpd")) && containsString(args, "-t") {
+		environment = append(environment, linuxApacheEnv()...)
+	}
+	return environment
 }
 
 func commandOutputLimit(operation agentPlanAction) int {

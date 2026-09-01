@@ -41,6 +41,29 @@ func TestV2RejectsLegacyActions(t *testing.T) {
 	}
 }
 
+func TestLinuxApacheEnvExpandsShellVariablesWithoutPassingRawReferences(t *testing.T) {
+	values := parseLinuxApacheEnv(`SUFFIX=""
+export APACHE_RUN_DIR=/var/run/apache2$SUFFIX
+export APACHE_PID_FILE=${APACHE_RUN_DIR}/apache2.pid
+export APACHE_LOG_DIR=${APACHE_RUN_DIR:-/var/log/apache2}
+export not_allowed=secret
+`)
+
+	joined := strings.Join(values, "\n")
+	if !strings.Contains(joined, "APACHE_RUN_DIR=/var/run/apache2") {
+		t.Fatalf("应展开 APACHE_RUN_DIR: %v", values)
+	}
+	if !strings.Contains(joined, "APACHE_PID_FILE=/var/run/apache2/apache2.pid") {
+		t.Fatalf("应展开 APACHE_PID_FILE: %v", values)
+	}
+	if !strings.Contains(joined, "APACHE_LOG_DIR=/var/run/apache2") {
+		t.Fatalf("已定义变量优先于默认值: %v", values)
+	}
+	if strings.Contains(joined, "not_allowed") || strings.Contains(joined, "$SUFFIX") || strings.Contains(joined, "${") {
+		t.Fatalf("不得输出原始变量引用或小写变量: %v", values)
+	}
+}
+
 func TestV2RejectsQueuePayloadWithoutCanonicalActionType(t *testing.T) {
 	_, code, _, _ := executeLinuxTaskPayload("task-1", map[string]any{"type": agentPlanExecute})
 	if code != "ACTION_HANDLER_NOT_REGISTERED" {
