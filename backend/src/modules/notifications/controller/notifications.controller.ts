@@ -38,6 +38,7 @@ export class NotificationsController {
     router.get('/api/v1/notification-templates', '查询通知模板', tags, (request) => this.listTemplates(request));
     router.post('/api/v1/notification-templates', '保存通知模板', tags, (request) => this.upsertTemplate(request));
     router.patch('/api/v1/notification-templates/:id', '更新通知模板', tags, (request) => this.upsertTemplate(request));
+    router.post('/api/v1/notification-templates/preview', '预览通知模板', tags, (request) => this.previewTemplate(request));
     router.get('/api/v1/notification-silences', '查询通知静默', tags, (request) => this.listSilences(request));
     router.post('/api/v1/notification-silences', '创建通知静默', tags, (request) => this.createSilence(request));
     router.patch('/api/v1/notification-silences/:id', '更新通知静默', tags, (request) => this.updateSilence(request));
@@ -155,7 +156,7 @@ export class NotificationsController {
     const security = requireRouteSecurity(request, this.security);
     await assertRouteAction(security, 'notification.route.create', 'notification_route');
     const body = routeBody(request, true);
-    return this.service.createRoute({ tenantId: security.tenantId, name: String(body.name), priority: Number(body.priority), status: body.status as never, matcher: asObject(body.matcher), channelTargets: asTargets(body.channelTargets), stopOnMatch: Boolean(body.stopOnMatch), dedupeWindowSeconds: Number(body.dedupeWindowSeconds ?? 0) });
+    return this.service.createRoute({ tenantId: security.tenantId, name: String(body.name), priority: Number(body.priority), status: body.status as never, matcher: asObject(body.matcher), templateKey: optionalString(body.templateKey), channelTargets: asTargets(body.channelTargets), stopOnMatch: Boolean(body.stopOnMatch), dedupeWindowSeconds: Number(body.dedupeWindowSeconds ?? 0) });
   }
 
   private async updateRoute(request: HttpRequest) {
@@ -166,7 +167,7 @@ export class NotificationsController {
     await assertRouteAction(security, 'notification.route.update', 'notification_route', { resourceId: id });
     await assertRouteObjectAccess(security, 'edit', { objectType: 'notification_route', objectId: id, tenantId: security.tenantId });
     const body = routeBody(request, false);
-    return this.service.updateRoute({ tenantId: security.tenantId, id, version: Number(body.version), name: optionalString(body.name), priority: optionalNumber(body.priority), status: body.status as never, matcher: body.matcher ? asObject(body.matcher) : undefined, channelTargets: body.channelTargets ? asTargets(body.channelTargets) : undefined, stopOnMatch: body.stopOnMatch === undefined ? undefined : Boolean(body.stopOnMatch), dedupeWindowSeconds: optionalNumber(body.dedupeWindowSeconds) });
+    return this.service.updateRoute({ tenantId: security.tenantId, id, version: Number(body.version), name: optionalString(body.name), priority: optionalNumber(body.priority), status: body.status as never, matcher: body.matcher ? asObject(body.matcher) : undefined, templateKey: optionalString(body.templateKey), channelTargets: body.channelTargets ? asTargets(body.channelTargets) : undefined, stopOnMatch: body.stopOnMatch === undefined ? undefined : Boolean(body.stopOnMatch), dedupeWindowSeconds: optionalNumber(body.dedupeWindowSeconds) });
   }
 
   private async deleteRoute(request: HttpRequest) {
@@ -198,6 +199,30 @@ export class NotificationsController {
     }
     const body = validateObject(request.body, { templateKey: { type: 'string', required: true }, locale: { type: 'string', required: true }, titleTemplate: { type: 'string', required: true }, bodyTemplate: { type: 'string', required: true }, requiredVariables: { type: 'array' }, status: { type: 'string' }, version: { type: 'number' } });
     return this.service.upsertTemplate({ tenantId: security.tenantId, templateKey: String(body.templateKey), locale: String(body.locale), titleTemplate: String(body.titleTemplate), bodyTemplate: String(body.bodyTemplate), requiredVariables: asStrings(body.requiredVariables), status: body.status as never, version: optionalNumber(body.version) });
+  }
+
+  private async previewTemplate(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
+    await assertRouteAction(security, 'notification.template.read', 'notification_template');
+    const body = validateObject(request.body, {
+      templateKey: { type: 'string', required: true },
+      locale: { type: 'string' },
+      titleTemplate: { type: 'string' },
+      bodyTemplate: { type: 'string' },
+      requiredVariables: { type: 'array' },
+      status: { type: 'string' },
+      context: { type: 'object', required: true },
+    });
+    return this.service.previewTemplate({
+      tenantId: security.tenantId,
+      templateKey: String(body.templateKey),
+      locale: optionalString(body.locale) ?? 'zh-CN',
+      titleTemplate: optionalString(body.titleTemplate),
+      bodyTemplate: optionalString(body.bodyTemplate),
+      requiredVariables: asStrings(body.requiredVariables),
+      status: body.status as 'active' | 'disabled' | undefined,
+      context: asObject(body.context),
+    });
   }
 
   private async listSilences(request: HttpRequest) {
@@ -265,11 +290,11 @@ export class NotificationsController {
 
   private async requireDelivery(request: HttpRequest) {
     const security = requireRouteSecurity(request, this.security);
-    const value = await this.service.getDelivery(security.tenantId, pathId(request, 'notification-deliveries'));
-    if (!value) throw new AppError('RESOURCE_NOT_FOUND', '通知投递不存在');
-    await assertRouteAction(security, 'notification.delivery.read', 'notification_delivery', { resourceId: value.id });
-    await assertRouteObjectAccess(security, 'read', { objectType: 'notification_delivery', objectId: value.id, tenantId: security.tenantId });
-    return value;
+    const detail = await this.service.getDeliveryDetail(security.tenantId, pathId(request, 'notification-deliveries'));
+    if (!detail) throw new AppError('RESOURCE_NOT_FOUND', '通知投递不存在');
+    await assertRouteAction(security, 'notification.delivery.read', 'notification_delivery', { resourceId: detail.delivery.id });
+    await assertRouteObjectAccess(security, 'read', { objectType: 'notification_delivery', objectId: detail.delivery.id, tenantId: security.tenantId });
+    return detail;
   }
 
   private async retryDelivery(request: HttpRequest) {
@@ -279,34 +304,70 @@ export class NotificationsController {
     if (!value) throw new AppError('RESOURCE_NOT_FOUND', '通知投递不存在');
     await assertRouteAction(security, 'notification.delivery.control', 'notification_delivery', { resourceId: value.id });
     await assertRouteObjectAccess(security, 'control', { objectType: 'notification_delivery', objectId: value.id, tenantId: security.tenantId });
-    return this.service.retryDelivery(security.tenantId, id);
+    return this.service.retryDelivery(security.tenantId, id, security.subject.id);
   }
 }
 
 function tenantId(request: HttpRequest): string { return requireTenantId(request); }
 function pathId(request: HttpRequest, segment: string): string { const parts = request.path.split('/').filter(Boolean); const index = parts.indexOf(segment); const id = index >= 0 ? parts[index + 1] : undefined; if (!id) throw new AppError('VALIDATION_FAILED', '路径缺少资源 ID'); return id; }
 function requiredVersion(request: HttpRequest): number { const body = validateObject(request.body, { version: { type: 'number', required: true } }); return Number(body.version); }
-function pageQuery(request: HttpRequest) { return { tenantId: tenantId(request), page: queryNumber(request, 'page'), pageSize: queryNumber(request, 'pageSize'), status: queryString(request, 'status'), source: queryString(request, 'source'), channelId: queryString(request, 'channelId') }; }
+function pageQuery(request: HttpRequest) { return { tenantId: tenantId(request), page: queryNumber(request, 'page'), pageSize: queryNumber(request, 'pageSize'), status: queryString(request, 'status'), source: queryString(request, 'source'), eventType: queryString(request, 'eventType'), channelId: queryString(request, 'channelId'), requestId: queryString(request, 'requestId') }; }
 function queryString(request: HttpRequest, key: string): string | undefined { return typeof request.query[key] === 'string' ? request.query[key] : undefined; }
 function queryNumber(request: HttpRequest, key: string): number | undefined { const value = queryString(request, key); return value ? Number(value) : undefined; }
-function routeBody(request: HttpRequest, create: boolean) { return validateObject(request.body, { version: { type: 'number', required: !create }, name: { type: 'string', required: create }, status: { type: 'string' }, priority: { type: 'number', required: create }, matcher: { type: 'object' }, channelTargets: { type: 'array', required: create }, stopOnMatch: { type: 'boolean' }, dedupeWindowSeconds: { type: 'number' } }); }
+function routeBody(request: HttpRequest, create: boolean) { return validateObject(request.body, { version: { type: 'number', required: !create }, name: { type: 'string', required: create }, status: { type: 'string' }, priority: { type: 'number', required: create }, matcher: { type: 'object' }, templateKey: { type: 'string' }, channelTargets: { type: 'array', required: create }, stopOnMatch: { type: 'boolean' }, dedupeWindowSeconds: { type: 'number' } }); }
 function silenceBody(request: HttpRequest, create: boolean) { return validateObject(request.body, { version: { type: 'number', required: !create }, name: { type: 'string', required: create }, status: { type: 'string' }, matcher: { type: 'object' }, reason: { type: 'string', required: create }, startsAt: { type: 'string', required: create }, endsAt: { type: 'string', required: create } }); }
 function asObject(value: unknown): Record<string, unknown> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function asStringMap(value: unknown): Record<string, string> { return Object.fromEntries(Object.entries(asObject(value)).filter((entry): entry is [string, string] => typeof entry[1] === 'string')); }
 function asStrings(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []; }
-function asTargets(value: unknown): Array<{ channelId: string; target?: Record<string, unknown> }> { return Array.isArray(value) ? value.filter((item) => item && typeof item === 'object' && typeof (item as Record<string, unknown>).channelId === 'string').map((item) => ({ channelId: String((item as Record<string, unknown>).channelId), target: asObject((item as Record<string, unknown>).target) })) : []; }
+function asTargets(value: unknown): Array<{ channelId: string; target?: Record<string, unknown> }> {
+  if (!Array.isArray(value) || value.length === 0) throw new AppError('VALIDATION_FAILED', '通知路由至少需要一个有效渠道目标');
+  return value.map((item) => {
+    const targetItem = item && typeof item === 'object' && !Array.isArray(item)
+      ? item as Record<string, unknown>
+      : undefined;
+    if (!targetItem || typeof targetItem.channelId !== 'string' || !targetItem.channelId.trim()) {
+      throw new AppError('VALIDATION_FAILED', '通知路由包含无效渠道目标');
+    }
+    const target = targetItem.target;
+    if (target !== undefined && (typeof target !== 'object' || target === null || Array.isArray(target))) {
+      throw new AppError('VALIDATION_FAILED', '通知路由目标必须是对象');
+    }
+    return { channelId: targetItem.channelId, target: asObject(target) };
+  });
+}
 function optionalString(value: unknown): string | undefined { return value === undefined ? undefined : String(value); }
 function optionalNumber(value: unknown): number | undefined { return value === undefined ? undefined : Number(value); }
 
 export function getNotificationRouteContracts(): RouteContract[] {
   const objectSchema = { type: 'object', additionalProperties: true } as const;
+  const pageSchema = pageResponseSchema;
+  const requestSchema = objectSchema;
   return [
+    { method: 'GET', path: '/api/v1/notification-settings', operationId: 'getNotificationSettings', summary: '查询通知设置', tags, responseSchema: objectSchema },
+    { method: 'PATCH', path: '/api/v1/notification-settings', operationId: 'updateNotificationSettings', summary: '更新通知设置', tags, requestSchema, responseSchema: objectSchema },
     { method: 'GET', path: '/api/v1/notification-channels', operationId: 'listNotificationChannels', summary: '查询通知渠道', tags, responseSchema: { type: 'array', items: objectSchema } },
-    { method: 'POST', path: '/api/v1/notification-channels', operationId: 'createNotificationChannel', summary: '创建通知渠道', tags, responseSchema: objectSchema },
+    { method: 'POST', path: '/api/v1/notification-channels', operationId: 'createNotificationChannel', summary: '创建通知渠道', tags, requestSchema, responseSchema: objectSchema },
+    { method: 'PATCH', path: '/api/v1/notification-channels/:id', operationId: 'updateNotificationChannel', summary: '更新通知渠道', tags, requestSchema, responseSchema: objectSchema },
+    { method: 'DELETE', path: '/api/v1/notification-channels/:id', operationId: 'deleteNotificationChannel', summary: '删除通知渠道', tags, requestSchema, responseSchema: objectSchema },
+    { method: 'POST', path: '/api/v1/notification-channels/:id/actions/test', operationId: 'testNotificationChannel', summary: '测试通知渠道', tags, requestSchema, responseSchema: objectSchema },
+    { method: 'POST', path: '/api/v1/notification-channels/:id/actions/enable', operationId: 'enableNotificationChannel', summary: '启用通知渠道', tags, responseSchema: objectSchema },
+    { method: 'POST', path: '/api/v1/notification-channels/:id/actions/disable', operationId: 'disableNotificationChannel', summary: '停用通知渠道', tags, responseSchema: objectSchema },
     { method: 'GET', path: '/api/v1/notification-routes', operationId: 'listNotificationRoutes', summary: '查询通知路由', tags, responseSchema: { type: 'array', items: objectSchema } },
+    { method: 'POST', path: '/api/v1/notification-routes', operationId: 'createNotificationRoute', summary: '创建通知路由', tags, requestSchema, responseSchema: objectSchema },
+    { method: 'PATCH', path: '/api/v1/notification-routes/:id', operationId: 'updateNotificationRoute', summary: '更新通知路由', tags, requestSchema, responseSchema: objectSchema },
+    { method: 'DELETE', path: '/api/v1/notification-routes/:id', operationId: 'deleteNotificationRoute', summary: '删除通知路由', tags, requestSchema, responseSchema: objectSchema },
     { method: 'GET', path: '/api/v1/notification-templates', operationId: 'listNotificationTemplates', summary: '查询通知模板', tags, responseSchema: { type: 'array', items: objectSchema } },
+    { method: 'POST', path: '/api/v1/notification-templates', operationId: 'createNotificationTemplate', summary: '保存通知模板', tags, requestSchema, responseSchema: objectSchema },
+    { method: 'PATCH', path: '/api/v1/notification-templates/:id', operationId: 'updateNotificationTemplate', summary: '更新通知模板', tags, requestSchema, responseSchema: objectSchema },
+    { method: 'POST', path: '/api/v1/notification-templates/preview', operationId: 'previewNotificationTemplate', summary: '预览通知模板', tags, requestSchema, responseSchema: objectSchema },
     { method: 'GET', path: '/api/v1/notification-silences', operationId: 'listNotificationSilences', summary: '查询通知静默', tags, responseSchema: { type: 'array', items: objectSchema } },
-    { method: 'GET', path: '/api/v1/notification-requests', operationId: 'listNotificationRequests', summary: '查询通知请求', tags, responseSchema: pageResponseSchema },
-    { method: 'GET', path: '/api/v1/notification-deliveries', operationId: 'listNotificationDeliveries', summary: '查询通知投递', tags, responseSchema: pageResponseSchema },
+    { method: 'POST', path: '/api/v1/notification-silences', operationId: 'createNotificationSilence', summary: '创建通知静默', tags, requestSchema, responseSchema: objectSchema },
+    { method: 'PATCH', path: '/api/v1/notification-silences/:id', operationId: 'updateNotificationSilence', summary: '更新通知静默', tags, requestSchema, responseSchema: objectSchema },
+    { method: 'DELETE', path: '/api/v1/notification-silences/:id', operationId: 'deleteNotificationSilence', summary: '删除通知静默', tags, requestSchema, responseSchema: objectSchema },
+    { method: 'GET', path: '/api/v1/notification-requests', operationId: 'listNotificationRequests', summary: '查询通知请求', tags, responseSchema: pageSchema },
+    { method: 'GET', path: '/api/v1/notification-requests/:id', operationId: 'getNotificationRequest', summary: '查询通知请求详情', tags, responseSchema: objectSchema },
+    { method: 'GET', path: '/api/v1/notification-deliveries', operationId: 'listNotificationDeliveries', summary: '查询通知投递', tags, responseSchema: pageSchema },
+    { method: 'GET', path: '/api/v1/notification-deliveries/:id', operationId: 'getNotificationDelivery', summary: '查询通知投递详情', tags, responseSchema: objectSchema },
+    { method: 'POST', path: '/api/v1/notification-deliveries/:id/actions/retry', operationId: 'retryNotificationDelivery', summary: '重试通知投递', tags, responseSchema: objectSchema },
   ];
 }

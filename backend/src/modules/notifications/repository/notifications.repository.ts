@@ -19,6 +19,7 @@ import type {
   NotificationChannel,
   NotificationDelivery,
   NotificationDeliveryAttempt,
+  NotificationDispatchOutbox,
   NotificationRequest,
   NotificationRequestStatus,
   NotificationSettings,
@@ -31,6 +32,10 @@ export interface CreateNotificationRequestRecordInput {
   tenantId: string;
   source: string;
   eventKey: string;
+  eventId?: string;
+  eventType?: string;
+  occurredAt?: string;
+  payloadVersion?: number;
   idempotencyKey: string;
   templateKey: string;
   routeId?: string;
@@ -44,6 +49,7 @@ export interface CreateNotificationRequestRecordInput {
     target: Record<string, unknown>;
     renderedTitle?: string;
     renderedBody?: string;
+    templateVersion?: number;
     status?: 'queued' | 'suppressed';
     failureMessage?: string;
   }>;
@@ -77,10 +83,15 @@ export interface NotificationsRepository {
   listRequests(query: NotificationPageQuery): Promise<NotificationPage<NotificationRequest>>;
   listDeliveries(query: NotificationPageQuery): Promise<NotificationPage<NotificationDelivery>>;
   getDelivery(tenantId: string, id: string): Promise<NotificationDelivery | undefined>;
+  listDeliveryAttempts(tenantId: string, deliveryId: string): Promise<NotificationDeliveryAttempt[]>;
+  listDeliveryOutbox(tenantId: string, deliveryId: string): Promise<NotificationDispatchOutbox[]>;
   leaseNextDelivery(workerId: string, leaseSeconds: number): Promise<NotificationDelivery | undefined>;
   leaseDelivery(tenantId: string, deliveryId: string, workerId: string, leaseSeconds: number): Promise<NotificationDelivery | undefined>;
   completeDeliveryAttempt(input: CompleteDeliveryAttemptInput): Promise<NotificationDelivery>;
-  retryDelivery(tenantId: string, id: string): Promise<NotificationDelivery>;
+  retryDelivery(tenantId: string, id: string): Promise<{ delivery: NotificationDelivery; outbox: NotificationDispatchOutbox }>;
+  claimDispatchOutbox(workerId: string, limit: number, leaseSeconds: number, now?: string): Promise<NotificationDispatchOutbox[]>;
+  markDispatchOutboxDispatched(id: string, workerId: string, taskId: string): Promise<void>;
+  markDispatchOutboxFailed(id: string, workerId: string, error: string, nextAttemptAt: string): Promise<void>;
   refreshRequestStatus(requestId: string): Promise<NotificationRequestStatus>;
 }
 
@@ -168,10 +179,10 @@ export class PgNotificationsRepository implements NotificationsRepository {
   async createRoute(input: CreateNotificationRouteInput): Promise<NotificationRoute> {
     const now = new Date().toISOString();
     const result = await this.db.query<RouteRow>(`insert into notification_routes (
-      id, tenant_id, name, status, priority, matcher, channel_targets, stop_on_match, dedupe_window_seconds, created_at, updated_at
-    ) values ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$10::timestamptz,$10::timestamptz) returning *`, [
+      id, tenant_id, name, status, priority, matcher, template_key, channel_targets, stop_on_match, dedupe_window_seconds, created_at, updated_at
+    ) values ($1,$2,$3,$4,$5,$6::jsonb,$7,$8::jsonb,$9,$10,$11::timestamptz,$11::timestamptz) returning *`, [
       newId('nrt'), input.tenantId, input.name, input.status ?? 'active', input.priority, json(input.matcher),
-      json(input.channelTargets), input.stopOnMatch ?? false, input.dedupeWindowSeconds ?? 0, now,
+      input.templateKey ?? null, json(input.channelTargets), input.stopOnMatch ?? false, input.dedupeWindowSeconds ?? 0, now,
     ]);
     return toRoute(result.rows[0]!);
   }
@@ -179,11 +190,11 @@ export class PgNotificationsRepository implements NotificationsRepository {
   async updateRoute(input: UpdateNotificationRouteInput): Promise<NotificationRoute> {
     const existing = await this.requireRoute(input.tenantId, input.id);
     const result = await this.db.query<RouteRow>(`update notification_routes set
-      name=$1,status=$2,priority=$3,matcher=$4::jsonb,channel_targets=$5::jsonb,stop_on_match=$6,
-      dedupe_window_seconds=$7,updated_at=now(),version=version+1
-      where tenant_id=$8 and id=$9 and version=$10 and deleted_at is null returning *`, [
+      name=$1,status=$2,priority=$3,matcher=$4::jsonb,template_key=$5,channel_targets=$6::jsonb,stop_on_match=$7,
+      dedupe_window_seconds=$8,updated_at=now(),version=version+1
+      where tenant_id=$9 and id=$10 and version=$11 and deleted_at is null returning *`, [
       input.name ?? existing.name, input.status ?? existing.status, input.priority ?? existing.priority,
-      json(input.matcher ?? existing.matcher), json(input.channelTargets ?? existing.channelTargets),
+      json(input.matcher ?? existing.matcher), input.templateKey ?? existing.templateKey ?? null, json(input.channelTargets ?? existing.channelTargets),
       input.stopOnMatch ?? existing.stopOnMatch, input.dedupeWindowSeconds ?? existing.dedupeWindowSeconds,
       input.tenantId, input.id, input.version,
     ]);
@@ -270,26 +281,39 @@ export class PgNotificationsRepository implements NotificationsRepository {
 
   async createRequest(input: CreateNotificationRequestRecordInput): Promise<NotificationRequest> {
     return this.db.transaction(async (tx) => {
-      const existing = await tx.query<RequestRow>('select * from notification_requests where tenant_id=$1 and idempotency_key=$2', [input.tenantId, input.idempotencyKey]);
-      if (existing.rows[0]) return toRequest(existing.rows[0]);
       const now = new Date().toISOString();
       const requestId = newId('nrq');
       const requestResult = await tx.query<RequestRow>(`insert into notification_requests (
-        id,tenant_id,source,event_key,idempotency_key,template_key,route_id,channel_id,context,source_refs,status,status_reason,created_at,updated_at
-      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13::timestamptz,$13::timestamptz) returning *`, [
-        requestId, input.tenantId, input.source, input.eventKey, input.idempotencyKey, input.templateKey,
-        input.routeId ?? null, input.channelId ?? null, json(input.context), json(input.sourceRefs), input.status,
+        id,tenant_id,source,event_key,event_id,event_type,occurred_at,payload_version,idempotency_key,template_key,route_id,channel_id,context,source_refs,status,status_reason,created_at,updated_at
+      ) values ($1,$2,$3,$4,$5,$6,$7::timestamptz,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb,$15,$16,$17::timestamptz,$17::timestamptz)
+      on conflict (tenant_id,idempotency_key) do nothing returning *`, [
+        requestId, input.tenantId, input.source, input.eventKey,
+        input.eventId ?? input.eventKey, input.eventType ?? input.eventKey, input.occurredAt ?? now, input.payloadVersion ?? 1,
+        input.idempotencyKey, input.templateKey, input.routeId ?? null, input.channelId ?? null, json(input.context), json(input.sourceRefs), input.status,
         input.statusReason ?? null, now,
       ]);
+      if (!requestResult.rows[0]) {
+        const existing = await tx.query<RequestRow>('select * from notification_requests where tenant_id=$1 and idempotency_key=$2', [input.tenantId, input.idempotencyKey]);
+        if (existing.rows[0]) return toRequest(existing.rows[0]);
+        throw new AppError('SYSTEM_INTERNAL_ERROR', '通知请求幂等记录创建失败', { idempotencyKey: input.idempotencyKey });
+      }
       for (const delivery of input.deliveries) {
+        const deliveryId = newId('ndl');
         await tx.query(`insert into notification_deliveries (
           id,tenant_id,request_id,channel_id,channel_name_snapshot,channel_type,target_snapshot,rendered_title,rendered_body,
-          status,next_attempt_at,failure_message,created_at,updated_at
-        ) values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11::timestamptz,$12,$13::timestamptz,$13::timestamptz)`, [
-          newId('ndl'), input.tenantId, requestId, delivery.channel.id, delivery.channel.name, delivery.channel.type,
-          json(delivery.target), delivery.renderedTitle ?? null, delivery.renderedBody ?? null, delivery.status ?? 'queued',
-          delivery.status === 'suppressed' ? null : now, delivery.failureMessage ?? null, now,
+          template_version,status,next_attempt_at,failure_message,created_at,updated_at
+        ) values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11,$12::timestamptz,$13,$14::timestamptz,$14::timestamptz)`, [
+          deliveryId, input.tenantId, requestId, delivery.channel.id, delivery.channel.name, delivery.channel.type,
+          json(delivery.target), delivery.renderedTitle ?? null, delivery.renderedBody ?? null, delivery.templateVersion ?? null,
+          delivery.status ?? 'queued', delivery.status === 'suppressed' ? null : now, delivery.failureMessage ?? null, now,
         ]);
+        if ((delivery.status ?? 'queued') === 'queued') {
+          await tx.query(`insert into notification_dispatch_outbox (
+            id,tenant_id,delivery_id,dispatch_generation,status,next_attempt_at,created_at,updated_at
+          ) values ($1,$2,$3,1,'queued',$4::timestamptz,$4::timestamptz,$4::timestamptz)`, [
+            newId('nob'), input.tenantId, deliveryId, now,
+          ]);
+        }
       }
       return toRequest(requestResult.rows[0]!);
     });
@@ -324,6 +348,18 @@ export class PgNotificationsRepository implements NotificationsRepository {
   async getDelivery(tenantId: string, id: string): Promise<NotificationDelivery | undefined> {
     const result = await this.db.query<DeliveryRow>('select * from notification_deliveries where tenant_id=$1 and id=$2', [tenantId, id]);
     return result.rows[0] ? toDelivery(result.rows[0]) : undefined;
+  }
+
+  async listDeliveryAttempts(tenantId: string, deliveryId: string): Promise<NotificationDeliveryAttempt[]> {
+    const result = await this.db.query<AttemptRow>(`select * from notification_delivery_attempts
+      where tenant_id=$1 and delivery_id=$2 order by attempt_no asc`, [tenantId, deliveryId]);
+    return result.rows.map(toAttempt);
+  }
+
+  async listDeliveryOutbox(tenantId: string, deliveryId: string): Promise<NotificationDispatchOutbox[]> {
+    const result = await this.db.query<OutboxRow>(`select * from notification_dispatch_outbox
+      where tenant_id=$1 and delivery_id=$2 order by dispatch_generation asc`, [tenantId, deliveryId]);
+    return result.rows.map(toOutbox);
   }
 
   async leaseNextDelivery(workerId: string, leaseSeconds: number): Promise<NotificationDelivery | undefined> {
@@ -372,13 +408,15 @@ export class PgNotificationsRepository implements NotificationsRepository {
       }
       const exhausted = delivery.attempt_count >= delivery.max_attempts;
       const nextStatus = input.success ? 'delivered' : input.retryable && !exhausted ? 'retrying' : 'failed';
+      const nextGeneration = nextStatus === 'retrying' ? Number(delivery.dispatch_generation ?? 1) + 1 : Number(delivery.dispatch_generation ?? 1);
       const updated = await tx.query<DeliveryRow>(`update notification_deliveries set
         status=$1,next_attempt_at=$2::timestamptz,lease_owner=null,lease_until=null,failure_category=$3,failure_message=$4,
-        response_summary=$5::jsonb,external_id=$6,latency_ms=$7,delivered_at=case when $1='delivered' then now() else delivered_at end,
-        updated_at=now() where id=$8 and lease_owner=$9 returning *`, [
+        response_summary=$5::jsonb,external_id=$6,latency_ms=$7,dispatch_generation=$8,dispatch_task_id=case when $1='retrying' then null else dispatch_task_id end,
+        delivered_at=case when $1='delivered' then now() else delivered_at end,
+        updated_at=now() where id=$9 and lease_owner=$10 returning *`, [
         nextStatus, nextStatus === 'retrying' ? input.nextAttemptAt ?? new Date(Date.now() + 30_000).toISOString() : null,
         input.failureCategory ?? null, input.failureMessage ?? null, json(input.responseSummary), input.externalId ?? null,
-        input.latencyMs ?? null, input.deliveryId, input.leaseOwner,
+        input.latencyMs ?? null, nextGeneration, input.deliveryId, input.leaseOwner,
       ]);
       await tx.query(`update notification_delivery_attempts set finished_at=now(),success=$1,retryable=$2,
         failure_category=$3,failure_message=$4,status_code=$5,latency_ms=$6,response_summary=$7::jsonb
@@ -386,21 +424,69 @@ export class PgNotificationsRepository implements NotificationsRepository {
         input.success, input.retryable, input.failureCategory ?? null, input.failureMessage ?? null,
         input.statusCode ?? null, input.latencyMs ?? null, json(input.responseSummary), input.deliveryId, delivery.attempt_count,
       ]);
+      if (nextStatus === 'retrying') {
+        await tx.query(`insert into notification_dispatch_outbox (
+          id,tenant_id,delivery_id,dispatch_generation,status,next_attempt_at,created_at,updated_at
+        ) values ($1,$2,$3,$4,'queued',$5::timestamptz,now(),now())
+        on conflict (tenant_id,delivery_id,dispatch_generation) do nothing`, [
+          newId('nob'), delivery.tenant_id, delivery.id, nextGeneration,
+          input.nextAttemptAt ?? new Date(Date.now() + 30_000).toISOString(),
+        ]);
+      }
       return updated.rows[0]!;
     });
     await this.refreshRequestStatus(result.request_id);
     return toDelivery(result);
   }
 
-  async retryDelivery(tenantId: string, id: string): Promise<NotificationDelivery> {
-    const result = await this.db.query<DeliveryRow>(`update notification_deliveries set
-      status='queued',attempt_count=0,next_attempt_at=now(),lease_owner=null,lease_until=null,
-      failure_category=null,failure_message=null,updated_at=now()
-      where tenant_id=$1 and id=$2 and status='failed' returning *`, [tenantId, id]);
-    const row = result.rows[0];
-    if (!row) throw new AppError('NOTIFICATION_DELIVERY_REJECTED', '仅最终失败的投递可以重发', { id });
-    await this.refreshRequestStatus(row.request_id);
-    return toDelivery(row);
+  async retryDelivery(tenantId: string, id: string): Promise<{ delivery: NotificationDelivery; outbox: NotificationDispatchOutbox }> {
+    const result = await this.db.transaction(async (tx) => {
+      const current = await tx.query<DeliveryRow>('select * from notification_deliveries where tenant_id=$1 and id=$2 for update', [tenantId, id]);
+      const row = current.rows[0];
+      if (!row || row.status !== 'failed') throw new AppError('NOTIFICATION_DELIVERY_REJECTED', '仅最终失败的投递可以重发', { id });
+      const generation = Number(row.dispatch_generation ?? 1) + 1;
+      const updated = await tx.query<DeliveryRow>(`update notification_deliveries set
+        status='queued',next_attempt_at=now(),lease_owner=null,lease_until=null,dispatch_generation=$1,dispatch_task_id=null,
+        last_retry_at=now(),failure_category=null,failure_message=null,updated_at=now()
+        where tenant_id=$2 and id=$3 and status='failed' returning *`, [generation, tenantId, id]);
+      const outbox = await tx.query<OutboxRow>(`insert into notification_dispatch_outbox (
+        id,tenant_id,delivery_id,dispatch_generation,status,next_attempt_at,created_at,updated_at
+      ) values ($1,$2,$3,$4,'queued',now(),now(),now())
+      on conflict (tenant_id,delivery_id,dispatch_generation) do update set updated_at=notification_dispatch_outbox.updated_at
+      returning *`, [newId('nob'), tenantId, id, generation]);
+      return { delivery: updated.rows[0]!, outbox: outbox.rows[0]! };
+    });
+    await this.refreshRequestStatus(result.delivery.request_id);
+    return { delivery: toDelivery(result.delivery), outbox: toOutbox(result.outbox) };
+  }
+
+  async claimDispatchOutbox(workerId: string, limit: number, leaseSeconds: number, now = new Date().toISOString()): Promise<NotificationDispatchOutbox[]> {
+    const result = await this.db.query<OutboxRow>(`with candidates as (
+      select id from notification_dispatch_outbox
+       where (status in ('queued','failed') and next_attempt_at <= $4::timestamptz)
+          or (status='dispatching' and lease_until < $4::timestamptz)
+       order by created_at asc limit $1 for update skip locked
+    ) update notification_dispatch_outbox outbox set
+      status='dispatching', lease_owner=$2, lease_until=$4::timestamptz+($3::text || ' seconds')::interval,
+      attempts=attempts+1, updated_at=$4::timestamptz
+      from candidates where outbox.id=candidates.id returning outbox.*`, [Math.max(1, limit), workerId, leaseSeconds, now]);
+    return result.rows.map(toOutbox);
+  }
+
+  async markDispatchOutboxDispatched(id: string, workerId: string, taskId: string): Promise<void> {
+    const result = await this.db.query<OutboxRow>(`update notification_dispatch_outbox set
+      status='dispatched',task_id=$1,lease_owner=null,lease_until=null,last_error=null,updated_at=now()
+      where id=$2 and lease_owner=$3 and status='dispatching' returning *`, [taskId, id, workerId]);
+    const outbox = result.rows[0];
+    if (!outbox) throw new AppError('NOTIFICATION_DELIVERY_REJECTED', '通知派发租约已失效', { id });
+    await this.db.query(`update notification_deliveries set dispatch_task_id=$1,updated_at=now()
+      where id=$2 and dispatch_generation=$3`, [taskId, outbox.delivery_id, outbox.dispatch_generation]);
+  }
+
+  async markDispatchOutboxFailed(id: string, workerId: string, error: string, nextAttemptAt: string): Promise<void> {
+    await this.db.query(`update notification_dispatch_outbox set
+      status='failed',lease_owner=null,lease_until=null,last_error=$1,next_attempt_at=$2::timestamptz,updated_at=now()
+      where id=$3 and lease_owner=$4 and status='dispatching'`, [error.slice(0, 500), nextAttemptAt, id, workerId]);
   }
 
   async refreshRequestStatus(requestId: string): Promise<NotificationRequestStatus> {
@@ -444,6 +530,7 @@ function buildPageWhere(query: NotificationPageQuery, delivery: boolean): { wher
   const params: unknown[] = [query.tenantId];
   if (query.status) { params.push(query.status); clauses.push(`status=$${params.length}`); }
   if (!delivery && query.source) { params.push(query.source); clauses.push(`source=$${params.length}`); }
+  if (!delivery && query.eventType) { params.push(query.eventType); clauses.push(`event_type=$${params.length}`); }
   if (delivery && query.channelId) { params.push(query.channelId); clauses.push(`channel_id=$${params.length}`); }
   if (delivery && query.requestId) { params.push(query.requestId); clauses.push(`request_id=$${params.length}`); }
   return { where: `where ${clauses.join(' and ')}`, params };
@@ -470,11 +557,13 @@ function strings(value: unknown): Record<string, string> { return Object.fromEnt
 
 type ChannelRow = Record<string, unknown> & { id: string; tenant_id: string; name: string; type: string; status: string; config: unknown; secret_refs: unknown; health_status: string; consecutive_failures: number; created_at: string; updated_at: string; version: number };
 type SettingsRow = Record<string, unknown> & { tenant_id: string; private_origins: unknown; updated_by: string; created_at: string; updated_at: string; version: number };
-type RouteRow = Record<string, unknown> & { id: string; tenant_id: string; name: string; status: string; priority: number; matcher: unknown; channel_targets: unknown; stop_on_match: boolean; dedupe_window_seconds: number; created_at: string; updated_at: string; version: number };
+type RouteRow = Record<string, unknown> & { id: string; tenant_id: string; name: string; status: string; priority: number; matcher: unknown; template_key?: string | null; channel_targets: unknown; stop_on_match: boolean; dedupe_window_seconds: number; created_at: string; updated_at: string; version: number };
 type TemplateRow = Record<string, unknown> & { id: string; tenant_id: string; template_key: string; locale: string; title_template: string; body_template: string; required_variables: unknown; status: string; created_at: string; updated_at: string; version: number };
 type SilenceRow = Record<string, unknown> & { id: string; tenant_id: string; name: string; status: string; matcher: unknown; reason: string; starts_at: string; ends_at: string; created_by: string; created_at: string; updated_at: string; version: number };
-type RequestRow = Record<string, unknown> & { id: string; tenant_id: string; source: string; event_key: string; idempotency_key: string; template_key: string; context: unknown; source_refs: unknown; status: string; created_at: string; updated_at: string };
-type DeliveryRow = Record<string, unknown> & { id: string; tenant_id: string; request_id: string; channel_id: string; channel_name_snapshot: string; channel_type: string; target_snapshot: unknown; status: string; attempt_count: number; max_attempts: number; response_summary: unknown; created_at: string; updated_at: string };
+type RequestRow = Record<string, unknown> & { id: string; tenant_id: string; source: string; event_key: string; event_id: string; event_type: string; occurred_at: string; payload_version: number; idempotency_key: string; template_key: string; context: unknown; source_refs: unknown; status: string; created_at: string; updated_at: string };
+type DeliveryRow = Record<string, unknown> & { id: string; tenant_id: string; request_id: string; channel_id: string; channel_name_snapshot: string; channel_type: string; target_snapshot: unknown; rendered_title?: string | null; rendered_body?: string | null; template_version?: number | null; status: string; attempt_count: number; max_attempts: number; dispatch_generation: number; dispatch_task_id?: string | null; last_retry_at?: string | null; response_summary: unknown; created_at: string; updated_at: string };
+type AttemptRow = Record<string, unknown> & { id: string; tenant_id: string; delivery_id: string; attempt_no: number; started_at: string; finished_at?: string | null; success?: boolean | null; retryable?: boolean | null; failure_category?: string | null; failure_message?: string | null; status_code?: number | null; latency_ms?: number | null; response_summary: unknown };
+type OutboxRow = Record<string, unknown> & { id: string; tenant_id: string; delivery_id: string; dispatch_generation: number; status: string; attempts: number; next_attempt_at: string; lease_owner?: string | null; lease_until?: string | null; task_id?: string | null; last_error?: string | null; created_at: string; updated_at: string };
 
 function toChannel(row: ChannelRow): NotificationChannel { return {
   id: row.id, tenantId: row.tenant_id, name: row.name, type: row.type as NotificationChannel['type'], status: row.status as NotificationChannel['status'],
@@ -505,7 +594,7 @@ function toSettings(row: SettingsRow): NotificationSettings {
 function stringArray(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []; }
 function toRoute(row: RouteRow): NotificationRoute { return {
   id: row.id, tenantId: row.tenant_id, name: row.name, status: row.status as NotificationRoute['status'], priority: Number(row.priority),
-  matcher: object(row.matcher), channelTargets: Array.isArray(row.channel_targets) ? row.channel_targets as NotificationRoute['channelTargets'] : [],
+  matcher: object(row.matcher), templateKey: optionalString(row.template_key), channelTargets: Array.isArray(row.channel_targets) ? row.channel_targets as NotificationRoute['channelTargets'] : [],
   stopOnMatch: Boolean(row.stop_on_match), dedupeWindowSeconds: Number(row.dedupe_window_seconds), createdAt: String(row.created_at), updatedAt: String(row.updated_at),
   deletedAt: optionalString(row.deleted_at), version: Number(row.version),
 }; }
@@ -520,16 +609,23 @@ function toSilence(row: SilenceRow): NotificationSilence { return {
   deletedAt: optionalString(row.deleted_at), version: Number(row.version),
 }; }
 function toRequest(row: RequestRow): NotificationRequest { return {
-  id: row.id, tenantId: row.tenant_id, source: row.source, eventKey: row.event_key, idempotencyKey: row.idempotency_key, templateKey: row.template_key,
+  id: row.id, tenantId: row.tenant_id, source: row.source, eventKey: row.event_key, eventId: row.event_id, eventType: row.event_type, occurredAt: String(row.occurred_at), payloadVersion: Number(row.payload_version), idempotencyKey: row.idempotency_key, templateKey: row.template_key,
   routeId: optionalString(row.route_id), channelId: optionalString(row.channel_id), context: object(row.context), sourceRefs: strings(row.source_refs),
   status: row.status as NotificationRequest['status'], statusReason: optionalString(row.status_reason), createdAt: String(row.created_at), updatedAt: String(row.updated_at),
 }; }
 function toDelivery(row: DeliveryRow): NotificationDelivery { return {
   id: row.id, tenantId: row.tenant_id, requestId: row.request_id, channelId: row.channel_id, channelNameSnapshot: row.channel_name_snapshot,
   channelType: row.channel_type as NotificationDelivery['channelType'], targetSnapshot: object(row.target_snapshot), renderedTitle: optionalString(row.rendered_title),
-  renderedBody: optionalString(row.rendered_body), status: row.status as NotificationDelivery['status'], attemptCount: Number(row.attempt_count), maxAttempts: Number(row.max_attempts),
+  renderedBody: optionalString(row.rendered_body), templateVersion: row.template_version == null ? undefined : Number(row.template_version), status: row.status as NotificationDelivery['status'], attemptCount: Number(row.attempt_count), maxAttempts: Number(row.max_attempts), dispatchGeneration: Number(row.dispatch_generation ?? 1), dispatchTaskId: optionalString(row.dispatch_task_id), lastRetryAt: optionalString(row.last_retry_at),
   nextAttemptAt: optionalString(row.next_attempt_at), leaseOwner: optionalString(row.lease_owner), leaseUntil: optionalString(row.lease_until),
   failureCategory: optionalString(row.failure_category) as NotificationDelivery['failureCategory'], failureMessage: optionalString(row.failure_message),
   responseSummary: object(row.response_summary), externalId: optionalString(row.external_id), latencyMs: optionalNumber(row.latency_ms), deliveredAt: optionalString(row.delivered_at),
   createdAt: String(row.created_at), updatedAt: String(row.updated_at),
+}; }
+function toAttempt(row: AttemptRow): NotificationDeliveryAttempt { return {
+  id: row.id, tenantId: row.tenant_id, deliveryId: row.delivery_id, attemptNo: Number(row.attempt_no), startedAt: String(row.started_at), finishedAt: optionalString(row.finished_at), success: row.success ?? undefined, retryable: row.retryable ?? undefined,
+  failureCategory: optionalString(row.failure_category) as NotificationDeliveryAttempt['failureCategory'], failureMessage: optionalString(row.failure_message), statusCode: row.status_code == null ? undefined : Number(row.status_code), latencyMs: row.latency_ms == null ? undefined : Number(row.latency_ms), responseSummary: object(row.response_summary),
+}; }
+function toOutbox(row: OutboxRow): NotificationDispatchOutbox { return {
+  id: row.id, tenantId: row.tenant_id, deliveryId: row.delivery_id, dispatchGeneration: Number(row.dispatch_generation), status: row.status as NotificationDispatchOutbox['status'], attempts: Number(row.attempts), nextAttemptAt: String(row.next_attempt_at), leaseOwner: optionalString(row.lease_owner), leaseUntil: optionalString(row.lease_until), taskId: optionalString(row.task_id), lastError: optionalString(row.last_error), createdAt: String(row.created_at), updatedAt: String(row.updated_at),
 }; }

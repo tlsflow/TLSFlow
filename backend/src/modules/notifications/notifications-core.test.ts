@@ -151,6 +151,35 @@ describe('通知核心', () => {
     assert.deepEqual(result.map((route) => route.id), ['first']);
   });
 
+  it('创建路由时校验渠道目标的最小格式', async () => {
+    const fixture = await createFixture();
+    try {
+      const repository = new PgNotificationsRepository(fixture.db);
+      const service = new NotificationsApplicationService(repository);
+      const email = await repository.createChannel({ tenantId: 'tenant-1', name: 'Email', type: 'email', status: 'disabled', config: { host: 'smtp.example.com', port: 25, from: 'gcac@example.com' } });
+      await assert.rejects(
+        service.createRoute({ tenantId: 'tenant-1', name: '缺少收件人', priority: 10, channelTargets: [{ channelId: email.id }] }),
+        /Email 路由目标至少需要一个收件人/,
+      );
+      const route = await service.createRoute({ tenantId: 'tenant-1', name: '有效收件人', priority: 10, channelTargets: [{ channelId: email.id, target: { to: ['owner@example.com'] } }] });
+      assert.deepEqual(route.channelTargets[0]?.target, { to: ['owner@example.com'] });
+    } finally { await fixture.close(); }
+  });
+
+  it('允许已注册的内置证书模板在首次事件前绑定路由', async () => {
+    const fixture = await createFixture();
+    try {
+      const repository = new PgNotificationsRepository(fixture.db);
+      const service = new NotificationsApplicationService(repository);
+      const channel = await repository.createChannel({ tenantId: 'tenant-1', name: 'Webhook', type: 'webhook', status: 'active' });
+      const route = await service.createRoute({
+        tenantId: 'tenant-1', name: '证书状态路由', priority: 10, templateKey: 'certificate.status',
+        matcher: { eventTypes: ['certificate.status'] }, channelTargets: [{ channelId: channel.id }],
+      });
+      assert.equal(route.templateKey, 'certificate.status');
+    } finally { await fixture.close(); }
+  });
+
   it('模板缺变量、邮件头换行和敏感上下文会被阻止或脱敏', () => {
     const domain = new NotificationsDomainService();
     assert.throws(() => domain.render('{{name}}', {}, ['name']), /缺少必需变量/);

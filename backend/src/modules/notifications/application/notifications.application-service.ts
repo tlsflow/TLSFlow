@@ -11,8 +11,9 @@ import type {
   UpdateNotificationSettingsInput,
   UpsertNotificationTemplateInput,
 } from '../dto/notifications.dto.js';
-import { NotificationDedupeService } from './notification-dedupe.service.js';
 import type { NotificationPort } from './notification.port.js';
+import type { CertificateNotificationEvent, CertificateNotificationPort } from './certificate-notification-event.js';
+import { CertificateNotificationEventRegistry } from './certificate-notification-event.js';
 import { NotificationRouteMatcher } from './notification-route-matcher.js';
 import { NotificationTemplateRenderer } from './notification-template-renderer.js';
 import type { NotificationsRepository } from '../repository/notifications.repository.js';
@@ -23,28 +24,55 @@ import { NotificationsDomainService } from '../domain/notifications.domain-servi
 import { validatePrivateOrigins } from '../security/platform-webhook-endpoint-policy.js';
 import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 
-export class NotificationsApplicationService implements NotificationPort {
+export class NotificationsApplicationService implements NotificationPort, CertificateNotificationPort {
   constructor(
     private readonly repository: NotificationsRepository,
     private readonly routeMatcher = new NotificationRouteMatcher(),
     private readonly renderer = new NotificationTemplateRenderer(),
-    private readonly dedupe = new NotificationDedupeService(),
+    private readonly dedupe = undefined,
     private readonly worker?: NotificationWorker,
     private readonly domain = new NotificationsDomainService(),
     private readonly adapters?: ChannelAdapterRegistry,
     private readonly tasks?: TaskEnqueuer,
   ) {}
 
+  async publish(event: CertificateNotificationEvent): Promise<{ requestId: string; status: string }> {
+    const registry = new CertificateNotificationEventRegistry();
+    if (!event.tenantId || !event.eventId || !event.idempotencyKey || !event.occurredAt || !registry.isRegistered(event.eventType)) {
+      throw new AppError(registry.isRegistered(event.eventType) ? 'VALIDATION_FAILED' : 'NOTIFICATION_EVENT_TYPE_INVALID', '证书通知事件字段或类型无效', { eventType: event.eventType });
+    }
+    const result = await this.enqueue({
+      tenantId: event.tenantId,
+      eventId: event.eventId,
+      eventType: event.eventType,
+      occurredAt: event.occurredAt,
+      payloadVersion: event.payloadVersion,
+      templateKey: event.templateKey ?? event.eventType,
+      eventKey: `${event.eventType}:${event.eventId}`,
+      idempotencyKey: event.idempotencyKey,
+      source: 'certificate',
+      sourceRefs: event.sourceRefs,
+      locale: event.locale,
+      context: event.payload,
+    });
+    const request = await this.getRequest(event.tenantId, result.requestId);
+    return { requestId: result.requestId, status: request?.status ?? 'queued' };
+  }
+
   async enqueue(input: EnqueueNotificationInput): Promise<{ requestId: string }> {
     const existing = await this.repository.getRequestByIdempotencyKey(input.tenantId, input.idempotencyKey);
     if (existing) return { requestId: existing.id };
 
+    const event = { ...input.context, source: input.source ?? 'system', eventKey: input.eventKey, eventType: input.eventType ?? input.eventKey };
+    const selected = await this.selectTargets(input, event);
+    const templateKey = input.templateKey ?? selected[0]?.templateKey ?? input.eventType ?? input.eventKey;
+    const requestInput = { ...input, templateKey };
     const locale = input.locale ?? 'zh-CN';
-    const template = await this.getTemplate(input.tenantId, input.templateKey, locale);
+    const template = await this.getTemplate(input.tenantId, templateKey, locale);
     if (!template) {
       const request = await this.repository.createRequest({
-        ...normalizeRequest(input),
-        context: this.renderer.render(emptyTemplate(input), input.context).context,
+        ...normalizeRequest(requestInput),
+        context: this.domain.sanitizeContext(input.context),
         status: 'failed',
         statusReason: 'template_not_found',
         deliveries: [],
@@ -52,25 +80,22 @@ export class NotificationsApplicationService implements NotificationPort {
       return { requestId: request.id };
     }
 
-    const rendered = this.renderer.render(template, input.context);
-    const event = { ...rendered.context, source: input.source ?? 'system', eventKey: input.eventKey };
-    const silences = await this.repository.listSilences(input.tenantId);
-    const silence = this.dedupe.findSilence(silences, event);
-    if (silence) {
+    let rendered: ReturnType<NotificationTemplateRenderer['render']>;
+    try {
+      rendered = this.renderer.render(template, input.context);
+    } catch (error) {
       const request = await this.repository.createRequest({
-        ...normalizeRequest(input),
-        context: rendered.context,
-        status: 'suppressed',
-        statusReason: `silence:${silence.id}`,
+        ...normalizeRequest(requestInput),
+        context: this.domain.sanitizeContext(input.context),
+        status: 'failed',
+        statusReason: error instanceof AppError ? error.errorCode : 'template_render_failed',
         deliveries: [],
       });
       return { requestId: request.id };
     }
-
-    const selected = await this.selectTargets(input, event);
     if (!selected.length) {
       const request = await this.repository.createRequest({
-        ...normalizeRequest(input),
+        ...normalizeRequest(requestInput),
         context: rendered.context,
         status: 'failed',
         statusReason: 'route_or_channel_not_found',
@@ -79,28 +104,8 @@ export class NotificationsApplicationService implements NotificationPort {
       return { requestId: request.id };
     }
 
-    const dedupeWindowSeconds = Math.max(...selected.map((item) => item.dedupeWindowSeconds), 0);
-    if (dedupeWindowSeconds > 0) {
-      const since = new Date(Date.now() - dedupeWindowSeconds * 1000).toISOString();
-      const duplicate = this.dedupe.findDuplicate(
-        await this.repository.listRecentRequests(input.tenantId, input.eventKey, since),
-        input.eventKey,
-        dedupeWindowSeconds,
-      );
-      if (duplicate) {
-        const request = await this.repository.createRequest({
-          ...normalizeRequest(input),
-          context: rendered.context,
-          status: 'suppressed',
-          statusReason: `dedupe:${duplicate.id}`,
-          deliveries: [],
-        });
-        return { requestId: request.id };
-      }
-    }
-
     const request = await this.repository.createRequest({
-      ...normalizeRequest(input),
+      ...normalizeRequest(requestInput),
       context: rendered.context,
       status: 'queued',
       deliveries: selected.map(({ channel, target }) => ({
@@ -108,28 +113,9 @@ export class NotificationsApplicationService implements NotificationPort {
         target,
         renderedTitle: rendered.title,
         renderedBody: rendered.body,
+        templateVersion: template.version,
       })),
     });
-    const deliveries = (await this.repository.listDeliveries({
-      tenantId: input.tenantId,
-      requestId: request.id,
-      page: 1,
-      pageSize: 200,
-    })).items;
-    for (const delivery of deliveries) {
-      enqueueTaskBestEffort(this.tasks, {
-        tenantId: delivery.tenantId,
-        taskType: 'NOTIFICATION_DELIVERY',
-        requestedBy: input.source ?? 'system',
-        triggerSource: 'notifications.enqueue',
-        idempotencyKey: `notification-delivery:${delivery.id}`,
-        payload: { deliveryId: delivery.id },
-        resourceRefs: [
-          { resourceType: 'notificationRequest', resourceId: request.id },
-          { resourceType: 'notificationDelivery', resourceId: delivery.id },
-        ],
-      });
-    }
     return { requestId: request.id };
   }
 
@@ -160,11 +146,33 @@ export class NotificationsApplicationService implements NotificationPort {
   }
   deleteChannel(tenantId: string, id: string, version: number) { return this.repository.deleteChannel(tenantId, id, version); }
   listChannels(tenantId: string) { return this.repository.listChannels(tenantId); }
-  createRoute(input: CreateNotificationRouteInput) { return this.repository.createRoute(input); }
-  updateRoute(input: UpdateNotificationRouteInput) { return this.repository.updateRoute(input); }
+  async createRoute(input: CreateNotificationRouteInput) {
+    await this.validateRoute(input.tenantId, input.templateKey, input.channelTargets);
+    return this.repository.createRoute(input);
+  }
+  async updateRoute(input: UpdateNotificationRouteInput) {
+    const current = await this.repository.getRoute(input.tenantId, input.id);
+    if (!current) throw new AppError('RESOURCE_NOT_FOUND', '通知路由不存在', { id: input.id });
+    await this.validateRoute(input.tenantId, input.templateKey ?? current.templateKey, input.channelTargets ?? current.channelTargets);
+    return this.repository.updateRoute(input);
+  }
   deleteRoute(tenantId: string, id: string, version: number) { return this.repository.deleteRoute(tenantId, id, version); }
   listRoutes(tenantId: string) { return this.repository.listRoutes(tenantId); }
-  upsertTemplate(input: UpsertNotificationTemplateInput) { return this.repository.upsertTemplate(input); }
+  async upsertTemplate(input: UpsertNotificationTemplateInput) {
+    const template = {
+      id: 'pending', tenantId: input.tenantId, templateKey: input.templateKey, locale: input.locale,
+      titleTemplate: input.titleTemplate, bodyTemplate: input.bodyTemplate, requiredVariables: input.requiredVariables ?? [],
+      status: input.status ?? 'active', createdAt: '', updatedAt: '', version: input.version ?? 1,
+    } as const;
+    const validation = this.renderer.validate(template);
+    if (validation.undeclaredVariables.length || validation.missingDeclarations.length) {
+      throw new AppError('NOTIFICATION_TEMPLATE_INVALID', '通知模板变量声明与正文不一致', {
+        undeclaredVariables: validation.undeclaredVariables,
+        missingDeclarations: validation.missingDeclarations,
+      });
+    }
+    return this.repository.upsertTemplate(input);
+  }
   listTemplates(tenantId: string) { return this.repository.listTemplates(tenantId); }
   createSilence(input: CreateNotificationSilenceInput) { return this.repository.createSilence(input); }
   updateSilence(input: UpdateNotificationSilenceInput) { return this.repository.updateSilence(input); }
@@ -174,7 +182,72 @@ export class NotificationsApplicationService implements NotificationPort {
   listDeliveries(query: NotificationPageQuery) { return this.repository.listDeliveries(query); }
   getRequest(tenantId: string, id: string) { return this.repository.getRequest(tenantId, id); }
   getDelivery(tenantId: string, id: string) { return this.repository.getDelivery(tenantId, id); }
-  retryDelivery(tenantId: string, id: string) { return this.repository.retryDelivery(tenantId, id); }
+  async getDeliveryDetail(tenantId: string, id: string) {
+    const delivery = await this.repository.getDelivery(tenantId, id);
+    if (!delivery) return undefined;
+    const [attempts, outbox] = await Promise.all([
+      this.repository.listDeliveryAttempts(tenantId, id),
+      this.repository.listDeliveryOutbox(tenantId, id),
+    ]);
+    return { delivery, attempts, outbox };
+  }
+  async previewTemplate(input: {
+    tenantId: string;
+    templateKey: string;
+    locale: string;
+    titleTemplate?: string;
+    bodyTemplate?: string;
+    requiredVariables?: string[];
+    status?: 'active' | 'disabled';
+    context: Record<string, unknown>;
+  }) {
+    const stored = !input.titleTemplate || !input.bodyTemplate
+      ? await this.repository.getTemplate(input.tenantId, input.templateKey, input.locale)
+      : undefined;
+    const configured = stored ?? (!input.titleTemplate || !input.bodyTemplate
+      ? (await this.repository.listTemplates(input.tenantId)).find((item) =>
+        item.templateKey === input.templateKey && (item.locale === input.locale || item.locale === 'zh-CN'))
+      : undefined);
+    const template = configured ?? {
+      id: 'preview', tenantId: input.tenantId, templateKey: input.templateKey, locale: input.locale,
+      titleTemplate: input.titleTemplate ?? '', bodyTemplate: input.bodyTemplate ?? '', requiredVariables: input.requiredVariables ?? [],
+      status: input.status ?? 'active', createdAt: '', updatedAt: '', version: 1,
+    };
+    if (template.status !== 'active') throw new AppError('NOTIFICATION_TEMPLATE_INVALID', '通知模板已禁用');
+    const validation = this.renderer.validate(template, this.domain.sanitizeContext(input.context));
+    if (validation.undeclaredVariables.length || validation.missingDeclarations.length) {
+      throw new AppError('NOTIFICATION_TEMPLATE_INVALID', '通知模板变量声明与正文不一致', validation);
+    }
+    if (validation.missingVariables.length) {
+      return { title: '', body: '', missingVariables: validation.missingVariables, templateVersion: template.version };
+    }
+    const rendered = this.renderer.render(template, input.context);
+    return { title: rendered.title, body: rendered.body, missingVariables: [], templateVersion: template.version };
+  }
+  async retryDelivery(tenantId: string, id: string, requestedBy = 'notification-retry') {
+    const result = await this.repository.retryDelivery(tenantId, id);
+    const dispatchGeneration = result.delivery.dispatchGeneration ?? result.outbox.dispatchGeneration;
+    const taskKey = 'notification-delivery:' + result.delivery.id + ':' + dispatchGeneration;
+    // 先尝试让手工操作立即可见；若任务系统暂时不可用，Outbox 扫描会继续补偿。
+    await enqueueTaskBestEffort(this.tasks, {
+      tenantId,
+      taskType: 'NOTIFICATION_DELIVERY',
+      requestedBy,
+      triggerSource: 'notifications.manual-retry',
+      idempotencyKey: taskKey,
+      payload: { deliveryId: result.delivery.id, dispatchGeneration },
+      resourceRefs: [
+        { resourceType: 'notificationDelivery', resourceId: result.delivery.id },
+        { resourceType: 'notificationRequest', resourceId: result.delivery.requestId },
+      ],
+    });
+    return {
+      deliveryId: result.delivery.id,
+      dispatchGeneration,
+      attemptNo: result.delivery.attemptCount + 1,
+      taskKey,
+    };
+  }
   getRepository(): NotificationsRepository { return this.repository; }
 
   async testChannel(input: { tenantId: string; channelId: string; target: Record<string, unknown>; actorId: string }) {
@@ -205,17 +278,18 @@ export class NotificationsApplicationService implements NotificationPort {
     channel: NotificationChannel;
     target: Record<string, unknown>;
     dedupeWindowSeconds: number;
+    templateKey?: string;
   }>> {
     if (input.channelId) {
       const channel = await this.repository.getChannel(input.tenantId, input.channelId);
       const available = channel && (channel.status === 'active' || input.source === 'test' && channel.status === 'disabled');
-      return available ? [{ channel, target: targetFromContext(input.context), dedupeWindowSeconds: 0 }] : [];
+      return available ? [{ channel, target: targetFromContext(input.context), dedupeWindowSeconds: 0, templateKey: input.templateKey }] : [];
     }
 
     const routes = input.routeId
       ? [await this.repository.getRoute(input.tenantId, input.routeId)].filter((route) => route !== undefined)
       : this.routeMatcher.match(await this.repository.listRoutes(input.tenantId), event);
-    const selected: Array<{ channel: NotificationChannel; target: Record<string, unknown>; dedupeWindowSeconds: number }> = [];
+    const selected: Array<{ channel: NotificationChannel; target: Record<string, unknown>; dedupeWindowSeconds: number; templateKey?: string }> = [];
     const seen = new Set<string>();
     for (const route of routes) {
       if (route.status !== 'active') continue;
@@ -225,15 +299,36 @@ export class NotificationsApplicationService implements NotificationPort {
         const key = `${channel.id}:${JSON.stringify(routeTarget.target ?? {})}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        selected.push({ channel, target: routeTarget.target ?? {}, dedupeWindowSeconds: route.dedupeWindowSeconds });
+        selected.push({ channel, target: routeTarget.target ?? {}, dedupeWindowSeconds: route.dedupeWindowSeconds, templateKey: route.templateKey });
       }
     }
     return selected;
   }
 
+  private async validateRoute(tenantId: string, templateKey: string | undefined, channelTargets: NotificationChannelTarget[]): Promise<void> {
+    if (templateKey) {
+      const template = await this.repository.getTemplate(tenantId, templateKey, 'zh-CN');
+      if (!template) {
+        const configured = (await this.repository.listTemplates(tenantId)).find((item) => item.templateKey === templateKey);
+        if (configured?.status === 'disabled' || !builtinTemplate(templateKey)) {
+          throw new AppError('RESOURCE_NOT_FOUND', '通知路由模板不存在或已禁用', { templateKey });
+        }
+      }
+    }
+    if (!channelTargets.length) throw new AppError('VALIDATION_FAILED', '通知路由至少需要一个渠道目标');
+    for (const target of channelTargets) {
+      const channel = await this.repository.getChannel(tenantId, target.channelId);
+      if (!channel || channel.status === 'deleted') throw new AppError('RESOURCE_NOT_FOUND', '通知路由渠道不存在', { channelId: target.channelId });
+      validateRouteTarget(channel.type, target.target ?? {});
+    }
+  }
+
   private async getTemplate(tenantId: string, templateKey: string, locale: string) {
     const existing = await this.repository.getTemplate(tenantId, templateKey, locale);
     if (existing) return existing;
+    const configured = (await this.repository.listTemplates(tenantId)).find((item) =>
+      item.templateKey === templateKey && (item.locale === locale || item.locale === 'zh-CN'));
+    if (configured?.status === 'disabled') return undefined;
     const builtin = builtinTemplate(templateKey);
     if (!builtin) return undefined;
     return this.repository.upsertTemplate({ tenantId, templateKey, locale: 'zh-CN', ...builtin });
@@ -263,8 +358,12 @@ function normalizeRequest(input: EnqueueNotificationInput) {
     tenantId: input.tenantId,
     source: input.source ?? 'system',
     eventKey: input.eventKey,
+    eventId: input.eventId ?? input.eventKey,
+    eventType: input.eventType ?? input.eventKey,
+    occurredAt: input.occurredAt ?? new Date().toISOString(),
+    payloadVersion: input.payloadVersion ?? 1,
     idempotencyKey: input.idempotencyKey,
-    templateKey: input.templateKey,
+    templateKey: input.templateKey ?? input.eventType ?? input.eventKey,
     routeId: input.routeId,
     channelId: input.channelId,
     sourceRefs: input.sourceRefs ?? {},
@@ -277,15 +376,48 @@ function targetFromContext(context: Record<string, unknown>): Record<string, unk
     : {};
 }
 
-function emptyTemplate(input: EnqueueNotificationInput) {
-  return {
-    id: 'missing', tenantId: input.tenantId, templateKey: input.templateKey, locale: input.locale ?? 'zh-CN',
-    titleTemplate: '', bodyTemplate: '', requiredVariables: [], status: 'active' as const,
-    createdAt: '', updatedAt: '', version: 1,
-  };
+function validateRouteTarget(type: NotificationChannel['type'], target: Record<string, unknown>): void {
+  if (type === 'email') {
+    const value = target.to ?? target.recipients;
+    const recipients = Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      : typeof value === 'string' && value.trim() ? [value] : [];
+    if (!recipients.length) throw new AppError('VALIDATION_FAILED', 'Email 路由目标至少需要一个收件人');
+    return;
+  }
+  if (type === 'telegram' && target.chatId !== undefined
+    && (typeof target.chatId !== 'string' || !target.chatId.trim())) {
+    throw new AppError('VALIDATION_FAILED', 'Telegram 路由目标 chatId 必须是非空字符串');
+  }
+  if (type === 'telegram' && target.messageThreadId !== undefined
+    && (!Number.isInteger(target.messageThreadId) || Number(target.messageThreadId) <= 0)) {
+    throw new AppError('VALIDATION_FAILED', 'Telegram 路由目标 messageThreadId 必须是正整数');
+  }
 }
 
+
 function builtinTemplate(templateKey: string): { titleTemplate: string; bodyTemplate: string; requiredVariables: string[] } | undefined {
+  if (templateKey === 'certificate.renewal.result') {
+    return {
+      titleTemplate: '证书更新结果：{{status}}',
+      bodyTemplate: '域名 {{domain}} 的证书版本 {{certificateVersionId}} 已完成处理。',
+      requiredVariables: ['status', 'domain', 'certificateVersionId'],
+    };
+  }
+  if (templateKey === 'certificate.status') {
+    return {
+      titleTemplate: '证书状态变更：{{status}}',
+      bodyTemplate: '证书资源 {{resourceId}} 当前状态为 {{status}}。',
+      requiredVariables: ['resourceId', 'status'],
+    };
+  }
+  if (templateKey === 'certificate.report') {
+    return {
+      titleTemplate: '证书报表已生成',
+      bodyTemplate: '报表 {{reportId}}（{{reportType}}）已生成完成。',
+      requiredVariables: ['reportId', 'reportType'],
+    };
+  }
   if (templateKey === 'monitor.risk') {
     return {
       titleTemplate: '[{{severity}}] {{title}}',

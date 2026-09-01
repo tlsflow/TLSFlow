@@ -9,6 +9,8 @@ export * from './application/notification-template-renderer.js';
 export * from './application/notification-dedupe.service.js';
 export * from './application/channel-adapter-registry.js';
 export * from './application/notification-worker.js';
+export * from './application/notification-retry-scheduler.js';
+export * from './application/certificate-notification-event.js';
 export * from './adapters/email-notification.adapter.js';
 export * from './adapters/wecom-notification.adapter.js';
 export * from './adapters/slack-notification.adapter.js';

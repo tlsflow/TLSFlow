@@ -227,6 +227,12 @@ export function createTaskExecutorRegistry(
   }));
   registry.register('notification.delivery', dependencyExecutor('通知投递 Worker', dependencies.notifications, async (task) => {
     const deliveryId = requiredPayloadString(task, 'deliveryId');
+    const expectedGeneration = optionalPayloadNumber(task, 'dispatchGeneration');
+    const currentBeforeRun = await dependencies.notifications!.getDelivery(task.tenantId, deliveryId);
+    if (!currentBeforeRun) throw new AppError('RESOURCE_NOT_FOUND', '通知投递记录不存在', { deliveryId });
+    if (expectedGeneration !== undefined && currentBeforeRun.dispatchGeneration !== expectedGeneration) {
+      return { success: true, detail: { deliveryId, status: currentBeforeRun.status, staleGeneration: expectedGeneration, currentGeneration: currentBeforeRun.dispatchGeneration } };
+    }
     const processed = await dependencies.notifications!.runDelivery(task.tenantId, deliveryId);
     const delivery = await dependencies.notifications!.getDelivery(task.tenantId, deliveryId);
     if (!delivery) throw new AppError('RESOURCE_NOT_FOUND', '通知投递记录不存在', { deliveryId });

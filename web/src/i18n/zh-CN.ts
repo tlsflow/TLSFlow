@@ -1388,17 +1388,12 @@ export default {
       executionTaskStarted: '任务已开始，后续进度可在右上角任务列表查看。',
       executionTaskSucceeded: '任务已成功完成，可在右上角任务列表查看结果。',
       executeTaskStarted: '证书部署已开始，后续进度可在右上角任务列表查看。',
-      executeTaskPendingApproval: '证书部署已提交，正在等待审批，后续进度可在右上角任务列表查看。',
       rollbackTaskStarted: '证书回滚已开始，后续进度可在右上角任务列表查看。',
       loadedDraft: '已加载草稿计划。',
       loadedDraftWithPlanId: '已加载草稿（计划 {planId}）。',
       savedWithPlanId: '计划已保存（{planId}）。',
       submitted: '部署计划已提交。',
       submittedWithPlanId: '部署计划已提交（计划 {planId}）。',
-      approvalApproved: '审批已通过，计划现在可以执行。',
-      approvalApprovedWithPlanId: '审批已通过，计划 {planId} 现在可以执行。',
-      approvalRejected: '审批已驳回，计划不能执行。',
-      approvalRejectedWithPlanId: '审批已驳回，计划 {planId} 不能执行。'
     },
     target: {
       controlPlane: '平台',
@@ -2294,7 +2289,7 @@ export default {
   },
   notifications: {
     title: '通知管理',
-    description: '统一管理通知渠道、路由、模板、静默和可靠投递记录。',
+    description: '统一管理证书事件、模板、渠道发送和可靠投递记录。',
     tabs: { channels: '通知渠道', deliveries: '投递记录', rules: '规则与模板' },
     sections: { channels: '通知渠道记录', deliveries: '投递记录' },
     channels: { createTitle: '新建通知渠道' },

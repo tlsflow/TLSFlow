@@ -28,6 +28,39 @@ export interface NotificationDelivery {
   latencyMs?: number
   deliveredAt?: string
   createdAt: string
+  nextAttemptAt?: string
+  dispatchGeneration?: number
+  dispatchTaskId?: string
+  renderedTitle?: string
+  renderedBody?: string
+}
+
+export interface NotificationDeliveryAttempt {
+  id: string
+  attemptNo: number
+  startedAt: string
+  finishedAt?: string
+  success?: boolean
+  retryable?: boolean
+  failureCategory?: string
+  failureMessage?: string
+  latencyMs?: number
+}
+
+export interface NotificationDeliveryOutbox {
+  id: string
+  dispatchGeneration: number
+  status: string
+  attempts: number
+  nextAttemptAt: string
+  taskId?: string
+  lastError?: string
+}
+
+export interface NotificationDeliveryDetail {
+  delivery: NotificationDelivery
+  attempts: NotificationDeliveryAttempt[]
+  outbox: NotificationDeliveryOutbox[]
 }
 
 export interface NotificationSettings {
@@ -55,7 +88,9 @@ export function testNotificationChannel(id: string, target: Record<string, unkno
   return apiClient.post(`/v1/notification-channels/${id}/actions/test`, { target })
 }
 export function listNotificationDeliveries() { return apiClient.get<NotificationPage<NotificationDelivery>>('/v1/notification-deliveries?pageSize=100') }
-export function retryNotificationDelivery(id: string) { return apiClient.post<NotificationDelivery>(`/v1/notification-deliveries/${id}/actions/retry`) }
+export function getNotificationDelivery(id: string) { return apiClient.get<NotificationDeliveryDetail>(`/v1/notification-deliveries/${id}`) }
+export function retryNotificationDelivery(id: string) { return apiClient.post<{ deliveryId: string; dispatchGeneration: number; attemptNo: number; taskKey: string }>(`/v1/notification-deliveries/${id}/actions/retry`) }
+export function previewNotificationTemplate(input: Record<string, unknown>) { return apiClient.post<{ title: string; body: string; missingVariables: string[]; templateVersion: number }>('/v1/notification-templates/preview', input) }
 export function listNotificationRoutes() { return apiClient.get<Record<string, unknown>[]>('/v1/notification-routes') }
 export function listNotificationTemplates() { return apiClient.get<Record<string, unknown>[]>('/v1/notification-templates') }
 export function listNotificationSilences() { return apiClient.get<Record<string, unknown>[]>('/v1/notification-silences') }

@@ -8,13 +8,13 @@ import { usePermissionStore } from '@/stores/permission.store'
 import {
   createNotificationChannel,
   createNotificationRoute,
-  createNotificationSilence,
   getNotificationSettings,
   listNotificationChannels,
   listNotificationDeliveries,
   listNotificationRoutes,
-  listNotificationSilences,
   listNotificationTemplates,
+  getNotificationDelivery,
+  previewNotificationTemplate,
   retryNotificationDelivery,
   saveNotificationTemplate,
   testNotificationChannel,
@@ -22,7 +22,8 @@ import {
   updateNotificationSettings,
   type NotificationChannel,
   type NotificationChannelType,
-  type NotificationDelivery
+  type NotificationDelivery,
+  type NotificationDeliveryDetail
 } from '@/api/modules/notifications.api'
 
 interface NotificationRouteRecord {
@@ -32,7 +33,7 @@ interface NotificationRouteRecord {
   priority: number
   matcher: { sources?: string[] }
   channelTargets: Array<{ channelId: string }>
-  dedupeWindowSeconds: number
+  templateKey?: string
 }
 
 interface NotificationTemplateRecord {
@@ -44,17 +45,7 @@ interface NotificationTemplateRecord {
   updatedAt: string
 }
 
-interface NotificationSilenceRecord {
-  id: string
-  name: string
-  status: string
-  matcher: { sources?: string[] }
-  reason: string
-  startsAt: string
-  endsAt: string
-}
-
-type DialogType = 'channel' | 'route' | 'template' | 'silence' | 'test' | null
+type DialogType = 'channel' | 'route' | 'template' | 'test' | null
 
 const { t } = useI18n()
 const permissionStore = usePermissionStore()
@@ -67,9 +58,9 @@ const activeDialog = ref<DialogType>(null)
 const testingChannel = ref<NotificationChannel | null>(null)
 const channels = ref<NotificationChannel[]>([])
 const deliveries = ref<NotificationDelivery[]>([])
+const selectedDeliveryDetail = ref<NotificationDeliveryDetail | null>(null)
 const routes = ref<NotificationRouteRecord[]>([])
 const templates = ref<NotificationTemplateRecord[]>([])
-const silences = ref<NotificationSilenceRecord[]>([])
 const notificationSettings = reactive({ version: 0, wecomPrivateOrigins: '', feishuPrivateOrigins: '', dingtalkPrivateOrigins: '' })
 const channelForm = reactive({
   name: '',
@@ -90,21 +81,20 @@ const channelForm = reactive({
   messageThreadId: '' as string | number
 })
 const testForm = reactive({ target: '' })
-const routeForm = reactive({ name: '', channelId: '', source: 'monitor', priority: '100', dedupeWindowSeconds: '300' })
+const routeForm = reactive({ name: '', channelId: '', source: 'certificate.renewal.result', templateKey: '', priority: '100' })
 const templateForm = reactive({ templateKey: '', titleTemplate: '', bodyTemplate: '' })
-const silenceForm = reactive({ name: '', reason: '', source: 'monitor', startsAt: '', endsAt: '' })
 
 const tabs = computed(() => [
   { value: 'channels', label: t('notifications.tabs.channels') },
   { value: 'deliveries', label: t('notifications.tabs.deliveries') },
-  { value: 'rules', label: t('notifications.tabs.rules') }
+  { value: 'templates', label: t('notifications.summary.templates') },
+  { value: 'routes', label: t('notifications.summary.routes') }
 ])
 
 const dialogTitle = computed(() => {
   if (activeDialog.value === 'channel') return t('notifications.channels.createTitle')
   if (activeDialog.value === 'route') return t('notifications.rules.createRoute')
   if (activeDialog.value === 'template') return t('notifications.rules.createTemplate')
-  if (activeDialog.value === 'silence') return t('notifications.rules.createSilence')
   if (activeDialog.value === 'test') return t('notifications.actions.testChannel', { name: testingChannel.value?.name ?? '' })
   return ''
 })
@@ -127,8 +117,8 @@ async function refresh() {
   loading.value = true
   errorMessage.value = ''
   try {
-    const [settingsResult, channelResult, deliveryResult, routeResult, templateResult, silenceResult] = await Promise.all([
-      getNotificationSettings(), listNotificationChannels(), listNotificationDeliveries(), listNotificationRoutes(), listNotificationTemplates(), listNotificationSilences()
+    const [settingsResult, channelResult, deliveryResult, routeResult, templateResult] = await Promise.all([
+      getNotificationSettings(), listNotificationChannels(), listNotificationDeliveries(), listNotificationRoutes(), listNotificationTemplates()
     ])
     notificationSettings.version = settingsResult.data?.version ?? 0
     notificationSettings.wecomPrivateOrigins = settingsResult.data?.privateOrigins.wecom.join('\n') ?? ''
@@ -138,7 +128,6 @@ async function refresh() {
     deliveries.value = deliveryResult.data?.items ?? []
     routes.value = (routeResult.data ?? []) as unknown as NotificationRouteRecord[]
     templates.value = (templateResult.data ?? []) as unknown as NotificationTemplateRecord[]
-    silences.value = (silenceResult.data ?? []) as unknown as NotificationSilenceRecord[]
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : t('notifications.messages.loadFailed')
   } finally {
@@ -366,17 +355,46 @@ async function retryDelivery(delivery: NotificationDelivery) {
   })
 }
 
+async function openDeliveryDetail(delivery: NotificationDelivery) {
+  submitting.value = true
+  try {
+    const result = await getNotificationDelivery(delivery.id)
+    selectedDeliveryDetail.value = result.data ?? null
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : t('notifications.messages.operationFailed')
+  } finally {
+    submitting.value = false
+  }
+}
+
+async function previewTemplate(template: NotificationTemplateRecord) {
+  submitting.value = true
+  try {
+    const result = await previewNotificationTemplate({
+      templateKey: template.templateKey,
+      locale: template.locale,
+      context: { status: t('notifications.values.notAvailable'), domain: 'example.com', certificateVersionId: 'preview', resourceId: 'preview', reportId: 'preview', reportType: 'certificate', title: t('notifications.values.notAvailable'), summary: t('notifications.values.notAvailable') }
+    })
+    const value = result.data
+    errorMessage.value = value ? `${value.title}\n${value.body}` : t('notifications.messages.operationFailed')
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : t('notifications.messages.operationFailed')
+  } finally {
+    submitting.value = false
+  }
+}
+
 async function createRoute() {
   await submit(async () => {
     await createNotificationRoute({
       name: routeForm.name,
       priority: Number(routeForm.priority),
       matcher: routeForm.source ? { sources: [routeForm.source] } : {},
+      templateKey: routeForm.templateKey || undefined,
       channelTargets: [{ channelId: routeForm.channelId }],
-      stopOnMatch: false,
-      dedupeWindowSeconds: Number(routeForm.dedupeWindowSeconds)
+      stopOnMatch: false
     })
-    Object.assign(routeForm, { name: '', channelId: '', source: 'monitor', priority: '100', dedupeWindowSeconds: '300' })
+    Object.assign(routeForm, { name: '', channelId: '', source: 'certificate.renewal.result', templateKey: '', priority: '100' })
   })
 }
 
@@ -387,23 +405,10 @@ async function saveTemplate() {
       locale: 'zh-CN',
       titleTemplate: templateForm.titleTemplate,
       bodyTemplate: templateForm.bodyTemplate,
-      requiredVariables: [],
+      requiredVariables: [...new Set(`${templateForm.titleTemplate} ${templateForm.bodyTemplate}`.matchAll(/{{\s*([a-zA-Z0-9_.-]+)\s*}}/g))].map((match) => match[1]),
       status: 'active'
     })
     Object.assign(templateForm, { templateKey: '', titleTemplate: '', bodyTemplate: '' })
-  })
-}
-
-async function createSilence() {
-  await submit(async () => {
-    await createNotificationSilence({
-      name: silenceForm.name,
-      reason: silenceForm.reason,
-      matcher: silenceForm.source ? { sources: [silenceForm.source] } : {},
-      startsAt: new Date(silenceForm.startsAt).toISOString(),
-      endsAt: new Date(silenceForm.endsAt).toISOString()
-    })
-    Object.assign(silenceForm, { name: '', reason: '', source: 'monitor', startsAt: '', endsAt: '' })
   })
 }
 
@@ -419,9 +424,8 @@ onMounted(refresh)
       </template>
       <template #primary>
         <button v-if="activeTab === 'channels'" class="gc-button gc-button--primary" type="button" @click="openDialog('channel')">{{ t('notifications.actions.createChannel') }}</button>
-        <button v-if="activeTab === 'rules'" class="gc-button gc-button--primary" type="button" @click="openDialog('route')">{{ t('notifications.actions.createRoute') }}</button>
-        <button v-if="activeTab === 'rules'" class="gc-button gc-button--primary" type="button" @click="openDialog('template')">{{ t('notifications.actions.createTemplate') }}</button>
-        <button v-if="activeTab === 'rules'" class="gc-button gc-button--primary" type="button" @click="openDialog('silence')">{{ t('notifications.actions.createSilence') }}</button>
+        <button v-if="activeTab === 'routes'" class="gc-button gc-button--primary" type="button" @click="openDialog('route')">{{ t('notifications.actions.createRoute') }}</button>
+        <button v-if="activeTab === 'templates'" class="gc-button gc-button--primary" type="button" @click="openDialog('template')">{{ t('notifications.actions.createTemplate') }}</button>
       </template>
       <template #tabs>
         <GcTabs v-model="activeTab" :tabs="tabs" />
@@ -483,17 +487,22 @@ onMounted(refresh)
           <dl>
             <div><dt>{{ t('notifications.fields.createdAt') }}</dt><dd>{{ formatBrowserLocalTime(delivery.createdAt) }}</dd></div>
             <div><dt>{{ t('notifications.fields.failureCategory') }}</dt><dd>{{ delivery.failureCategory || t('notifications.values.notAvailable') }}</dd></div>
+            <div><dt>{{ t('notifications.fields.nextAttemptAt') }}</dt><dd>{{ formatBrowserLocalTime(delivery.nextAttemptAt) || t('notifications.values.notAvailable') }}</dd></div>
           </dl>
-          <div v-if="delivery.status === 'failed'" class="notifications-page__actions">
-            <button class="gc-button" type="button" @click="retryDelivery(delivery)">{{ t('notifications.actions.retry') }}</button>
+          <div class="notifications-page__actions">
+            <button class="gc-button" type="button" @click="openDeliveryDetail(delivery)">{{ t('notifications.actions.detail') }}</button>
+            <button v-if="delivery.status === 'failed'" class="gc-button" type="button" @click="retryDelivery(delivery)">{{ t('notifications.actions.retry') }}</button>
+          </div>
+          <div v-if="selectedDeliveryDetail?.delivery.id === delivery.id" class="notifications-page__detail">
+            <p>{{ t('notifications.summary.attempts') }}: {{ selectedDeliveryDetail.attempts.length }}</p>
+            <p>{{ t('notifications.summary.outbox') }}: {{ selectedDeliveryDetail.outbox.map((item) => item.status).join(', ') || t('notifications.values.notAvailable') }}</p>
           </div>
         </article>
       </div>
       <p v-else class="gc-card notifications-page__empty">{{ t('notifications.empty.deliveries') }}</p>
     </section>
 
-    <section v-else class="notifications-page__rules">
-      <section class="notifications-page__section">
+    <section v-else-if="activeTab === 'routes'" class="notifications-page__section">
         <header class="notifications-page__toolbar">
           <div><h2>{{ t('notifications.summary.routes') }}</h2><p>{{ t('notifications.summary.recordCount', { count: routes.length }) }}</p></div>
         </header>
@@ -502,15 +511,15 @@ onMounted(refresh)
             <div><h3>{{ route.name }}</h3><p>{{ routeSource(route) }}</p></div><GcStatusTag :status="route.status" />
             <dl>
               <div><dt>{{ t('notifications.fields.channel') }}</dt><dd>{{ routeChannelName(route) }}</dd></div>
+              <div><dt>{{ t('notifications.fields.templateKey') }}</dt><dd>{{ route.templateKey || t('notifications.values.notAvailable') }}</dd></div>
               <div><dt>{{ t('notifications.fields.priority') }}</dt><dd>{{ route.priority }}</dd></div>
-              <div><dt>{{ t('notifications.fields.dedupeWindow') }}</dt><dd>{{ route.dedupeWindowSeconds }}</dd></div>
             </dl>
           </article>
         </div>
         <p v-else class="gc-card notifications-page__empty">{{ t('notifications.empty.routes') }}</p>
       </section>
 
-      <section class="notifications-page__section">
+    <section v-else-if="activeTab === 'templates'" class="notifications-page__section">
         <header class="notifications-page__toolbar">
           <div><h2>{{ t('notifications.summary.templates') }}</h2><p>{{ t('notifications.summary.recordCount', { count: templates.length }) }}</p></div>
         </header>
@@ -521,27 +530,10 @@ onMounted(refresh)
               <div><dt>{{ t('notifications.fields.locale') }}</dt><dd>{{ template.locale }}</dd></div>
               <div><dt>{{ t('notifications.fields.updatedAt') }}</dt><dd>{{ formatBrowserLocalTime(template.updatedAt) }}</dd></div>
             </dl>
+            <div class="notifications-page__actions"><button class="gc-button" type="button" @click="previewTemplate(template)">{{ t('notifications.actions.preview') }}</button></div>
           </article>
         </div>
         <p v-else class="gc-card notifications-page__empty">{{ t('notifications.empty.templates') }}</p>
-      </section>
-
-      <section class="notifications-page__section">
-        <header class="notifications-page__toolbar">
-          <div><h2>{{ t('notifications.summary.silences') }}</h2><p>{{ t('notifications.summary.recordCount', { count: silences.length }) }}</p></div>
-        </header>
-        <div v-if="silences.length" class="notifications-page__list">
-          <article v-for="silence in silences" :key="silence.id" class="gc-card notifications-page__item">
-            <div><h3>{{ silence.name }}</h3><p>{{ silence.reason }}</p></div><GcStatusTag :status="silence.status" />
-            <dl>
-              <div><dt>{{ t('notifications.fields.source') }}</dt><dd>{{ silence.matcher.sources?.join(', ') || t('notifications.values.notAvailable') }}</dd></div>
-              <div><dt>{{ t('notifications.fields.startsAt') }}</dt><dd>{{ formatBrowserLocalTime(silence.startsAt) }}</dd></div>
-              <div><dt>{{ t('notifications.fields.endsAt') }}</dt><dd>{{ formatBrowserLocalTime(silence.endsAt) }}</dd></div>
-            </dl>
-          </article>
-        </div>
-        <p v-else class="gc-card notifications-page__empty">{{ t('notifications.empty.silences') }}</p>
-      </section>
     </section>
 
     <GcModal :open="activeDialog !== null" :title="dialogTitle" size="lg" @update:open="(value) => { if (!value) closeDialog() }">
@@ -592,21 +584,14 @@ onMounted(refresh)
       <form v-else-if="activeDialog === 'route'" id="notification-route-form" class="notifications-page__form" @submit.prevent="createRoute">
         <label><span>{{ t('notifications.fields.name') }}</span><input v-model="routeForm.name" required /></label>
         <label><span>{{ t('notifications.fields.channel') }}</span><select v-model="routeForm.channelId" required><option disabled value="">{{ t('notifications.fields.selectChannel') }}</option><option v-for="channel in channels" :key="channel.id" :value="channel.id">{{ channel.name }}</option></select></label>
-        <label><span>{{ t('notifications.fields.source') }}</span><input v-model="routeForm.source" required /></label>
+        <label><span>{{ t('notifications.fields.eventType') }}</span><input v-model="routeForm.source" required /></label>
+        <label><span>{{ t('notifications.fields.templateKey') }}</span><select v-model="routeForm.templateKey" required><option disabled value="">{{ t('notifications.fields.selectTemplate') }}</option><option v-for="template in templates" :key="template.id" :value="template.templateKey">{{ template.templateKey }}</option></select></label>
         <label><span>{{ t('notifications.fields.priority') }}</span><input v-model="routeForm.priority" type="number" required /></label>
-        <label><span>{{ t('notifications.fields.dedupeWindow') }}</span><input v-model="routeForm.dedupeWindowSeconds" type="number" required /></label>
       </form>
       <form v-else-if="activeDialog === 'template'" id="notification-template-form" class="notifications-page__form" @submit.prevent="saveTemplate">
         <label><span>{{ t('notifications.fields.templateKey') }}</span><input v-model="templateForm.templateKey" required /></label>
         <label><span>{{ t('notifications.fields.titleTemplate') }}</span><input v-model="templateForm.titleTemplate" required /></label>
         <label><span>{{ t('notifications.fields.bodyTemplate') }}</span><textarea v-model="templateForm.bodyTemplate" required /></label>
-      </form>
-      <form v-else-if="activeDialog === 'silence'" id="notification-silence-form" class="notifications-page__form" @submit.prevent="createSilence">
-        <label><span>{{ t('notifications.fields.name') }}</span><input v-model="silenceForm.name" required /></label>
-        <label><span>{{ t('notifications.fields.reason') }}</span><input v-model="silenceForm.reason" required /></label>
-        <label><span>{{ t('notifications.fields.source') }}</span><input v-model="silenceForm.source" required /></label>
-        <label><span>{{ t('notifications.fields.startsAt') }}</span><input v-model="silenceForm.startsAt" type="datetime-local" required /></label>
-        <label><span>{{ t('notifications.fields.endsAt') }}</span><input v-model="silenceForm.endsAt" type="datetime-local" required /></label>
       </form>
       <template #actions>
         <button class="gc-button" type="button" :disabled="submitting" @click="closeDialog">{{ t('notifications.actions.cancel') }}</button>

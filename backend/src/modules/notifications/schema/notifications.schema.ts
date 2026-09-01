@@ -13,6 +13,9 @@ export type NotificationRequestStatus = typeof notificationRequestStatuses[numbe
 export const notificationDeliveryStatuses = ['queued', 'sending', 'retrying', 'delivered', 'failed', 'suppressed'] as const;
 export type NotificationDeliveryStatus = typeof notificationDeliveryStatuses[number];
 
+export const notificationDispatchOutboxStatuses = ['queued', 'dispatching', 'dispatched', 'failed'] as const;
+export type NotificationDispatchOutboxStatus = typeof notificationDispatchOutboxStatuses[number];
+
 export const notificationFailureCategories = [
   'configuration',
   'authentication',
@@ -79,6 +82,8 @@ export interface NotificationRoute {
   status: NotificationChannelStatus;
   priority: number;
   matcher: NotificationMatcher;
+  /** 证书事件映射使用的模板；旧路由允许为空以保持兼容。 */
+  templateKey?: string;
   channelTargets: NotificationChannelTarget[];
   stopOnMatch: boolean;
   dedupeWindowSeconds: number;
@@ -123,6 +128,10 @@ export interface NotificationRequest {
   tenantId: string;
   source: string;
   eventKey: string;
+  eventId?: string;
+  eventType?: string;
+  occurredAt?: string;
+  payloadVersion?: number;
   idempotencyKey: string;
   templateKey: string;
   routeId?: string;
@@ -145,6 +154,7 @@ export interface NotificationDelivery {
   targetSnapshot: Record<string, unknown>;
   renderedTitle?: string;
   renderedBody?: string;
+  templateVersion?: number;
   status: NotificationDeliveryStatus;
   attemptCount: number;
   maxAttempts: number;
@@ -157,6 +167,9 @@ export interface NotificationDelivery {
   externalId?: string;
   latencyMs?: number;
   deliveredAt?: string;
+  dispatchGeneration?: number;
+  dispatchTaskId?: string;
+  lastRetryAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -175,4 +188,20 @@ export interface NotificationDeliveryAttempt {
   statusCode?: number;
   latencyMs?: number;
   responseSummary: Record<string, unknown>;
+}
+
+export interface NotificationDispatchOutbox {
+  id: string;
+  tenantId: string;
+  deliveryId: string;
+  dispatchGeneration: number;
+  status: NotificationDispatchOutboxStatus;
+  attempts: number;
+  nextAttemptAt: string;
+  leaseOwner?: string;
+  leaseUntil?: string;
+  taskId?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
 }

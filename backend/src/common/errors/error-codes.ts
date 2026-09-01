@@ -150,6 +150,7 @@ const registeredErrorCodes: Record<string, ErrorCodeDefinition> = {
   NOTIFICATION_DELIVERY_TIMEOUT: { httpStatus: 504, message: '通知投递超时' },
   NOTIFICATION_SECURITY_BLOCKED: { httpStatus: 403, message: '通知安全策略已阻止请求' },
   NOTIFICATION_RETRY_EXHAUSTED: { httpStatus: 409, message: '通知重试次数已耗尽' },
+  NOTIFICATION_EVENT_TYPE_INVALID: { httpStatus: 422, message: '证书通知事件类型无效' },
   ...editionLicensingErrorCodes,
 };
 

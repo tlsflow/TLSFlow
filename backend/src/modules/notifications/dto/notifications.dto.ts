@@ -42,6 +42,7 @@ export interface CreateNotificationRouteInput {
   status?: 'active' | 'disabled';
   priority: number;
   matcher?: NotificationMatcher;
+  templateKey?: string;
   channelTargets: NotificationChannelTarget[];
   stopOnMatch?: boolean;
   dedupeWindowSeconds?: number;
@@ -85,8 +86,12 @@ export interface EnqueueNotificationInput {
   tenantId: string;
   routeId?: string;
   channelId?: string;
-  templateKey: string;
+  templateKey?: string;
   eventKey: string;
+  eventId?: string;
+  eventType?: string;
+  occurredAt?: string;
+  payloadVersion?: number;
   idempotencyKey: string;
   context: Record<string, unknown>;
   source?: string;
@@ -100,6 +105,7 @@ export interface NotificationPageQuery {
   pageSize?: number;
   status?: string;
   source?: string;
+  eventType?: string;
   channelId?: string;
   requestId?: string;
 }

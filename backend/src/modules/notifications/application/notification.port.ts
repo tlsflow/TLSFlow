@@ -1,4 +1,5 @@
 import type { EnqueueNotificationInput } from '../dto/notifications.dto.js';
+export type { CertificateNotificationEvent, CertificateNotificationPort, CertificateNotificationEventType } from './certificate-notification-event.js';
 
 export interface NotificationPort {
   enqueue(input: EnqueueNotificationInput): Promise<{ requestId: string }>;

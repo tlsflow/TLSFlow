@@ -12,6 +12,7 @@ import type { ReportArtifact, ReportQuery, ReportRun, ReportType } from '../sche
 import { ReportsRepository } from '../repository/reports.repository.js';
 import { ReportsApplicationService } from './reports.application-service.js';
 import { enqueueTaskBestEffort, isUnifiedTaskWorkerEnabled, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
+import type { CertificateNotificationPort } from '../../notifications/application/certificate-notification-event.js';
 
 export class ReportExportService {
   private readonly queue: QueuePort;
@@ -23,6 +24,7 @@ export class ReportExportService {
     queueDb?: DatabasePort,
     queue?: QueuePort,
     private readonly tasks?: TaskEnqueuer,
+    private readonly notifications?: CertificateNotificationPort,
   ) {
     this.queue = queue ?? new PgJobRunner((job) => this.runExportJob(job), queueDb, ['REPORT_EXPORT']);
   }
@@ -111,6 +113,17 @@ export class ReportExportService {
     const artifact: ReportArtifact = { id: newId('reportartifact'), tenantId: run.tenantId, storageKey, fileName: `${run.reportType}-${run.createdAt.slice(0, 10)}.csv`, contentType: 'text/csv; charset=utf-8', byteSize: content.byteLength, checksumSha256: createHash('sha256').update(content).digest('hex'), expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(), createdAt };
     await this.repository.createReportArtifact(artifact);
     await this.repository.updateReportRun(run.id, { status: 'succeeded', artifactId: artifact.id, finishedAt: createdAt });
+    void this.notifications?.publish({
+      tenantId: run.tenantId,
+      eventId: `report:${run.id}`,
+      eventType: 'certificate.report',
+      occurredAt: createdAt,
+      payloadVersion: 1,
+      idempotencyKey: `certificate.report:${run.id}`,
+      templateKey: 'certificate.report',
+      payload: { reportId: run.id, reportType: run.reportType, status: 'succeeded', artifactId: artifact.id },
+      sourceRefs: { reportId: run.id },
+    }).catch(() => undefined);
   }
 
   private async runExportJob(job: JobPayload): Promise<JobResult> {

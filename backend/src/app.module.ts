@@ -66,6 +66,8 @@ import {
   FeishuNotificationAdapter,
   getNotificationRouteContracts,
   NotificationWorker,
+  NotificationRetryScheduler,
+  DeferredCertificateNotificationPort,
   NotificationsApplicationService,
   NotificationsController,
   PgNotificationsRepository,
@@ -260,9 +262,11 @@ export function createApp(dependencies: AppDependencies = {}): App {
     db: appDb,
   });
   const certificateVersionEventPublisher = new DeferredCertificateVersionEventPublisher();
+  const certificateNotificationPort = new DeferredCertificateNotificationPort();
   const certificateServices = dependencies.certificates ?? createCertificateServices(security, {
     db: appDb,
     versionEvents: certificateVersionEventPublisher,
+    certificateNotifications: certificateNotificationPort,
   });
   const managedTargetPluginQuery = new ManagedTargetPluginQueryService(appDb);
   const managedTargetContextResolver = new ManagedTargetContextResolver(
@@ -1276,9 +1280,12 @@ export function createApp(dependencies: AppDependencies = {}): App {
     notificationAdapters,
     tasksService,
   );
+  const notificationRetryScheduler = new NotificationRetryScheduler(notificationsRepository, tasksService);
+  certificateNotificationPort.bind(notificationsService);
   automationNotificationPort.bind(notificationsService);
   app.setResource('notificationsService', notificationsService);
   app.setResource('notificationWorker', notificationWorker);
+  app.setResource('notificationRetryScheduler', notificationRetryScheduler);
 
   certificateServices.bindings ??= bindingsService;
   const monitorsService = new MonitorsApplicationService({
@@ -1431,7 +1438,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   });
   const reportsRepository = new ReportsRepository(appDb);
   const reportsService = new ReportsApplicationService(new PgReportDataPort(appDb, deploymentPlans.getRepository()), reportsRepository, reportScope);
-  const reportExportService = new ReportExportService(reportsService, reportsRepository, undefined, appDb, undefined, tasksService);
+  const reportExportService = new ReportExportService(reportsService, reportsRepository, undefined, appDb, undefined, tasksService, notificationsService);
   app.setResource('reportsService', reportsService);
   app.setResource('reportExportService', reportExportService);
   new ReportsController(reportsService, security, reportExportService).register(app.router);

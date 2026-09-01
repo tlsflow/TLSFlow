@@ -15,6 +15,7 @@ import { PgCertificateArtifactStore, type CertificateArtifactStore } from '../ar
 import { CertificateFormatExporter, type GeneratedCertificateFormatArtifact } from './certificate-format-exporter.js';
 import { CertificatesDomainService } from '../domain/certificates.domain-service.js';
 import type { CertificateVersionEventPublisher } from '../../automations/application/automation-event-delivery.service.js';
+import type { CertificateNotificationPort } from '../../notifications/application/certificate-notification-event.js';
 import { TrustRootsApplicationService } from '../trust-roots/application/trust-roots.application-service.js';
 import {
   type CertificatesRepository,
@@ -104,6 +105,7 @@ export interface CertificatesApplicationDependencies {
   artifacts?: CertificateArtifactStore;
   exporter?: CertificateFormatExporter;
   versionEvents?: CertificateVersionEventPublisher;
+  certificateNotifications?: CertificateNotificationPort;
   trustRoots?: TrustRootsApplicationService;
 }
 
@@ -479,6 +481,23 @@ export class CertificatesApplicationService {
       domains: uniqueStrings([updatedAsset.primaryDomain, ...updatedAsset.sans].filter(Boolean)),
       tags: [...updatedAsset.tags],
       occurredAt: version.createdAt,
+    }).catch(() => undefined);
+    void this.dependencies.certificateNotifications?.publish({
+      tenantId: eventTenantId,
+      eventId: `renewal:${version.id}`,
+      eventType: 'certificate.renewal.result',
+      occurredAt: version.createdAt,
+      payloadVersion: 1,
+      idempotencyKey: `certificate.renewal.result:${version.id}`,
+      templateKey: 'certificate.renewal.result',
+      payload: {
+        certificateAssetId: updatedAsset.id,
+        certificateVersionId: version.id,
+        domain: updatedAsset.primaryDomain,
+        status: version.status,
+        sourceType,
+      },
+      sourceRefs: { certificateAssetId: updatedAsset.id, certificateVersionId: version.id },
     }).catch(() => undefined);
 
     return {
@@ -1100,21 +1119,39 @@ export class CertificatesApplicationService {
     const asset = await this.getExistingAsset(input.id, input.tenantId);
     const updated = await this.repository.deleteOrUpdateAsset(asset.id, { status: input.status, updatedAt: new Date().toISOString() }, input.tenantId);
     void this.writeLifecycleAudit('certificate.asset.status', 'certificate_asset', updated.id, input.actorId, input.status, context);
+    const tenantId = updated.tenantId ?? input.tenantId;
+    if (tenantId) void this.publishCertificateStatus(tenantId, `asset:${updated.id}`, updated.id, input.status, { certificateAssetId: updated.id });
     return updated;
   }
 
   private async changeVersionStatus(input: ChangeCertificateVersionStatusInput, context?: RequestContext): Promise<CertificateVersionEntity> {
     const version = await this.getExistingVersion(input.id, input.tenantId);
     const updated = await this.repository.deleteOrUpdateVersion(version.id, { status: input.status, deployable: input.status === 'active' ? version.deployable : false }, input.tenantId);
+    const asset = await this.repository.getAsset(updated.certificateAssetId, input.tenantId);
     if (input.status === 'deleted') {
-      const asset = await this.repository.getAsset(updated.certificateAssetId, input.tenantId);
       if (asset?.currentVersionId === updated.id) {
         const replacement = (await this.repository.listVersionsByAsset(asset.id, input.tenantId)).find((candidate) => candidate.id !== updated.id && candidate.status === 'active');
         await this.repository.updateAsset(asset.id, { currentVersionId: replacement?.id, updatedAt: new Date().toISOString() }, input.tenantId);
       }
     }
     void this.writeLifecycleAudit('certificate.version.status', 'certificate_version', updated.id, input.actorId, input.status, context);
+    const tenantId = updated.tenantId ?? input.tenantId;
+    if (tenantId) void this.publishCertificateStatus(tenantId, `version:${updated.id}`, updated.id, input.status, { certificateVersionId: updated.id, certificateAssetId: asset?.id ?? updated.certificateAssetId });
     return updated;
+  }
+
+  private async publishCertificateStatus(tenantId: string, eventId: string, resourceId: string, status: string, sourceRefs: Record<string, string>): Promise<void> {
+    await this.dependencies.certificateNotifications?.publish({
+      tenantId,
+      eventId: `${eventId}:${status}`,
+      eventType: 'certificate.status',
+      occurredAt: new Date().toISOString(),
+      payloadVersion: 1,
+      idempotencyKey: `certificate.status:${eventId}:${status}`,
+      templateKey: 'certificate.status',
+      payload: { resourceId, status },
+      sourceRefs,
+    });
   }
 
   private async writeLifecycleAudit(action: string, resourceType: string, resourceId: string, actorId: string, status: string, context?: RequestContext): Promise<void> {

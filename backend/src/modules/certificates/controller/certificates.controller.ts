@@ -9,6 +9,7 @@ import type { DatabasePort } from '../../../database/database-port.js';
 import type { SecuritySubject } from '../../../shared/security-types.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import type { CertificateVersionEventPublisher } from '../../automations/application/automation-event-delivery.service.js';
+import type { CertificateNotificationPort } from '../../notifications/application/certificate-notification-event.js';
 import { certificateFormats, certificateSourceTypes } from '../schema/certificates.schema.js';
 import { rootCertificateSourceTypes } from '../trust-roots/schema/trust-roots.schema.js';
 import { CertificatesApplicationService } from '../application/certificates.application-service.js';
@@ -22,10 +23,11 @@ export interface CertificateServices {
 export interface CreateCertificateServicesOptions {
   db?: DatabasePort;
   versionEvents?: CertificateVersionEventPublisher;
+  certificateNotifications?: CertificateNotificationPort;
 }
 
 export function createCertificateServices(security: SecurityServices, options: CreateCertificateServicesOptions = {}): CertificateServices {
-  return { certificates: new CertificatesApplicationService({ db: options.db, secrets: security.secrets, audit: security.audit, versionEvents: options.versionEvents }) };
+  return { certificates: new CertificatesApplicationService({ db: options.db, secrets: security.secrets, audit: security.audit, versionEvents: options.versionEvents, certificateNotifications: options.certificateNotifications }) };
 }
 
 export class CertificatesController {
