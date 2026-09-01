@@ -2198,6 +2198,7 @@ async function loadManagedTargetPluginResolution(managedTargetId: string): Promi
     const source = readRecord(effectiveCapability.value?.source)
     if (assetDraft.managedExecutionMode === 'PLUGIN' && source?.ownerType === 'APPLICATION_ASSET') {
       assetDraft.pluginOverrideVersionId = String(plugin?.pluginVersionId ?? '')
+      assetDraft.pluginOverridePluginId = String(plugin?.pluginId ?? '')
       pluginBindingId.value = String(binding?.pluginBindingId ?? '')
       pluginBindingVersion.value = Number(binding?.version ?? 0)
       if (pluginBindingId.value) await loadExistingPluginBinding(pluginBindingId.value)
@@ -2212,7 +2213,6 @@ async function loadManagedTargetPluginResolution(managedTargetId: string): Promi
     compatibleManagedPlugins.value = items.filter((item) => item.compatible === true)
     const effectivePlugin = readRecord(readNested(effectiveCapability.value, ['plugin']))
     const effectivePluginVersionId = String(effectivePlugin?.pluginVersionId ?? '')
-      assetDraft.pluginOverridePluginId = String(plugin?.pluginId ?? '')
     if (
       effectivePluginVersionId
       && effectiveCapability.value?.compatible !== false
@@ -3485,11 +3485,6 @@ watch(
 )
 
 watch(
-  () => assetDraft.workflowId,
-  async (workflowId, previousWorkflowId) => {
-    if (editInitializationLoading.value || targetSelectionInitializing.value) return
-    if (previousWorkflowId && workflowId !== previousWorkflowId) {
-watch(
   () => assetDraft.pluginOverridePluginId,
   (pluginId, previousPluginId) => {
     if (!previousPluginId || pluginId === previousPluginId) return
@@ -3499,6 +3494,11 @@ watch(
   },
 )
 
+watch(
+  () => assetDraft.workflowId,
+  async (workflowId, previousWorkflowId) => {
+    if (editInitializationLoading.value || targetSelectionInitializing.value) return
+    if (previousWorkflowId && workflowId !== previousWorkflowId) {
       assetDraft.workflowVersionId = ''
       assetDraft.workflowExecutionBindingId = ''
       assetDraft.workflowExecutionBindingVersion = 0
@@ -3587,6 +3587,7 @@ watch(
   async (managedTargetId) => {
     if (targetSelectionInitializing.value) return
     assetDraft.pluginOverrideVersionId = ''
+    assetDraft.pluginOverridePluginId = ''
     pluginBindingId.value = ''
     pluginBindingVersion.value = 0
     await loadManagedTargetPluginResolution(managedTargetId)
@@ -3601,7 +3602,6 @@ watch(
     certificateSupplyDraft.providerId,
     certificateSupplyDraft.certificateAuthorityId,
     certificateSupplyDraft.acmeProviderProfileId,
-    assetDraft.pluginOverridePluginId = ''
     certificateSupplyDraft.dnsProviderId,
     certificateSupplyDraft.credentialRef,
     certificateSupplyDraft.autoRenew,
@@ -3627,6 +3627,7 @@ watch(
       return
     }
     assetDraft.pluginOverrideVersionId = ''
+    assetDraft.pluginOverridePluginId = ''
     pluginBindingId.value = ''
     pluginBindingVersion.value = 0
     await Promise.all([loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
@@ -3641,7 +3642,6 @@ function deploymentStrategyCompatibilityLabel(value: unknown): string {
 
 async function fetchAllRecords(
   loader: (page: number, pageSize: number) => Promise<ApiPageResult>,
-    assetDraft.pluginOverridePluginId = ''
   pageSize = 200,
 ): Promise<ApiRecord[]> {
   const items: ApiRecord[] = []
