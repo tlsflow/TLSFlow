@@ -1242,7 +1242,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('automationScheduler', automationScheduler);
   app.setResource('automationEventDelivery', automationEventDelivery);
   const applicationExecutionCompatibility = new ApplicationExecutionCompatibilityService(appDb);
-  new AssetsController(security, assetsService, new ApplicationAssetExecutionService(appDb), applicationExecutionCompatibility).register(app.router);
+  new AssetsController(security, assetsService, new ApplicationAssetExecutionService(appDb), applicationExecutionCompatibility, devicesService).register(app.router);
   const applicationCertificateSupplyService = new ApplicationCertificateSupplyApplicationService(
     new ApplicationCertificateSupplyRepository(appDb),
     internalCaService,

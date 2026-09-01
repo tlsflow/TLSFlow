@@ -12,6 +12,8 @@ import {
 } from '../../../shared/enums/core.enums.js';
 import type { SecuritySubject } from '../../../shared/security-types.js';
 import type { SecurityServices } from '../../security/security.controller.js';
+import type { DevicesApplicationService } from '../../devices/application/devices.application-service.js';
+import type { ManagedDeviceSummaryDto } from '../../devices/dto/devices.dto.js';
 import { AssetsApplicationService } from '../application/assets.application-service.js';
 import { ApplicationAssetExecutionService, type SaveStandaloneWorkflowExecutionInput } from '../application/application-asset-execution.service.js';
 import type { ApplicationExecutionCompatibilityService } from '../application/application-execution-compatibility.service.js';
@@ -39,11 +41,17 @@ import type {
 const tags = ['Assets'];
 
 export class AssetsController {
-  constructor(private readonly security?: SecurityServices, private readonly service = new AssetsApplicationService(), private readonly executionService?: ApplicationAssetExecutionService, private readonly executionCompatibility?: ApplicationExecutionCompatibilityService) {}
+  constructor(
+    private readonly security?: SecurityServices,
+    private readonly service = new AssetsApplicationService(),
+    private readonly executionService?: ApplicationAssetExecutionService,
+    private readonly executionCompatibility?: ApplicationExecutionCompatibilityService,
+    private readonly devices?: DevicesApplicationService,
+  ) {}
 
   register(router: Router): void {
-    // 统一资产入口聚合设备资产、Agent 关联资产和云服务资产；应用入口严格只返回 APPLICATION。
-    router.get('/api/v1/assets', '查询统一资产列表', tags, (request) => this.listServiceAssets(request));
+    // 统一资产入口由服务端完成设备与云服务投影；应用入口严格只返回 APPLICATION。
+    router.get('/api/v1/assets', '查询统一资产列表', tags, (request) => this.listUnifiedAssets(request));
     router.get('/api/v1/applications', '查询应用列表', tags, (request) => this.listServiceAssets(request, 'APPLICATION'));
     router.get('/api/v1/applications/edit-detail', '查询 Application 编辑详情', tags, (request) => this.getApplicationEditDetail(request));
     router.get('/api/v1/applications/detail', '查询 Application 详情', tags, (request) => this.getApplicationDetail(request));
@@ -101,6 +109,62 @@ export class AssetsController {
     router.post('/api/v1/assets/refresh-from-agent', '通过 Agent 主动刷新资产', tags, (request) => this.refreshFromAgent(request));
     router.get('/api/v1/asset-conflicts', '查询资产冲突', tags, (request) => this.listAssetConflicts(request));
     router.post('/api/v1/asset-conflicts/resolve', '解决资产冲突', tags, (request) => this.resolveAssetConflict(request));
+  }
+
+  /**
+   * 统一资产列表是资产中心唯一读入口。底层设备和 ServiceAsset 仍保留各自领域服务，
+   * 这里只负责权限收窄、投影、全局排序和分页，避免浏览器拼接两套列表导致结果失真。
+   */
+  private async listUnifiedAssets(request: HttpRequest) {
+    const query = parsePageQuery(request.query, {
+      allowedSortFields: ['displayName', 'category', 'productFamily', 'managementMethod', 'health', 'status', 'updatedAt', 'createdAt'],
+      allowedFilterFields: ['assetKind', 'category', 'productFamily', 'managementMethod', 'health', 'status', 'tag'],
+      maxPageSize: 200,
+    });
+    const subject = this.subjectFromRequest(request);
+    const hostAllowed = await this.canPermission(subject, 'host.read', 'host', request);
+    const serviceAllowed = await this.canPermission(subject, 'service_asset.read', 'service_asset', request)
+      || await this.canPermission(subject, 'application.read', 'service_asset', request);
+    const hostManageAllowed = await this.canPermission(subject, 'host.update', 'host', request);
+    const serviceManageAllowed = await this.canPermission(subject, 'service_asset.manage', 'service_asset', request)
+      || await this.canPermission(subject, 'application.update', 'service_asset', request);
+    if (!hostAllowed && !serviceAllowed) {
+      await this.assertCan(subject, 'host.read', 'host', request);
+    }
+
+    const items: Array<Record<string, unknown>> = [];
+    if (hostAllowed && this.devices) {
+      const deviceQuery = {
+        page: 1,
+        pageSize: 5000,
+        filter: pickDeviceFilters(query.filter),
+        ...(query.sort ? { sort: query.sort } : {}),
+        authorizedHostIds: (await this.authorizedQuery(subject, 'host', 'read', query)).authorization?.objectIds,
+      } as Parameters<DevicesApplicationService['list']>[1];
+      const devicePage = await this.devices.list(tenantId(request), deviceQuery);
+      for (const device of devicePage.items) items.push(projectDeviceAsset(device, hostManageAllowed));
+    }
+    if (serviceAllowed) {
+      const serviceQuery = await this.authorizedQuery(subject, 'service_asset', 'read', {
+        ...query,
+        page: 1,
+        pageSize: 5000,
+        filter: { ...query.filter, assetKind: 'CLOUD_SERVICE' },
+      });
+      const servicePage = await this.service.listServiceAssets(tenantId(request), serviceQuery);
+      for (const asset of servicePage.items) {
+        const projected = projectServiceAsset(asset, serviceManageAllowed);
+        if (matchesUnifiedAssetFilter(projected, query.filter)) items.push(projected);
+      }
+    }
+    items.sort((left, right) => compareUnifiedAssets(left, right, query.sort));
+    const start = (query.page - 1) * query.pageSize;
+    return {
+      items: items.slice(start, start + query.pageSize),
+      page: query.page,
+      pageSize: query.pageSize,
+      total: items.length,
+    };
   }
 
   getApplicationService(): AssetsApplicationService {
@@ -882,6 +946,14 @@ export class AssetsController {
     return withAuthorization(query, await this.security.objectPermissions.buildAuthorizedQuery(subject, objectType, accessLevel));
   }
 
+  private async canPermission(subject: SecuritySubject, action: string, resourceType: string, request: HttpRequest): Promise<boolean> {
+    if (!this.security) return true;
+    return (await this.security.rbac.can(subject, action, {
+      type: resourceType,
+      scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
+    }, this.securityContext(request, subject))).allowed;
+  }
+
   private async canReadObject(
     subject: SecuritySubject,
     action: string,
@@ -927,6 +999,53 @@ export class AssetsController {
     return { requestId: request.context.requestId, sourceIp: request.context.ip, actor };
   }
 
+}
+
+function pickDeviceFilters(filter: Record<string, string>): Record<string, string> {
+  const allowed = ['category', 'productFamily', 'managementMethod', 'health'] as const;
+  return Object.fromEntries(allowed.flatMap((key) => filter[key] ? [[key, filter[key]]] : []));
+}
+
+function projectDeviceAsset(device: ManagedDeviceSummaryDto, canManage: boolean): Record<string, unknown> {
+  return {
+    ...device,
+    assetKind: 'DEVICE',
+    assetRef: { rootType: 'DEVICE', id: device.id },
+    availableActions: canManage ? ['VIEW', 'EDIT', 'DELETE'] : ['VIEW'],
+  };
+}
+
+function projectServiceAsset(asset: Record<string, unknown>, canManage: boolean): Record<string, unknown> {
+  return {
+    ...asset,
+    assetKind: 'CLOUD_SERVICE',
+    category: 'CLOUD',
+    managementMethod: 'PLUGIN',
+    managementAddress: asset.address,
+    livenessStatus: String(asset.status ?? '').toUpperCase() === 'ACTIVE' ? 'ONLINE' : 'UNKNOWN',
+    health: String(asset.status ?? '').toUpperCase() === 'ACTIVE' ? 'HEALTHY' : 'UNKNOWN',
+    assetRef: { rootType: 'SERVICE_ASSET', id: String(asset.id) },
+    availableActions: canManage ? ['VIEW', 'EDIT', 'DELETE'] : ['VIEW'],
+  };
+}
+
+function matchesUnifiedAssetFilter(asset: Record<string, unknown>, filter: Record<string, string>): boolean {
+  return Object.entries(filter).every(([key, expected]) => {
+    if (key === 'assetKind') return String(asset.assetKind).toUpperCase() === expected.toUpperCase() || expected.toUpperCase() === 'ALL';
+    if (key === 'category' || key === 'productFamily' || key === 'managementMethod' || key === 'health' || key === 'status') {
+      return String(asset[key] ?? '').toUpperCase() === expected.toUpperCase();
+    }
+    if (key === 'tag') return Array.isArray(asset.tags) && asset.tags.map(String).includes(expected);
+    return true;
+  });
+}
+
+function compareUnifiedAssets(left: Record<string, unknown>, right: Record<string, unknown>, sort?: { field: string; direction: 'asc' | 'desc' }): number {
+  const field = sort?.field ?? 'displayName';
+  const direction = sort?.direction === 'desc' ? -1 : 1;
+  const leftValue = String(left[field] ?? left.displayName ?? left.id).toLocaleLowerCase();
+  const rightValue = String(right[field] ?? right.displayName ?? right.id).toLocaleLowerCase();
+  return leftValue.localeCompare(rightValue) * direction;
 }
 
 function tenantId(request: HttpRequest): string {
