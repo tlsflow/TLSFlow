@@ -12,7 +12,7 @@ const providers = [
   ['cloud-volcengine', 'cloud.volcengine'],
 ];
 
-test('四个 Cloud Runtime 工厂只执行服务识别，证书命令失败关闭', async () => {
+test('四个 Cloud Runtime 工厂加载固定 Action Contract；仅阿里云允许证书更新', async () => {
   for (const [directory, pluginId] of providers) {
     const manifest = JSON.parse(readFileSync(join(root, directory, 'manifest.json'), 'utf8'));
     const module = await import(pathToFileURL(join(root, directory, 'runtime', 'index.js')).href);
@@ -34,17 +34,20 @@ test('四个 Cloud Runtime 工厂只执行服务识别，证书命令失败关�
       assert.equal(executor.descriptor.pluginVersion, manifest.version);
       assert.deepEqual(executor.descriptor.capabilities, manifest.capabilities.map((item) => item.key));
       const hostApi = mockHostApi(pluginId);
-      assert.deepEqual(executor.descriptor.actions.map((action) => action.capability), ['cloud.service.connection-test', 'cloud.service.discover']);
-      assert.equal(manifest.capabilities.some((item) => item.key.startsWith('certificate.')), false);
+      const expectedActions = pluginId === 'cloud.aliyun' ? ['cloud.service.connection-test', 'cloud.service.discover', 'certificate.deploy'] : ['cloud.service.connection-test', 'cloud.service.discover'];
+      assert.deepEqual(executor.descriptor.actions.map((action) => action.capability), expectedActions);
+      assert.equal(manifest.capabilities.some((item) => item.key === 'certificate.deploy'), pluginId === 'cloud.aliyun');
       for (const capability of ['cloud.service.connection-test', 'cloud.service.discover']) {
         const result = await executor.execute(context({ pluginId, versionId, manifest, hashes, capability }), hostApi);
         assert.equal(result.success, true, `${pluginId} ${capability} 未成功`);
       }
-      const forbidden = await executor.execute(context({ pluginId, versionId, manifest, hashes, capability: 'certificate.deploy' }), hostApi);
-      assert.equal(forbidden.success, false, `${pluginId} certificate.deploy 不得由 Runner 执行`);
-      assert.equal(forbidden.status, 'FAILED');
-      assert.equal(forbidden.error.code, 'PLUGIN_RUNNER_SCOPE_FORBIDDEN');
-      assert.equal(forbidden.error.mayBeUnknown, false);
+      if (pluginId !== 'cloud.aliyun') {
+        const forbidden = await executor.execute(context({ pluginId, versionId, manifest, hashes, capability: 'certificate.deploy' }), hostApi);
+        assert.equal(forbidden.success, false, `${pluginId} certificate.deploy 不得由 Runner 执行`);
+        assert.equal(forbidden.status, 'FAILED');
+        assert.equal(forbidden.error.code, 'PLUGIN_RUNNER_SCOPE_FORBIDDEN');
+        assert.equal(forbidden.error.mayBeUnknown, false);
+      }
       const discovery = await executor.execute(context({ pluginId, versionId, manifest, hashes, capability: 'cloud.service.discover' }), hostApi);
       assert.equal(discovery.output.resources[0].apiVersion, 'gcac.cloud-service/v1');
       assert.equal(discovery.output.resources[0].pluginVersionId, versionId);
@@ -55,6 +58,20 @@ test('四个 Cloud Runtime 工厂只执行服务识别，证书命令失败关�
       assert.equal(denied.error.mayBeUnknown, false);
     } finally {
       restoreEnv(previous);
+    }
+  }
+});
+
+test('所有 Cloud 插件 WorkflowVersion.metadata.version 必须镜像 Manifest 版本', () => {
+  for (const [directory, pluginId] of providers) {
+    const manifest = JSON.parse(readFileSync(join(root, directory, 'manifest.json'), 'utf8'));
+    for (const [workflowKey, resourcePath] of Object.entries(manifest.resources?.workflows ?? {})) {
+      const workflow = JSON.parse(readFileSync(join(root, directory, resourcePath), 'utf8'));
+      assert.equal(
+        workflow.metadata?.version,
+        manifest.version,
+        `${pluginId} ${workflowKey} 的 WorkflowVersion.metadata.version 必须与 Manifest.version 一致`,
+      );
     }
   }
 });

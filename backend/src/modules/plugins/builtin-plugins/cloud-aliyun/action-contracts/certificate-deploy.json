@@ -1,0 +1,27 @@
+{
+  "apiVersion": "gcac.plugin-action-contract/v1",
+  "actionId": "certificate.deploy.v1",
+  "capability": "certificate.deploy",
+  "actionContractVersion": "v1",
+  "inputSchema": {
+    "type": "object",
+    "required": ["cloudServiceRef", "target", "credential", "artifact"],
+    "properties": {
+      "cloudServiceRef": { "type": "string", "minLength": 1, "maxLength": 512 },
+      "target": { "type": "string", "pattern": "^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z]{2,63}$" },
+      "certificateName": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$" },
+      "credential": { "$ref": "#/definitions/aliyunCredential" },
+      "artifact": { "type": "object", "required": ["outputs"], "properties": { "artifactRef": { "type": "string", "pattern": "^artifact://[A-Za-z0-9._:/#-]{1,512}$" }, "outputs": { "type": "object", "required": ["leafPem", "privateKeyPem"], "additionalProperties": true } }, "additionalProperties": false }
+    },
+    "definitions": { "aliyunCredential": { "type": "object", "properties": { "secretRefs": { "type": "object", "properties": { "accessKeyId": { "type": "string", "pattern": "^secret://[A-Za-z0-9._:/#-]{1,512}$" }, "accessKeySecret": { "type": "string", "pattern": "^secret://[A-Za-z0-9._:/#-]{1,512}$" } }, "required": ["accessKeyId", "accessKeySecret"], "additionalProperties": false }, "secretRef": { "type": "string", "pattern": "^secret://[A-Za-z0-9._:/#-]{1,512}$" } }, "oneOf": [{ "required": ["secretRefs"] }, { "required": ["secretRef"] }], "additionalProperties": false } },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": ["provider", "operation", "signatureAlgorithm", "signatureVerified", "status", "domainName", "certificateName"],
+    "properties": { "provider": { "const": "cloud.aliyun" }, "operation": { "const": "certificate.deploy" }, "signatureAlgorithm": { "type": "string" }, "signatureVerified": { "type": "boolean" }, "status": { "const": "ACCEPTED" }, "domainName": { "type": "string" }, "certificateName": { "type": "string" }, "requestId": { "type": "string" } },
+    "additionalProperties": false
+  },
+  "writeEffect": true,
+  "hostPermissions": ["crypto.hmac", "network.http", "cloud.service.get", "artifact.read"]
+}

@@ -1,0 +1,34 @@
+{
+  "protocol": "gcac.application-onboarding/v1",
+  "platformKey": "cloud.aliyun.cdn",
+  "displayNameKey": "plugin.cloud.aliyun.name",
+  "platformMetadata": {
+    "capabilityVersion": "v1",
+    "compatibilityKeys": ["plugin.cloud.aliyun.onboarding.compatibility"],
+    "requiredInformationKeys": ["plugin.cloud.aliyun.onboarding.requiredCredential"]
+  },
+  "supportStatus": "SUPPORTED",
+  "deploymentMode": "DIRECT_WORKFLOW",
+  "deviceSelection": "NONE",
+  "forms": {},
+  "capabilities": {
+    "connectionTest": "cloud.service.connection-test",
+    "discovery": "cloud.service.discover",
+    "workflowExecution": "certificate.deploy"
+  },
+  "targetProjection": {
+    "targetType": "cloud.aliyun.cdn.certificate",
+    "displayFields": ["displayName", "frameworkType"],
+    "identityFields": ["managedTargetId", "configFingerprint"],
+    "selectableWhen": "selectable"
+  },
+  "certificate": {
+    "acceptedFormats": ["PEM"],
+    "requiredArtifacts": ["leaf", "privateKey"],
+    "defaultVersion": "LATEST_VALID"
+  },
+  "commit": {
+    "executionSource": "WORKFLOW",
+    "inputContract": "certificate.deploy.v1"
+  }
+}

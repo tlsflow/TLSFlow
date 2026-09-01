@@ -1,0 +1,22 @@
+{
+  "apiVersion": "gcac.workflow/v1",
+  "kind": "CurlSshWorkflow",
+  "metadata": { "name": "cloud-aliyun-certificate-deploy", "category": "certificate", "version": "2.0.35", "platforms": ["cloud"], "updateMethods": ["curl"], "maintainer": "GCAC" },
+  "inputContract": {
+    "apiVersion": "gcac.deployment-input/v1",
+    "variables": {
+      "cloudServiceRef": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" },
+      "target": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "asset", "path": "target.targetKey" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "certificateName": { "type": "string", "required": false, "configurationMode": "advanced", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable" },
+      "accessKeyIdSecretRef": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding", "sensitive": true },
+      "accessKeySecretSecretRef": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding", "sensitive": true },
+      "idempotencyKey": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "system", "key": "execution.idempotencyKey" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" }
+    },
+    "connections": {},
+    "credentials": {},
+    "artifacts": {
+      "certificate": { "kind": "certificate", "required": true, "configurationMode": "required", "lifecycle": "runtime_injected", "artifactContract": { "outputs": { "leafPem": { "role": "public_certificate", "required": true, "format": "PEM", "encoding": "UTF-8" }, "privateKeyPem": { "role": "private_key", "required": true, "format": "PEM", "encoding": "UTF-8", "sensitive": true }, "orderedChainPem": { "role": "certificate_chain", "required": false, "format": "PEM", "encoding": "UTF-8" }, "fingerprintSha256": { "role": "fingerprint_sha256", "required": false } } } }
+    }
+  },
+  "steps": [{ "name": "deployCertificate", "type": "plugin.action", "stage": "install", "pluginId": "cloud.aliyun", "capability": "certificate.deploy", "actionId": "certificate.deploy.v1", "actionContractVersion": "v1", "input": { "cloudServiceRef": "{{variables.cloudServiceRef}}", "target": "{{variables.target}}", "certificateName": "{{variables.certificateName}}", "credential": { "secretRefs": { "accessKeyId": "{{variables.accessKeyIdSecretRef}}", "accessKeySecret": "{{variables.accessKeySecretSecretRef}}" } }, "artifact": "{{artifacts.certificate}}" }, "inputSchemaSha256": "sha256:6cb7560f33f8dfeebd03cfac1a341089f24a3d439dbbac11523c7488fd608b2b", "outputSchemaSha256": "sha256:56090181bd631761b1eaadb7b10d83750b90a9f6236e4e9de34be2806bc5351c", "timeoutSeconds": 120, "writeEffect": true, "idempotencyKeyRef": "{{variables.idempotencyKey}}" }]
+}

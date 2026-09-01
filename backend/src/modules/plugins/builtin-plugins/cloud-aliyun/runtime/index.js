@@ -12,8 +12,8 @@ const PROVIDER = 'cloud.aliyun';
 const SIGNATURE_ALGORITHM = 'ALIYUN-RPC-HMAC-SHA1';
 const CAPABILITIES = Object.freeze(packageManifest.capabilities.map((item) => item.key));
 const PERMISSIONS = Object.freeze([...packageManifest.permissions]);
-const OPERATION_BY_CAPABILITY = Object.freeze({ 'cloud.service.connection-test': 'connection-test', 'cloud.service.discover': 'discover' });
-const IDENTIFICATION_CAPABILITIES = new Set(['cloud.service.connection-test', 'cloud.service.discover']);
+const OPERATION_BY_CAPABILITY = Object.freeze({ 'cloud.service.connection-test': 'connection-test', 'cloud.service.discover': 'discover', 'certificate.deploy': 'certificate.deploy' });
+const WRITE_CAPABILITIES = new Set(['certificate.deploy']);
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/;
 
 function readPackageResource(resourcePath) {
@@ -31,7 +31,6 @@ function actionDescriptors(resourceHash) {
     let contract;
     try { contract = JSON.parse(readPackageResource(String(resourcePath))); } catch { throw contractError('CLOUD_DESCRIPTOR_MISSING', `Action Contract 资源无效：${actionId}`); }
     if (!contract || typeof contract !== 'object' || Array.isArray(contract) || contract.apiVersion !== 'gcac.plugin-action-contract/v1' || contract.actionId !== actionId || !CAPABILITIES.includes(contract.capability) || contract.actionContractVersion !== 'v1' || !contract.inputSchema || !contract.outputSchema) throw contractError('CLOUD_DESCRIPTOR_MISSING', `Action Contract 内容无效：${actionId}`);
-    if (!IDENTIFICATION_CAPABILITIES.has(contract.capability)) return [];
     return [Object.freeze({ actionId, capability: contract.capability, actionContractVersion: contract.actionContractVersion, inputSchemaSha256: schemaHash(contract.inputSchema), outputSchemaSha256: schemaHash(contract.outputSchema), resourceHash })];
   });
   if (actions.length === 0) throw contractError('CLOUD_DESCRIPTOR_MISSING', 'Cloud 插件没有可执行 Action Contract');
@@ -57,7 +56,6 @@ export function createPluginRunnerExecutor() {
 async function execute(context, hostApi, descriptor) {
   const operation = OPERATION_BY_CAPABILITY[context?.capability];
   try {
-    if (!IDENTIFICATION_CAPABILITIES.has(context?.capability)) throw contractError('PLUGIN_RUNNER_SCOPE_FORBIDDEN', '证书生命周期必须由普通 DSL 执行，Cloud Runner 只负责服务识别');
     assertContext(context, descriptor, operation);
     const input = record(context.input, 'input');
     const grantRefs = [...context.grantRefs];
@@ -65,6 +63,7 @@ async function execute(context, hostApi, descriptor) {
     const idempotencyKey = requiredIdempotencyKey(context.idempotencyKey);
     const credential = resolveCredential(input.credential);
     const service = await hostCloudServiceGet(hostApi, { cloudServiceRef: requiredIdentifier(input.cloudServiceRef, 'cloudServiceRef') }, grantRefs);
+    if (context.capability === 'certificate.deploy') return await deployCertificate(hostApi, service, credential, input, idempotencyKey, grantId, grantRefs);
     const requestInput = record(input.request, 'input.request');
     const responses = [];
     for (const requestItem of normalizeRequestInputs(requestInput)) {
@@ -83,11 +82,11 @@ async function execute(context, hostApi, descriptor) {
 function assertContext(context, descriptor, operation) {
   if (!context || typeof context !== 'object') throw contractError('CLOUD_CONTRACT_DENIED', '执行上下文缺失');
   if (context.pluginVersionId !== descriptor.pluginVersionId || context.pluginId !== descriptor.pluginId || context.pluginVersion !== descriptor.pluginVersion) throw contractError('CLOUD_CONTRACT_DENIED', '执行上下文身份未绑定到固定 PluginVersion');
-  if (!IDENTIFICATION_CAPABILITIES.has(context.capability)) throw contractError('PLUGIN_RUNNER_SCOPE_FORBIDDEN', '证书生命周期必须由普通 DSL 执行，Cloud Runner 只负责服务识别');
+  if (!CAPABILITIES.includes(context.capability)) throw contractError('PLUGIN_RUNNER_SCOPE_FORBIDDEN', '当前 Cloud 插件未声明该 Capability');
   if (!operation) throw contractError('CLOUD_CONTRACT_DENIED', 'Capability 未绑定到 Cloud 插件');
   if (!Array.isArray(context.grantRefs) || context.grantRefs.length === 0) throw contractError('CLOUD_CONTRACT_DENIED', 'Cloud 插件执行缺少 Grant');
   if (context.actionId !== `${context.capability}.v1` || context.actionContractVersion !== 'v1') throw contractError('CLOUD_CONTRACT_DENIED', 'Cloud Action 身份未绑定到固定合同');
-  if (context.writeEffect !== false) throw contractError('CLOUD_CONTRACT_DENIED', 'Cloud 识别 Action 必须为只读');
+  if (WRITE_CAPABILITIES.has(context.capability) ? context.writeEffect !== true : context.writeEffect !== false) throw contractError('CLOUD_CONTRACT_DENIED', WRITE_CAPABILITIES.has(context.capability) ? 'Cloud 证书更新 Action 必须声明写入效果' : 'Cloud 识别 Action 必须为只读');
   for (const key of ['packageHash', 'manifestHash', 'resourceHash']) if (context[key] !== descriptor[key]) throw contractError('CLOUD_CONTRACT_DENIED', '执行绑定摘要与固定 PluginVersion 不一致');
 }
 
@@ -118,10 +117,10 @@ export function normalizeDiscoveryResponse(body, descriptor) {
 }
 
 export function normalizeDiscoveryResources(resources, descriptor) {
-  return resources.map(({ source, shape }, index) => {
+  const normalized = resources.map(({ source, shape }, index) => {
     const resource = record(source, `resources.${index}`);
     const resourceId = shape === 'aliyun-cdn'
-      ? requiredIdentifier(resource.DomainName, `Domains.Domain.${index}.DomainName`)
+      ? requiredIdentifier(resource.DomainName, `Domains.Domain.${index}.DomainName`).toLowerCase()
       : requiredIdentifier(resource.id, `resources.${index}.id`);
     const resourceType = shape === 'aliyun-cdn'
       ? 'cdn.domain'
@@ -154,6 +153,12 @@ export function normalizeDiscoveryResources(resources, descriptor) {
     const normalizedMetadata = certificateEndpoints && certificateEndpoints.length > 0
       ? { ...certificateMetadata, certificateEndpoints }
       : certificateMetadata;
+    const frameworkKey = typeof resource.frameworkKey === 'string' && resource.frameworkKey.trim()
+      ? resource.frameworkKey.trim()
+      : cdnScope ? `cdn.${cdnScope.key}` : undefined;
+    const frameworkDisplayName = typeof resource.frameworkDisplayName === 'string' && resource.frameworkDisplayName.trim()
+      ? resource.frameworkDisplayName.trim()
+      : cdnScope ? `${PROVIDER} CDN · ${cdnScope.name}` : undefined;
     const explicitTarget = readExplicitTarget(resource, resourceId, resourceType);
     return {
       apiVersion: 'gcac.cloud-service/v1',
@@ -166,10 +171,28 @@ export function normalizeDiscoveryResources(resources, descriptor) {
       resourceType,
       region,
       ...(typeof displayName === 'string' && displayName.trim() ? { displayName: displayName.trim() } : {}),
+      ...(frameworkKey ? { frameworkKey } : {}),
+      ...(frameworkDisplayName ? { frameworkDisplayName } : {}),
       ...(explicitTarget ? explicitTarget : {}),
       ...(Object.keys(normalizedMetadata).length > 0 ? { metadata: normalizedMetadata } : {}),
     };
   });
+  // 厂商分页或兼容接口可能重复返回同一域名；稳定键只允许一个实例，
+  // 同时合并重复记录的元数据，优先保留包含证书事实的记录。
+  const byStableKey = new Map();
+  for (const item of normalized) {
+    const previous = byStableKey.get(item.stableKey);
+    if (!previous) {
+      byStableKey.set(item.stableKey, item);
+      continue;
+    }
+    byStableKey.set(item.stableKey, {
+      ...previous,
+      ...(item.displayName ? { displayName: item.displayName } : {}),
+      metadata: { ...(previous.metadata ?? {}), ...(item.metadata ?? {}) },
+    });
+  }
+  return [...byStableKey.values()];
 }
 
 function declaredCertificateEndpoints(resource, shape, resourceId, metadata, certificate) {
@@ -185,19 +208,18 @@ function declaredCertificateEndpoints(resource, shape, resourceId, metadata, cer
       executionLocations: resource.executionLocations ?? ['CONTROL_PLANE'],
     }];
   }
-  // 阿里云 CDN 域名响应带有 CertId 时，旧版插件已证明该域名具备控制面证书目标。
-  // 这里仅声明发现到的真实目标，不代表插件已经具备证书写入能力。
-  if (shape === 'aliyun-cdn' && certificate) {
+  // 阿里云 CDN 域名的证书更新目标由域名本身确定；DescribeUserDomains
+  // 未必返回 CertId，因此不能把当前证书事实是否完整当成目标是否存在的条件。
+  // 目标能力仍严格限定为控制面 certificate.deploy，实际写入由厂商 API 返回结果决定。
+  if (shape === 'aliyun-cdn') {
     return [{
       endpointKey: resourceId,
       targetType: 'cloud.aliyun.cdn.certificate',
       targetKey: resourceId,
       bindingKey: resourceId,
-      supportedCapabilities: ['cloud.service.discover'],
+      supportedCapabilities: ['cloud.service.discover', 'certificate.deploy'],
       executionLocations: ['CONTROL_PLANE'],
-      metadata: {
-        ...(certificate.providerCertificateId ? { providerCertificateId: certificate.providerCertificateId } : {}),
-      },
+      ...(certificate?.providerCertificateId ? { metadata: { providerCertificateId: certificate.providerCertificateId } } : {}),
     }];
   }
   // 发现结果没有明确证书更换端点时，只投影 Framework/Site，禁止凭空制造 ManagedTarget。
@@ -320,7 +342,8 @@ async function signRequest(hostApi, service, secretRefs, requestInput, body, ide
   const action = requiredIdentifier(requestInput.action ?? 'DescribeUserDomains', 'request.action');
   const timestamp = aliTimestamp(requestInput.timestamp ?? new Date().toISOString());
   const query = sanitizeQuery(requestInput.query);
-  const bodyText = stableJson(body);
+  const form = requestInput.form === undefined ? undefined : sanitizeForm(requestInput.form);
+  const bodyText = form ? canonicalQuery(form) : stableJson(body);
   const publicValuePlaceholder = '__GCAC_ALIYUN_ACCESS_KEY_ID__';
   const params = {
     Action: action,
@@ -333,6 +356,7 @@ async function signRequest(hostApi, service, secretRefs, requestInput, body, ide
     Timestamp: timestamp,
     Version: requiredIdentifier(requestInput.apiVersion ?? '2018-05-10', 'request.apiVersion'),
     ...query,
+    ...(form ?? {}),
   };
   const unsigned = canonicalQuery(params);
   const stringToSign = `${method}&%2F&${rfc3986(unsigned)}`;
@@ -347,9 +371,59 @@ async function signRequest(hostApi, service, secretRefs, requestInput, body, ide
   }, grantRefs);
   params.AccessKeyId = requiredCredential(signature.publicValue, 'publicValue');
   params.Signature = requiredCredential(signature.signatureBase64, 'signatureBase64');
-  const signedQuery = canonicalQuery(params);
-  return { provider: PLUGIN_ID, algorithm: SIGNATURE_ALGORITHM, method, url: `${endpoint.replace(/\/$/, '')}/?${signedQuery}`, path: '/', operationPath: url.pathname, query: params, headers: { host: url.host, 'content-type': 'application/json', 'x-gcac-request-nonce': idempotencyKey }, signedHeaders: ['content-type', 'host'], body: bodyText };
+  const wireParams = form ? Object.fromEntries(Object.entries(params).filter(([key]) => !Object.hasOwn(form, key))) : params;
+  return { provider: PLUGIN_ID, algorithm: SIGNATURE_ALGORITHM, method, url: `${endpoint.replace(/\/$/, '')}/?${canonicalQuery(wireParams)}`, path: '/', operationPath: url.pathname, query: params, headers: { host: url.host, 'content-type': form ? 'application/x-www-form-urlencoded' : 'application/json', 'x-gcac-request-nonce': idempotencyKey }, signedHeaders: ['content-type', 'host'], body: bodyText };
 }
+
+async function deployCertificate(hostApi, service, secretRefs, input, idempotencyKey, grantId, grantRefs) {
+  const target = requiredDomainName(input.target ?? input.domainName);
+  const artifact = await readCertificateArtifact(hostApi, input.artifact, grantRefs, grantId);
+  const certificateName = requiredCertificateName(input.certificateName ?? `GCAC-${artifact.fingerprint ?? idempotencyKey.slice(0, 16)}`);
+  const request = await signRequest(hostApi, service, secretRefs, {
+    uri: '/',
+    method: 'POST',
+    action: 'SetCdnDomainSSLCertificate',
+    apiVersion: '2018-05-10',
+    form: {
+      DomainName: target,
+      SSLProtocol: 'on',
+      CertType: 'upload',
+      CertName: certificateName,
+      SSLPub: artifact.leafPem + (artifact.orderedChainPem ? `\n${artifact.orderedChainPem}` : ''),
+      SSLPri: artifact.privateKeyPem,
+    },
+  }, {}, idempotencyKey, 'certificate.deploy', grantId, grantRefs);
+  const response = await hostHttpRequest(hostApi, request, grantRefs);
+  const code = statusCode(response);
+  const body = responseBody(response);
+  if (code < 200 || code >= 300 || typeof body.Code === 'string' || typeof body.code === 'string') {
+    const vendorCode = typeof body.Code === 'string' ? body.Code : typeof body.code === 'string' ? body.code : '';
+    const vendorMessage = typeof body.Message === 'string' ? body.Message : typeof body.message === 'string' ? body.message : '';
+    throw contractError('CLOUD_WRITE_FAILED', `阿里云 CDN 证书更新失败${vendorCode ? `：${vendorCode}${vendorMessage ? ` ${vendorMessage}` : ''}` : ''}`);
+  }
+  return successResult({ provider: PROVIDER, operation: 'certificate.deploy', signatureAlgorithm: SIGNATURE_ALGORITHM, signatureVerified: response.signatureVerified === true, status: 'ACCEPTED', domainName: target, certificateName, ...(typeof body.RequestId === 'string' ? { requestId: body.RequestId } : {}) });
+}
+
+async function readCertificateArtifact(hostApi, value, grantRefs, grantId) {
+  const artifact = record(value, 'input.artifact');
+  if (artifact.artifactRef !== undefined) {
+    const ref = requiredArtifactRef(artifact.artifactRef);
+    await hostData(hostApi, () => hostApi.call('artifact.grant.read', { grantId, artifactRef: ref }, grantRefs));
+  }
+  const outputs = record(artifact.outputs, 'input.artifact.outputs');
+  const leafPem = requiredPem(outputValue(outputs.leafPem), 'leafPem', 'CERTIFICATE');
+  const privateKeyPem = requiredPem(outputValue(outputs.privateKeyPem), 'privateKeyPem', 'PRIVATE KEY');
+  const orderedChainPem = outputs.orderedChainPem === undefined ? '' : requiredPem(outputValue(outputs.orderedChainPem), 'orderedChainPem', 'CERTIFICATE');
+  const fingerprint = typeof outputValue(outputs.fingerprintSha256) === 'string' ? outputValue(outputs.fingerprintSha256).replace(/[^a-f0-9]/gi, '').slice(0, 32) : '';
+  return { leafPem, privateKeyPem, orderedChainPem, fingerprint };
+}
+
+function outputValue(value) { return typeof value === 'string' ? value : value && typeof value === 'object' && !Array.isArray(value) && typeof value.content === 'string' ? value.content : undefined; }
+function requiredPem(value, name, marker) { if (typeof value !== 'string' || !(value.includes(`-----BEGIN ${marker}`) || (marker === 'PRIVATE KEY' && value.includes('-----BEGIN RSA PRIVATE KEY')))) throw contractError('CLOUD_ARTIFACT_INVALID', `证书 Artifact 的 ${name} 缺失或格式无效`); return value.trim(); }
+function requiredArtifactRef(value) { if (typeof value !== 'string' || !/^artifact:\/\/[A-Za-z0-9._:/#-]{1,512}$/.test(value)) throw contractError('CLOUD_ARTIFACT_INVALID', '证书 Artifact 引用无效'); return value; }
+function requiredDomainName(value) { if (typeof value !== 'string' || !/^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$/.test(value.trim())) throw contractError('CLOUD_INPUT_INVALID', 'CDN 域名无效'); return value.trim().toLowerCase(); }
+function requiredCertificateName(value) { if (typeof value !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(value)) throw contractError('CLOUD_INPUT_INVALID', '证书名称无效'); return value; }
+function sanitizeForm(value) { const form = record(value, 'request.form'); const result = {}; for (const [key, item] of Object.entries(form)) { if (!/^[A-Za-z0-9_.-]{1,128}$/.test(key) || typeof item !== 'string' || item.length > 1024 * 1024) throw contractError('CLOUD_INPUT_INVALID', '请求表单参数无效'); result[key] = item; } return result; }
 
 function normalizeRequestInputs(requestInput) {
   if (!Array.isArray(requestInput.requests) || requestInput.requests.length === 0) return [requestInput];

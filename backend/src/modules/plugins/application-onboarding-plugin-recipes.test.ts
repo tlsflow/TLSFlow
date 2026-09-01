@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import test from 'node:test';
 import { ApplicationOnboardingRecipeLoader } from '../application-onboarding/recipe/application-onboarding-recipe.loader.js';
 import { BuiltinUnifiedPluginLoader } from './builtin-plugins/builtin-unified-plugin-loader.js';
 import { hostLocales } from './locales/plugin-locale.service.js';
+import { workflowTemplatesSchemaRegistry } from '../workflow-templates/schema/workflow-templates.schema.js';
 
 const expected = {
   'web.iis': {
@@ -117,4 +120,40 @@ test('IIS、Windows/Linux Apache/Nginx 与 Tomcat 都提供统一应用向导配
       if (locale !== 'zh-CN') assert.notEqual(messages[nameKey], expectation.displayName, `${pluginId} 的 ${locale} 仍回退为中文名称`);
     }
   }
+});
+
+test('阿里云 CDN 提供仅选择云服务资产的统一应用向导配方', async () => {
+  const packages = await new BuiltinUnifiedPluginLoader().loadPackages();
+  const plugin = packages.find((item) => (item.manifest as { pluginId?: string }).pluginId === 'cloud.aliyun');
+  assert.ok(plugin, 'cloud.aliyun 内置插件包缺失');
+  const manifest = plugin.manifest as Parameters<typeof ApplicationOnboardingRecipeLoader.prototype.load>[0]['manifest'];
+  assert.equal(manifest.version, '2.0.35');
+  const recipe = new ApplicationOnboardingRecipeLoader().loadAll({
+    id: `cloud.aliyun-${manifest.version}`,
+    pluginId: 'cloud.aliyun',
+    version: manifest.version,
+    manifest,
+    resources: plugin.resources,
+    status: 'ENABLED',
+  }).find((item) => item.recipe.platformKey === 'cloud.aliyun.cdn');
+
+  assert.ok(recipe, '阿里云 CDN 应用向导配方缺失');
+  assert.equal(recipe.pluginVersion, '2.0.35');
+  assert.equal(recipe.recipe.deploymentMode, 'DIRECT_WORKFLOW');
+  assert.equal(recipe.recipe.deviceSelection, 'NONE');
+  assert.deepEqual(recipe.recipe.capabilities, {
+    connectionTest: 'cloud.service.connection-test',
+    discovery: 'cloud.service.discover',
+    workflowExecution: 'certificate.deploy',
+  });
+  assert.equal(recipe.recipe.targetProjection.targetType, 'cloud.aliyun.cdn.certificate');
+  assert.deepEqual(recipe.recipe.certificate.acceptedFormats, ['PEM']);
+  assert.equal(recipe.recipe.commit.executionSource, 'WORKFLOW');
+});
+
+test('阿里云 CDN 证书部署工作流的 Artifact 配置模式符合宿主合同', () => {
+  const content = JSON.parse(readFileSync(join(process.cwd(), 'src/modules/plugins/builtin-plugins/cloud-aliyun/workflows/certificate-deploy.json'), 'utf8'));
+  const workflow = workflowTemplatesSchemaRegistry.validate(content);
+  assert.equal(workflow.inputContract.artifacts.certificate?.configurationMode, 'required');
+  assert.equal(workflow.inputContract.artifacts.certificate?.lifecycle, 'runtime_injected');
 });

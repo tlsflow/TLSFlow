@@ -1,0 +1,36 @@
+{
+  "protocol": "gcac.cloud-account-onboarding/v2",
+  "assetKind": "CLOUD_ACCOUNT",
+  "providerKey": "cloud.aliyun",
+  "display": {
+    "nameKey": "plugin.cloud.aliyun.name",
+    "descriptionKey": "plugin.cloud.aliyun.description",
+    "logoResource": "logos/logo-square.svg"
+  },
+  "platformMetadata": {
+    "capabilityVersion": "v1",
+    "compatibilityKeys": ["plugin.cloud.aliyun.onboarding.compatibility"],
+    "requiredInformationKeys": ["plugin.cloud.aliyun.onboarding.requiredCredential"]
+  },
+  "credentialContractResource": "credential-contracts/cloud-account.json",
+  "capabilities": {
+    "connectionTest": "cloud.service.connection-test",
+    "discover": "cloud.service.discover"
+  },
+  "submit": {
+    "target": "CLOUD_ACCOUNT_ASSET",
+    "scopeSchema": "cloud.aliyun.cdn"
+  },
+  "projection": {
+    "apiVersion": "gcac.cloud-service/v1",
+    "resourceMapping": "aliyun.cdn"
+  },
+  "defaults": {
+    "request": {
+      "uri": "/",
+      "method": "POST",
+      "action": "DescribeUserDomains",
+      "apiVersion": "2018-05-10"
+    }
+  }
+}

@@ -14,6 +14,8 @@ export interface CloudAliyunDiscoveryResource {
   resourceType: string;
   region: string;
   displayName?: string;
+  frameworkKey?: string;
+  frameworkDisplayName?: string;
   targetType?: string;
   targetKey?: string;
   bindingKey?: string;

@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "cloud.aliyun",
-  "version": "2.0.26",
+  "version": "2.0.35",
   "displayNameKey": "plugin.cloud.aliyun.name",
   "descriptionKey": "plugin.cloud.aliyun.description",
   "defaultLocale": "zh-CN",
@@ -14,10 +14,12 @@
   "support": "OFFICIAL",
   "capabilities": [
     { "key": "cloud.service.connection-test", "contractVersion": "v1", "actionContractId": "cloud.service.connection-test.v1", "riskLevel": "LOW", "executionLocations": ["CONTROL_PLANE"] },
-    { "key": "cloud.service.discover", "contractVersion": "v1", "actionContractId": "cloud.service.discover.v1", "riskLevel": "LOW", "executionLocations": ["CONTROL_PLANE"] }
+    { "key": "cloud.service.discover", "contractVersion": "v1", "actionContractId": "cloud.service.discover.v1", "riskLevel": "LOW", "executionLocations": ["CONTROL_PLANE"] },
+    { "key": "certificate.deploy", "contractVersion": "v1", "actionContractId": "certificate.deploy.v1", "riskLevel": "HIGH", "executionLocations": ["CONTROL_PLANE"] }
   ],
   "permissions": [
     "crypto.hmac",
+    "artifact.read",
     "network.http",
     "cloud.service.get",
     "audit.append"
@@ -26,7 +28,9 @@
     "productFamilies": ["cloud.aliyun.cdn"],
     "serviceEndpoints": ["https://cdn.aliyuncs.com"],
     "managementMethods": ["PLUGIN"],
-    "executionLocations": ["CONTROL_PLANE"]
+    "executionLocations": ["CONTROL_PLANE"],
+    "targetTypes": ["cloud.aliyun.cdn.certificate"],
+    "artifactContracts": ["certificate.deploy.v1"]
   },
   "resources": {
     "logos": {
@@ -36,16 +40,22 @@
     "runtimeEntrypoint": "runtime/index.js",
     "workflows": {
       "cloud.service.connection-test": "workflows/connection-test.json",
-      "cloud.service.discover": "workflows/discover.json"
+      "cloud.service.discover": "workflows/discover.json",
+      "certificate.deploy": "workflows/certificate-deploy.json"
     },
     "actionContracts": {
       "cloud.service.connection-test.v1": "action-contracts/connection-test.json",
-      "cloud.service.discover.v1": "action-contracts/discover.json"
+      "cloud.service.discover.v1": "action-contracts/discover.json",
+      "certificate.deploy.v1": "action-contracts/certificate-deploy.json"
     },
     "credentialContracts": { "cloudAccount": "credential-contracts/cloud-account.json" },
     "forms": { "cloud": "forms/cloud.json" },
     "presentations": { "cloud": "presentations/cloud.json" },
     "discoveryMappings": { "aliyun.cdn": "discovery/aliyun-cdn.json" },
+    "onboarding": {
+      "applicationAsset": "onboarding/application-asset.json",
+      "cloudAccount": "onboarding/cloud-account.json"
+    },
     "locales": { "zh-CN": "locales/zh-CN.json", "en-US": "locales/en-US.json" }
   }
 }

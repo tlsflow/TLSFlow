@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createPluginRunnerExecutor, normalizeDiscoveryResponse } from './index.js';
 
-const descriptor = { pluginId: 'cloud.aliyun', pluginVersionId: 'cloud.aliyun:2.0.26' };
+const descriptor = { pluginId: 'cloud.aliyun', pluginVersionId: 'cloud.aliyun:2.0.35' };
 
 test('阿里云签名请求使用 RPC 要求的 Timestamp 公共参数', async () => {
   const envKeys = ['GCAC_PLUGIN_VERSION_ID', 'GCAC_PLUGIN_PACKAGE_HASH', 'GCAC_PLUGIN_MANIFEST_HASH', 'GCAC_PLUGIN_RESOURCE_HASH'];
   const previous = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
   Object.assign(process.env, {
-    GCAC_PLUGIN_VERSION_ID: 'cloud.aliyun:2.0.26',
+    GCAC_PLUGIN_VERSION_ID: 'cloud.aliyun:2.0.35',
     GCAC_PLUGIN_PACKAGE_HASH: `sha256:${'1'.repeat(64)}`,
     GCAC_PLUGIN_MANIFEST_HASH: `sha256:${'2'.repeat(64)}`,
     GCAC_PLUGIN_RESOURCE_HASH: `sha256:${'3'.repeat(64)}`,
@@ -17,9 +17,9 @@ test('阿里云签名请求使用 RPC 要求的 Timestamp 公共参数', async (
   try {
     const executor = createPluginRunnerExecutor();
     const result = await executor.execute({
-      pluginVersionId: 'cloud.aliyun:2.0.26',
+      pluginVersionId: 'cloud.aliyun:2.0.35',
       pluginId: 'cloud.aliyun',
-      pluginVersion: '2.0.26',
+      pluginVersion: '2.0.35',
       capability: 'cloud.service.connection-test',
       actionId: 'cloud.service.connection-test.v1',
       actionContractVersion: 'v1',
@@ -61,6 +61,130 @@ test('阿里云签名请求使用 RPC 要求的 Timestamp 公共参数', async (
   }
 });
 
+test('阿里云 CDN 证书更新使用表单正文传递 PEM，且不将私钥写入 URL', async () => {
+  const envKeys = ['GCAC_PLUGIN_VERSION_ID', 'GCAC_PLUGIN_PACKAGE_HASH', 'GCAC_PLUGIN_MANIFEST_HASH', 'GCAC_PLUGIN_RESOURCE_HASH'];
+  const previous = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+  Object.assign(process.env, {
+    GCAC_PLUGIN_VERSION_ID: 'cloud.aliyun:2.0.35',
+    GCAC_PLUGIN_PACKAGE_HASH: `sha256:${'1'.repeat(64)}`,
+    GCAC_PLUGIN_MANIFEST_HASH: `sha256:${'2'.repeat(64)}`,
+    GCAC_PLUGIN_RESOURCE_HASH: `sha256:${'3'.repeat(64)}`,
+  });
+  let outboundRequest: Record<string, unknown> | undefined;
+  try {
+    const executor = createPluginRunnerExecutor();
+    const result = await executor.execute({
+      pluginVersionId: 'cloud.aliyun:2.0.35', pluginId: 'cloud.aliyun', pluginVersion: '2.0.35', capability: 'certificate.deploy', actionId: 'certificate.deploy.v1', actionContractVersion: 'v1',
+      packageHash: `sha256:${'1'.repeat(64)}`, manifestHash: `sha256:${'2'.repeat(64)}`, resourceHash: `sha256:${'3'.repeat(64)}`,
+      planDigest: 'd'.repeat(64), idempotencyKey: 'aliyun-deploy-fixture', deadlineAt: new Date(Date.now() + 10_000).toISOString(), signal: new AbortController().signal, grantRefs: ['grant-cloud'], writeEffect: true,
+      input: {
+        cloudServiceRef: 'caa-fixture', target: 'nas-cdn.jacksonz.cn', certificateName: 'GCAC-jacksonz',
+        credential: { secretRefs: { accessKeyId: 'secret://cloud/access-key-id#current', accessKeySecret: 'secret://cloud/access-key-secret#current' } },
+        artifact: {
+          artifactRef: 'artifact://certificate-version-4',
+          outputs: {
+            leafPem: '-----BEGIN CERTIFICATE-----\nLEAF\n-----END CERTIFICATE-----',
+            privateKeyPem: '-----BEGIN PRIVATE KEY-----\nPRIVATE-KEY-MATERIAL\n-----END PRIVATE KEY-----',
+            orderedChainPem: '-----BEGIN CERTIFICATE-----\nCHAIN\n-----END CERTIFICATE-----',
+            fingerprintSha256: 'sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890',
+          },
+        },
+      },
+    }, {
+      async call(method, input) {
+        if (method === 'cloudService.get') return { ok: true, data: { providerKey: 'cloud.aliyun', scope: { endpoint: 'https://cdn.aliyuncs.com' }, status: 'ACTIVE' } };
+        if (method === 'artifact.grant.read') return { ok: true, data: { artifactRef: input.artifactRef, sha256: `sha256:${'e'.repeat(64)}`, contentBase64: '' } };
+        if (method === 'crypto.hmac') return { ok: true, data: { signatureBase64: 'fixture-signature', publicValue: 'fixture-access-key-id' } };
+        if (method === 'http.request') { outboundRequest = input; return { ok: true, data: { statusCode: 200, body: { RequestId: 'request-fixture' } } }; }
+        throw new Error(`unexpected host method ${method}`);
+      },
+    });
+    assert.equal(result.success, true);
+    assert.deepEqual(result.output, {
+      provider: 'cloud.aliyun', operation: 'certificate.deploy', signatureAlgorithm: 'ALIYUN-RPC-HMAC-SHA1', signatureVerified: false, status: 'ACCEPTED', domainName: 'nas-cdn.jacksonz.cn', certificateName: 'GCAC-jacksonz', requestId: 'request-fixture',
+    });
+    assert.ok(outboundRequest);
+    const url = String(outboundRequest.url);
+    assert.equal(url.includes('PRIVATE-KEY-MATERIAL'), false);
+    assert.equal(url.includes('-----BEGIN'), false);
+    assert.equal((outboundRequest.headers as Record<string, string>)['content-type'], 'application/x-www-form-urlencoded');
+    const form = new URLSearchParams(String(outboundRequest.body));
+    assert.equal(form.get('DomainName'), 'nas-cdn.jacksonz.cn');
+    assert.equal(form.get('CertType'), 'upload');
+    assert.equal(form.get('SSLProtocol'), 'on');
+    assert.match(String(form.get('SSLPub')), /LEAF[\s\S]*CHAIN/);
+    assert.match(String(form.get('SSLPri')), /PRIVATE-KEY-MATERIAL/);
+  } finally {
+    for (const key of envKeys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+  }
+});
+
+test('阿里云 CDN 证书更新在私钥缺失时失败关闭', async () => {
+  const envKeys = ['GCAC_PLUGIN_VERSION_ID', 'GCAC_PLUGIN_PACKAGE_HASH', 'GCAC_PLUGIN_MANIFEST_HASH', 'GCAC_PLUGIN_RESOURCE_HASH'];
+  const previous = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+  Object.assign(process.env, {
+    GCAC_PLUGIN_VERSION_ID: 'cloud.aliyun:2.0.35', GCAC_PLUGIN_PACKAGE_HASH: `sha256:${'1'.repeat(64)}`, GCAC_PLUGIN_MANIFEST_HASH: `sha256:${'2'.repeat(64)}`, GCAC_PLUGIN_RESOURCE_HASH: `sha256:${'3'.repeat(64)}`,
+  });
+  try {
+    const executor = createPluginRunnerExecutor();
+    const result = await executor.execute({
+      pluginVersionId: 'cloud.aliyun:2.0.35', pluginId: 'cloud.aliyun', pluginVersion: '2.0.35', capability: 'certificate.deploy', actionId: 'certificate.deploy.v1', actionContractVersion: 'v1', packageHash: `sha256:${'1'.repeat(64)}`, manifestHash: `sha256:${'2'.repeat(64)}`, resourceHash: `sha256:${'3'.repeat(64)}`,
+      planDigest: 'd'.repeat(64), idempotencyKey: 'aliyun-deploy-missing-key', deadlineAt: new Date(Date.now() + 10_000).toISOString(), signal: new AbortController().signal, grantRefs: ['grant-cloud'], writeEffect: true,
+      input: { cloudServiceRef: 'caa-fixture', target: 'nas-cdn.jacksonz.cn', credential: { secretRefs: { accessKeyId: 'secret://cloud/access-key-id#current', accessKeySecret: 'secret://cloud/access-key-secret#current' } }, artifact: { outputs: { leafPem: '-----BEGIN CERTIFICATE-----\nLEAF\n-----END CERTIFICATE-----' } } },
+    }, {
+      async call(method) {
+        if (method === 'cloudService.get') return { ok: true, data: { providerKey: 'cloud.aliyun', scope: { endpoint: 'https://cdn.aliyuncs.com' }, status: 'ACTIVE' } };
+        throw new Error(`unexpected host method ${method}`);
+      },
+    });
+    assert.equal(result.success, false);
+    const error = result.error as Record<string, unknown>;
+    assert.equal(error.code, 'CLOUD_ARTIFACT_INVALID');
+    assert.equal(error.secretRedacted, true);
+  } finally {
+    for (const key of envKeys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+  }
+});
+
+test('阿里云 CDN 写入错误不会回显私钥', async () => {
+  const envKeys = ['GCAC_PLUGIN_VERSION_ID', 'GCAC_PLUGIN_PACKAGE_HASH', 'GCAC_PLUGIN_MANIFEST_HASH', 'GCAC_PLUGIN_RESOURCE_HASH'];
+  const previous = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+  Object.assign(process.env, {
+    GCAC_PLUGIN_VERSION_ID: 'cloud.aliyun:2.0.35', GCAC_PLUGIN_PACKAGE_HASH: `sha256:${'1'.repeat(64)}`, GCAC_PLUGIN_MANIFEST_HASH: `sha256:${'2'.repeat(64)}`, GCAC_PLUGIN_RESOURCE_HASH: `sha256:${'3'.repeat(64)}`,
+  });
+  try {
+    const executor = createPluginRunnerExecutor();
+    const result = await executor.execute({
+      pluginVersionId: 'cloud.aliyun:2.0.35', pluginId: 'cloud.aliyun', pluginVersion: '2.0.35', capability: 'certificate.deploy', actionId: 'certificate.deploy.v1', actionContractVersion: 'v1', packageHash: `sha256:${'1'.repeat(64)}`, manifestHash: `sha256:${'2'.repeat(64)}`, resourceHash: `sha256:${'3'.repeat(64)}`,
+      planDigest: 'd'.repeat(64), idempotencyKey: 'aliyun-deploy-vendor-error', deadlineAt: new Date(Date.now() + 10_000).toISOString(), signal: new AbortController().signal, grantRefs: ['grant-cloud'], writeEffect: true,
+      input: { cloudServiceRef: 'caa-fixture', target: 'nas-cdn.jacksonz.cn', credential: { secretRefs: { accessKeyId: 'secret://cloud/access-key-id#current', accessKeySecret: 'secret://cloud/access-key-secret#current' } }, artifact: { outputs: { leafPem: '-----BEGIN CERTIFICATE-----\nLEAF\n-----END CERTIFICATE-----', privateKeyPem: '-----BEGIN PRIVATE KEY-----\nPRIVATE-KEY-MATERIAL\n-----END PRIVATE KEY-----' } } },
+    }, {
+      async call(method) {
+        if (method === 'cloudService.get') return { ok: true, data: { providerKey: 'cloud.aliyun', scope: { endpoint: 'https://cdn.aliyuncs.com' }, status: 'ACTIVE' } };
+        if (method === 'crypto.hmac') return { ok: true, data: { signatureBase64: 'fixture-signature', publicValue: 'fixture-access-key-id' } };
+        if (method === 'http.request') return { ok: true, data: { statusCode: 400, body: { Code: 'InvalidCertificate', Message: 'certificate rejected' } } };
+        throw new Error(`unexpected host method ${method}`);
+      },
+    });
+    assert.equal(result.success, false);
+    const error = result.error as Record<string, unknown>;
+    assert.equal(error.code, 'CLOUD_WRITE_FAILED');
+    assert.match(String(error.message), /InvalidCertificate/);
+    assert.equal(String(error.message).includes('PRIVATE-KEY-MATERIAL'), false);
+  } finally {
+    for (const key of envKeys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+  }
+});
+
 test('阿里云 CDN 发现兼容 DescribeUserDomains 的 Domains.Domain 响应', () => {
   const result = normalizeDiscoveryResponse({
     Domains: {
@@ -82,6 +206,22 @@ test('阿里云 CDN 发现兼容 DescribeUserDomains 的 Domains.Domain 响应',
   ]);
   assert.equal(result[0]?.metadata?.cname, 'example.com.w.kunlunsl.com');
   assert.equal(result[0]?.metadata?.cdnRegionName, '中国大陆');
+});
+
+test('阿里云 CDN 域名未返回 CertId 时仍声明证书更新目标', () => {
+  const result = normalizeDiscoveryResponse({
+    Domains: {
+      Domain: [{ DomainName: 'no-cert-fact.example', Region: 'overseas', DomainStatus: 'online' }],
+    },
+  }, descriptor);
+  assert.deepEqual(result[0]?.metadata?.certificateEndpoints, [{
+    endpointKey: 'no-cert-fact.example',
+    targetType: 'cloud.aliyun.cdn.certificate',
+    targetKey: 'no-cert-fact.example',
+    bindingKey: 'no-cert-fact.example',
+    supportedCapabilities: ['cloud.service.discover', 'certificate.deploy'],
+    executionLocations: ['CONTROL_PLANE'],
+  }]);
 });
 
 test('归一化资源格式优先于厂商响应格式并保留非敏感元数据', () => {
@@ -110,7 +250,7 @@ test('标准资源声明的证书端点字段会原样保留，供宿主投影 M
     kind: 'CloudServiceResource',
     stableKey: 'cloud.aliyun:cdn.edge:fixture-endpoint',
     pluginId: 'cloud.aliyun',
-    pluginVersionId: 'cloud.aliyun:2.0.26',
+    pluginVersionId: 'cloud.aliyun:2.0.35',
     provider: 'cloud.aliyun',
     resourceId: 'fixture-endpoint',
     resourceType: 'cdn.edge',
@@ -161,14 +301,34 @@ test('同一 DescribeUserDomains 响应可将中国大陆与国际站域名分�
   ]);
 });
 
-test('CDN 域名未声明证书更换端点时不伪造 ManagedTarget', () => {
+test('重复或大小写不同的 CDN 域名只归一化为一个国际站实例', () => {
+  const result = normalizeDiscoveryResponse({
+    Domains: {
+      PageData: [
+        { DomainName: 'NAS-CDN.JACKSONZ.CN', Coverage: 'overseas', DomainStatus: 'online' },
+        { DomainName: 'nas-cdn.jacksonz.cn', Coverage: 'overseas', DomainStatus: 'online', CertId: 'cert-valid' },
+      ],
+    },
+  }, descriptor);
+  assert.equal(result.length, 1);
+  assert.equal(result[0]?.resourceId, 'nas-cdn.jacksonz.cn');
+  assert.equal((result[0]?.metadata?.certificate as Record<string, unknown>)?.providerCertificateId, 'cert-valid');
+});
+
+test('CDN 域名未返回证书事实时仍声明证书更新端点', () => {
   const result = normalizeDiscoveryResponse({
     Domains: {
       Domain: [{ DomainName: 'certificate.example', Coverage: 'domestic', DomainStatus: 'online' }],
     },
   }, descriptor);
-  const endpoints = result[0]?.metadata?.certificateEndpoints;
-  assert.equal(endpoints, undefined);
+  assert.deepEqual(result[0]?.metadata?.certificateEndpoints, [{
+    endpointKey: 'certificate.example',
+    targetType: 'cloud.aliyun.cdn.certificate',
+    targetKey: 'certificate.example',
+    bindingKey: 'certificate.example',
+    supportedCapabilities: ['cloud.service.discover', 'certificate.deploy'],
+    executionLocations: ['CONTROL_PLANE'],
+  }]);
 });
 
 test('CDN 域名响应中的 CertId 会恢复证书事实和控制面目标', () => {
@@ -194,7 +354,7 @@ test('CDN 域名响应中的 CertId 会恢复证书事实和控制面目标', ()
     targetType: 'cloud.aliyun.cdn.certificate',
     targetKey: 'bound.example',
     bindingKey: 'bound.example',
-    supportedCapabilities: ['cloud.service.discover'],
+    supportedCapabilities: ['cloud.service.discover', 'certificate.deploy'],
     executionLocations: ['CONTROL_PLANE'],
     metadata: { providerCertificateId: 'cas-cert-001' },
   }]);

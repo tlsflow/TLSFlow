@@ -227,6 +227,36 @@ test('插件版本递进时即使业务步骤未变也追加新的 WorkflowVersi
   assert.deepEqual((await workflows.listVersions(internal.template.id)).map((item) => item.version).sort((left, right) => left - right), [1, 2]);
 });
 
+test('已有同版本草稿时，插件发布会继续发布该草稿而不是重复追加', async () => {
+  const bindings = new Map<string, PluginWorkflowBindingRecord>();
+  const workflows = new WorkflowTemplatesApplicationService(undefined, {}, workflowRepository(bindings));
+  const publisher = new PluginWorkflowPublisherService(workflows, workflowRepository(bindings));
+  const oldPlugin = pluginRecord('pending-seed', '1.0.0', '1.0.0');
+  const currentPlugin = pluginRecord('pending-current', '1.1.0', '1.1.0');
+  const oldContent = JSON.parse(oldPlugin.resources['workflows/deploy.json']!) as Parameters<typeof workflows.createWorkflow>[0]['content'];
+  const internal = await workflows.createPluginTemplate({ content: oldContent }, { ownerType: 'SYSTEM', ownerId: 'SYSTEM' });
+  const oldVersion = await workflows.publishPluginVersion(internal.version.id);
+  const pending = await workflows.createPluginInternalDraftVersion({
+    templateId: internal.template.id,
+    content: JSON.parse(currentPlugin.resources['workflows/deploy.json']!),
+  });
+  bindings.set(`${currentPlugin.id}:certificate.deploy:certificate.deploy`, {
+    pluginVersionId: currentPlugin.id,
+    capabilityKey: 'certificate.deploy',
+    workflowKey: 'certificate.deploy',
+    workflowResourcePath: 'workflows/deploy.json',
+    workflowTemplateId: internal.template.id,
+    workflowVersionId: oldVersion.id,
+    workflowContentSha256: oldVersion.contentHash,
+    createdAt: new Date().toISOString(),
+  });
+
+  const [published] = await publisher.publishPlugin(currentPlugin);
+
+  assert.equal(published?.workflowVersionId, pending.id);
+  assert.equal((await workflows.getVersion(pending.id)).status, 'published');
+});
+
 test('历史绑定指向旧 DSL 版本时，插件发布会幂等修复绑定目标', async () => {
   const bindings = new Map<string, PluginWorkflowBindingRecord>();
   const workflows = new WorkflowTemplatesApplicationService(undefined, {}, workflowRepository(bindings));
@@ -252,6 +282,30 @@ test('历史绑定指向旧 DSL 版本时，插件发布会幂等修复绑定目
   const repairedVersion = await workflows.getVersion(repaired!.workflowVersionId);
   assert.equal(repairedVersion.content.metadata.version, '1.0.14');
   assert.equal((await publisher.require(currentPlugin.id, 'certificate.deploy')).workflowVersionId, repaired!.workflowVersionId);
+});
+
+test('历史绑定指向不存在的 WorkflowVersion 时，插件发布会重建绑定而不失败', async () => {
+  const bindings = new Map<string, PluginWorkflowBindingRecord>();
+  const workflows = new WorkflowTemplatesApplicationService(undefined, {}, workflowRepository(bindings));
+  const publisher = new PluginWorkflowPublisherService(workflows, workflowRepository(bindings));
+  const plugin = pluginRecord('dangling-binding', '1.0.15', '1.0.15');
+  bindings.set(`${plugin.id}:certificate.deploy:certificate.deploy`, {
+    pluginVersionId: plugin.id,
+    capabilityKey: 'certificate.deploy',
+    workflowKey: 'certificate.deploy',
+    workflowResourcePath: 'workflows/deploy.json',
+    workflowTemplateId: 'workflow-template-missing',
+    workflowVersionId: 'workflow-version-missing',
+    workflowContentSha256: 'sha256:missing',
+    createdAt: new Date().toISOString(),
+  });
+
+  const [repaired] = await publisher.publishPlugin(plugin);
+
+  assert.ok(repaired);
+  assert.notEqual(repaired.workflowVersionId, 'workflow-version-missing');
+  const published = await workflows.getVersion(repaired!.workflowVersionId);
+  assert.equal(published.content.metadata.version, plugin.version);
 });
 
 test('Workflow DSL 插件声明能力缺少绑定时拒绝发布', async () => {

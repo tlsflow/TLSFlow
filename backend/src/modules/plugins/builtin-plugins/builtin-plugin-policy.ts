@@ -106,9 +106,8 @@ export function validateBuiltinPluginPolicy(manifest: UnifiedPluginManifestV1): 
 }
 
 function validateCertificateUpdatePluginPolicy(manifest: UnifiedPluginManifestV1): BuiltinPluginPolicyDecision {
-  // web.iis 仍承载旧版 Runtime 发现工作流；证书写入已经切换到 Agent Plan，
-  // 两条链路必须在同一不可变包内共存，直到旧发现事实完成迁移。
-  const legacyRuntimeDiscovery = manifest.pluginId === 'web.iis';
+  // 仍声明 application.discover 的历史包需要兼容 Runtime 发现；新证书包只能使用 Agent Plan。
+  const legacyRuntimeDiscovery = manifest.capabilities.some((capability) => capability.key === 'application.discover');
   if (manifest.runtime !== 'WORKFLOW_DSL') {
     throw new AppError('VALIDATION_FAILED', '证书更新插件必须使用普通 WORKFLOW_DSL', { pluginId: manifest.pluginId });
   }

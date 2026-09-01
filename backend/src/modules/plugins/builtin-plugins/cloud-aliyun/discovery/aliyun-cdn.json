@@ -1,7 +1,7 @@
 {
   "provider": "cloud.aliyun",
   "productFamily": "cloud.aliyun.cdn",
-  "readOnly": true,
+  "readOnly": false,
   "standardObject": "CloudResource",
   "identityFields": ["resourceId", "resourceType", "region"],
   "responseFields": { "resources": "resources", "resourceId": "id", "resourceType": "type", "region": "region" }
