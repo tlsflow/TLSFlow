@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import { internalCaApi, type InternalCaRecord } from '@/api/modules/internal-ca.api'
 import { createWindowsAdcsInstallSession, listAgents } from '@/api/modules/assets.api'
-import { GcDataTable, GcModal, GcPageHeader, GcStatusTag, type StatusTone } from '@/design-system/components'
+import { GcDataTable, GcModal, GcPageHeader, GcStatusTag } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
@@ -380,21 +380,6 @@ function backendVerificationSummary(backend: InternalCaRecord): string {
 function adcsRuntimeOf(backend: InternalCaRecord): InternalCaRecord {
   return asRecord(backend.runtime)
 }
-
-function adcsStatusLabel(status: unknown): string {
-  const value = text(status)
-  if (value === 'ONLINE') return t('internalCa.backendSummary.statusOnline')
-  if (value === 'OFFLINE') return t('internalCa.backendSummary.statusOffline')
-  return t('internalCa.backendSummary.statusUnknown')
-}
-
-function adcsStatusTone(status: unknown): StatusTone {
-  const value = text(status)
-  if (value === 'ONLINE') return 'success'
-  if (value === 'OFFLINE') return 'danger'
-  return 'muted'
-}
-
 function adcsAuthorityId(backend: InternalCaRecord): string {
   return text(activeAuthorities.value.find((authority) => text(authority.providerId) === text(backend.id))?.id)
 }
@@ -807,20 +792,6 @@ function requestDeploymentSummary(request: InternalCaRecord): string {
               <small>{{ t('internalCa.labels.backendUsageCount', { count: activeAuthorities.filter((item) => text(item.providerId) === text(backend.id)).length }) }}</small>
               <small>{{ backendCapabilitySummary(backend) }}</small>
               <small>{{ backendVerificationSummary(backend) }}</small>
-              <div v-if="isAdcsProvider(backend)" class="backend-summary__runtime">
-                <template v-if="adcsRuntimeOf(backend).agentId">
-                  <span><strong>{{ t('internalCa.backendSummary.agentVersion') }}:</strong> {{ text(adcsRuntimeOf(backend).version, t('internalCa.common.unknown')) }}</span>
-                  <span><strong>{{ t('internalCa.backendSummary.agentVersionSource') }}:</strong> {{ text(adcsRuntimeOf(backend).versionSource) === 'heartbeat' ? t('internalCa.backendSummary.versionFromHeartbeat') : t('internalCa.backendSummary.versionFromRegistration') }}</span>
-                  <span v-if="text(adcsRuntimeOf(backend).registeredVersion) && text(adcsRuntimeOf(backend).versionSource) === 'heartbeat' && text(adcsRuntimeOf(backend).registeredVersion) !== text(adcsRuntimeOf(backend).version)"><strong>{{ t('internalCa.backendSummary.registeredVersion') }}:</strong> {{ text(adcsRuntimeOf(backend).registeredVersion) }}</span>
-                  <span><strong>{{ t('internalCa.backendSummary.agentKey') }}:</strong> <code>{{ text(adcsRuntimeOf(backend).agentKey, t('internalCa.common.unknown')) }}</code></span>
-                  <span><strong>{{ t('internalCa.backendSummary.agentStatus') }}:</strong> <GcStatusTag :status="text(adcsRuntimeOf(backend).status)" :label="adcsStatusLabel(adcsRuntimeOf(backend).status)" :tone="adcsStatusTone(adcsRuntimeOf(backend).status)" /></span>
-                  <span><strong>{{ t('internalCa.backendSummary.heartbeatAt') }}:</strong> {{ adcsRuntimeOf(backend).heartbeatAt ? localTime(adcsRuntimeOf(backend).heartbeatAt) : t('internalCa.backendSummary.observationNever') }}</span>
-                  <span><strong>{{ t('internalCa.backendSummary.observationAt') }}:</strong> {{ adcsRuntimeOf(backend).lastObservationAt ? localTime(adcsRuntimeOf(backend).lastObservationAt) : t('internalCa.backendSummary.observationNever') }}</span>
-                  <span><strong>{{ t('internalCa.backendSummary.storedRecords') }}:</strong> {{ number(adcsRuntimeOf(backend).storedRecords) }}</span>
-                  <span v-if="adcsRuntimeOf(backend).scannedRecords !== undefined"><strong>{{ t('internalCa.backendSummary.observationStats', { scanned: number(adcsRuntimeOf(backend).scannedRecords), submitted: number(adcsRuntimeOf(backend).submittedRecords), inserted: number(adcsRuntimeOf(backend).insertedRecords) }) }}</strong></span>
-                </template>
-                <span v-else>{{ t('internalCa.backendSummary.noAgent') }}</span>
-              </div>
               <div v-if="isAdcsProvider(backend)" class="backend-summary__actions">
                 <button class="gc-button gc-button--sm gc-button--primary" type="button" :disabled="adcsRefreshBusy !== '' || !adcsAuthorityId(backend)" @click="refreshAdcsProvider(backend)">{{ adcsRefreshBusy === text(backend.id) ? t('internalCa.backendSummary.refreshing') : t('internalCa.backendSummary.refresh') }}</button>
                 <button class="gc-button gc-button--sm" type="button" @click="openAdcsModal(backend)">{{ t('internalCa.adcs.actions.edit') }}</button>
@@ -1231,10 +1202,6 @@ pre { overflow: auto; padding: var(--gc-space-3); color: var(--gc-color-text); b
 .backend-summary div { display: grid; gap: var(--gc-space-1); }
 .backend-summary span, .backend-summary small { color: var(--gc-color-text-muted); }
 .backend-summary__actions { display: flex !important; gap: var(--gc-space-2); align-items: center; justify-content: flex-end; }
-.backend-summary__runtime { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: var(--gc-space-2) var(--gc-space-4); padding: var(--gc-space-2) 0 0; border-top: var(--gc-border-width-default) solid var(--gc-color-border-subtle); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); }
-.backend-summary__runtime span { display: inline-flex; align-items: center; gap: var(--gc-space-1); }
-.backend-summary__runtime strong { color: var(--gc-color-text); font-weight: 600; }
-.backend-summary__runtime code { font-family: var(--gc-font-family-mono); overflow-wrap: anywhere; }
 .adcs-provider-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-4); }
 .adcs-provider-form__full { grid-column: 1 / -1; }
 .ca-wizard { display: grid; gap: var(--gc-space-5); }

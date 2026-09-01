@@ -1,6 +1,6 @@
 export const caOperationsZhCN = {
   title: 'CA管理',
-  actions: { search: '搜索', manageInternalCa: 'CA', caStatus: 'CA 状态', setDefaultCa: '设为默认 CA', settingDefaultCa: '正在保存默认 CA…', defaultCaSelected: '当前为默认 CA', refreshAgent: '立即扫描并刷新', refreshingAgent: 'Agent 扫描中…' },
+  actions: { search: '搜索', manageInternalCa: 'CA 选项', caStatus: 'CA 状态', setDefaultCa: '设为默认 CA', settingDefaultCa: '正在保存默认 CA…', defaultCaSelected: '当前为默认 CA', refreshAgent: '立即扫描并刷新', refreshingAgent: 'Agent 扫描中…' },
   tree: { title: '证书颁发机构', count: '共 {count} 个 CA', unassigned: '未分配信任域' },
   views: { request: '申请', issuance: '已颁发证书', revocation: '已吊销证书', template: '证书模板' },
   columns: { subject: '使用者', identifier: '标识', template: '模板', source: '数据来源', status: '状态', observedAt: '观测时间' },
@@ -15,7 +15,7 @@ export const caOperationsZhCN = {
 
 export const caOperationsEnUS = {
   title: 'Certificate authority operations',
-  actions: { search: 'Search', manageInternalCa: 'CA', caStatus: 'CA status', setDefaultCa: 'Set as default CA', settingDefaultCa: 'Saving default CA…', defaultCaSelected: 'Default CA', refreshAgent: 'Scan and refresh', refreshingAgent: 'Agent scanning…' },
+  actions: { search: 'Search', manageInternalCa: 'CA options', caStatus: 'CA status', setDefaultCa: 'Set as default CA', settingDefaultCa: 'Saving default CA…', defaultCaSelected: 'Default CA', refreshAgent: 'Scan and refresh', refreshingAgent: 'Agent scanning…' },
   tree: { title: 'Certificate authorities', count: '{count} CAs', unassigned: 'Unassigned trust domain' },
   views: { request: 'Requests', issuance: 'Issued certificates', revocation: 'Revoked certificates', template: 'Certificate templates' },
   columns: { subject: 'Subject', identifier: 'Identifier', template: 'Template', source: 'Source', status: 'Status', observedAt: 'Observed at' },
@@ -28,9 +28,32 @@ export const caOperationsEnUS = {
   modals: { caStatusTitle: 'CA status', caStatusDescription: 'View the selected CA, Agent runtime status, and latest observation statistics.', nativeCaStatus: 'The selected CA is a built-in CA and does not use an AD CS Agent.' },
 } as const
 
-export const caOperationsZhTW = caOperationsZhCN
-export const caOperationsJaJP = caOperationsEnUS
-export const caOperationsFrFR = caOperationsEnUS
-export const caOperationsRuRU = caOperationsEnUS
-export const caOperationsPtBR = caOperationsEnUS
-export const caOperationsKoKR = caOperationsEnUS
+export const caOperationsZhTW = {
+  ...caOperationsZhCN,
+  actions: { ...caOperationsZhCN.actions, manageInternalCa: 'CA 選項' },
+} as const
+
+export const caOperationsJaJP = {
+  ...caOperationsEnUS,
+  actions: { ...caOperationsEnUS.actions, manageInternalCa: 'CA オプション' },
+} as const
+
+export const caOperationsFrFR = {
+  ...caOperationsEnUS,
+  actions: { ...caOperationsEnUS.actions, manageInternalCa: 'Options de l’AC' },
+} as const
+
+export const caOperationsRuRU = {
+  ...caOperationsEnUS,
+  actions: { ...caOperationsEnUS.actions, manageInternalCa: 'Параметры ЦС' },
+} as const
+
+export const caOperationsPtBR = {
+  ...caOperationsEnUS,
+  actions: { ...caOperationsEnUS.actions, manageInternalCa: 'Opções da CA' },
+} as const
+
+export const caOperationsKoKR = {
+  ...caOperationsEnUS,
+  actions: { ...caOperationsEnUS.actions, manageInternalCa: 'CA 옵션' },
+} as const
