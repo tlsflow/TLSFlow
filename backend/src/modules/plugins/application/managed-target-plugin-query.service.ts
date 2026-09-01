@@ -38,6 +38,7 @@ import { certificateFormats } from '../../certificates/schema/certificates.schem
 import { GCAC_VERSION } from '../../../common/version.js';
 import { ApplicationOnboardingRecipeLoader } from '../../application-onboarding/recipe/application-onboarding-recipe.loader.js';
 import { readCertificateLocation } from '../../deployment-inputs/dto/certificate-location.dto.js';
+import { ApplicationExecutionCompatibilityService } from '../../assets/application/application-execution-compatibility.service.js';
 
 type ExecutionLocation = 'AGENT' | 'CONTROL_PLANE' | 'GATEWAY';
 
@@ -212,7 +213,9 @@ export class ManagedTargetPluginQueryService {
         await services.assets.updateServiceAsset(input.tenantId, input.applicationAssetId, {
           deploymentStrategy: { type: 'MANAGED_TARGET', approvalRequired, managedTarget: { managedTargetId: context.managedTarget.id, certificateFormatId, executionMode, workflowExecutionBindingId: binding.id } },
         });
-        return { target, executionMode, workflowExecutionBinding: binding, effectiveCapability: undefined };
+        const executionCompatibility = await new ApplicationExecutionCompatibilityService(tx)
+          .recheckApplication(input.tenantId, input.applicationAssetId);
+        return { target, executionMode, workflowExecutionBinding: binding, executionCompatibility: executionCompatibility[0], effectiveCapability: undefined };
       }
       if (input.value.workflowExecution) throw new AppError('EXECUTION_SOURCE_CONFLICT', '插件模式不得提交工作流执行配置');
       const previousWorkflowBindingId = applicationAsset.deploymentStrategy?.type === 'MANAGED_TARGET'
@@ -300,7 +303,9 @@ export class ManagedTargetPluginQueryService {
         await services.assets.updateServiceAsset(input.tenantId, input.applicationAssetId, {
           deploymentStrategy: { type: 'MANAGED_TARGET', approvalRequired, managedTarget: { managedTargetId: context.managedTarget.id, certificateFormatId, executionMode: 'PLUGIN' } },
         });
-        return { target, executionMode: 'PLUGIN', effectiveCapability: summarizeCapability(resolved) };
+        const executionCompatibility = await new ApplicationExecutionCompatibilityService(tx)
+          .recheckApplication(input.tenantId, input.applicationAssetId);
+        return { target, executionMode: 'PLUGIN', executionCompatibility: executionCompatibility[0], effectiveCapability: summarizeCapability(resolved) };
       }
       const plugin = overridePlugin;
       if (!plugin) throw new AppError('APPLICATION_CURRENT_PLUGIN_UNAVAILABLE', '应用当前插件不可用', { applicationAssetId: input.applicationAssetId, capabilityKey });
@@ -376,7 +381,9 @@ export class ManagedTargetPluginQueryService {
       await services.assets.updateServiceAsset(input.tenantId, input.applicationAssetId, {
         deploymentStrategy: { type: 'MANAGED_TARGET', approvalRequired, managedTarget: { managedTargetId: context.managedTarget.id, certificateFormatId, executionMode: 'PLUGIN' } },
       });
-      return { target, executionMode: 'PLUGIN', effectiveCapability: summarizeCapability(resolved) };
+      const executionCompatibility = await new ApplicationExecutionCompatibilityService(tx)
+        .recheckApplication(input.tenantId, input.applicationAssetId);
+      return { target, executionMode: 'PLUGIN', executionCompatibility: executionCompatibility[0], effectiveCapability: summarizeCapability(resolved) };
     });
   }
 
@@ -740,7 +747,7 @@ export class ManagedTargetPluginQueryService {
   }
 }
 
-async function findManagedTargetCertificateBinding(
+export async function findManagedTargetCertificateBinding(
   repository: PgBindingsRepository,
   tenantId: string,
   managedTargetId: string,
@@ -748,7 +755,13 @@ async function findManagedTargetCertificateBinding(
   const page = await repository.listCertificateBindings(tenantId, { page: 1, pageSize: 5000, filter: {} });
   return page.items
     .filter((binding) => binding.managedTargetId === managedTargetId)
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+    .sort((left, right) => toTimestamp(right.updatedAt) - toTimestamp(left.updatedAt))[0];
+}
+
+function toTimestamp(value: unknown): number {
+  if (value instanceof Date) return value.getTime();
+  const parsed = Date.parse(String(value ?? ''));
+  return Number.isNaN(parsed) ? 0 : parsed;
 }
 
 function hasBindingValues(bindings: InputBindingsV1): boolean {

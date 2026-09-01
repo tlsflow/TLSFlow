@@ -39,6 +39,19 @@ test('应用资产部署投影允许插件声明通用部署默认值', () => {
   assert.equal(properties?.deploymentDefaults?.type, 'object');
 });
 
+test('受管目标保存合同允许稳定 pluginId 并兼容旧 pluginVersionId', () => {
+  const route = getPluginsRouteContracts().find((item) => item.operationId === 'saveApplicationAssetManagedTarget');
+  const pluginOverride = route?.requestSchema?.properties?.pluginOverride as {
+    properties?: Record<string, { type?: string }>;
+    required?: string[];
+  } | undefined;
+  assert.equal(pluginOverride?.properties?.pluginId?.type, 'string');
+  assert.equal(pluginOverride?.properties?.pluginVersionId?.type, 'string');
+  const required = pluginOverride?.required ?? [];
+  assert.equal(required.includes('pluginId'), false);
+  assert.equal(required.includes('pluginVersionId'), false);
+});
+
 test('插件合同不使用未约束的 additionalProperties 布尔开放对象', () => {
   const openPaths: string[] = [];
   const visit = (schema: unknown, path: string): void => {

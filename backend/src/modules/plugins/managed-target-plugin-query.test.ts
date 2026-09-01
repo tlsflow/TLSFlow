@@ -225,6 +225,13 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
   assert.equal(saved.effectiveCapability?.source.ownerType, 'APPLICATION_ASSET');
   assert.equal(saved.effectiveCapability?.plugin.pluginId, 'fixture.managed');
   assert.equal(saved.effectiveCapability?.binding.hostId, device.hostId);
+  const compatibility = await db.query<{ status: string }>(
+    `select status from application_execution_compatibility
+      where tenant_id=$1 and application_asset_id=$2
+      order by checked_at desc limit 1`,
+    [tenantId, applicationAsset.id],
+  );
+  assert.equal(compatibility.rows[0]?.status, 'READY');
   const savedBinding = await new PluginBindingsApplicationService(new PluginBindingsRepository(db))
     .getTenantBinding(tenantId, saved.effectiveCapability!.binding.pluginBindingId);
   assert.equal(savedBinding.inputBindings.variables.allowInsecureTls, false);
