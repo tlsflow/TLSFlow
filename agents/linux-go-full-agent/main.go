@@ -398,7 +398,7 @@ func newLinuxActionRegistry(runtime *linuxActionRuntime) *coreRegistry.Registry 
 	}
 	mustRegisterAction(registry, coreRegistry.HandlerFunc{
 		ActionType:    agentPlanExecute,
-		SchemaVersion: "1.0",
+		SchemaVersion: agentV2SchemaVersion,
 		Execute: func(ctx context.Context, request coreRegistry.Request) coreRegistry.Result {
 			payload := cloneMap(request.Payload)
 			payload["action"] = agentPlanExecute
@@ -411,7 +411,7 @@ func newLinuxActionRegistry(runtime *linuxActionRuntime) *coreRegistry.Registry 
 	for _, action := range []string{agentFactCollect, agentPlanValidate, agentExecutionReceipt} {
 		mustRegisterAction(registry, coreRegistry.HandlerFunc{
 			ActionType:    action,
-			SchemaVersion: "1.0",
+			SchemaVersion: agentV2SchemaVersion,
 			Execute: func(ctx context.Context, request coreRegistry.Request) coreRegistry.Result {
 				payload := cloneMap(request.Payload)
 				payload["action"] = action

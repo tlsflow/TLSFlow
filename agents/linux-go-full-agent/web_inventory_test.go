@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -76,6 +77,55 @@ func TestParseLinuxApacheConfigTreeUsesEffectiveIncludeAndTLSVirtualHost(t *test
 	listeners := metadata["listeners"].([]map[string]any)
 	if len(listeners) != 1 || listeners[0]["port"] != 8444 || listeners[0]["protocol"] != "HTTPS" || listeners[0]["certificatePath"] != "/etc/gcac-test/certs/test.crt" {
 		t.Fatalf("Apache TLS VirtualHost 事实不完整: %#v", listeners)
+	}
+}
+
+func TestLinuxApachePathsHonorProcessOverrides(t *testing.T) {
+	output := `-D HTTPD_ROOT="/opt/apache" -D SERVER_CONFIG_FILE="conf/httpd.conf"`
+	root, configPath := linuxApachePaths(output, `apache2 -d /srv/apache -f conf/live.conf`, "/")
+	if root != "/srv/apache" || configPath != "/srv/apache/conf/live.conf" {
+		t.Fatalf("Apache 进程 -d/-f 覆盖未生效: root=%q config=%q", root, configPath)
+	}
+
+	root, configPath = linuxApachePaths(output, `apache2 -f /etc/apache-live.conf`, "/")
+	if root != "/opt/apache" || configPath != "/etc/apache-live.conf" {
+		t.Fatalf("Apache 绝对 -f 或编译 ServerRoot 解析错误: root=%q config=%q", root, configPath)
+	}
+
+	root, configPath = linuxApachePaths(`-D SERVER_CONFIG_FILE="conf/httpd.conf"`, "apache2", "/")
+	if root != "" || configPath != "conf/httpd.conf" {
+		t.Fatalf("缺少 ServerRoot 时不得伪造当前目录: root=%q config=%q", root, configPath)
+	}
+}
+
+func TestLinuxProcessRuntimeFallsBackToProcExecutableForDeletedInode(t *testing.T) {
+	procPath := filepath.Join("/proc", strconv.Itoa(os.Getpid()), "exe")
+	runtime := linuxProcessRuntime(map[string]any{
+		"pid":                os.Getpid(),
+		"executablePath":     "/path/that/was/replaced/apache2",
+		"procExecutablePath": procPath,
+	})
+	if runtime.programPath != procPath {
+		t.Fatalf("不可用的已删除程序路径必须回退到 procfs: %q", runtime.programPath)
+	}
+	if !isLinuxProcExecutablePath(procPath) || isLinuxProcExecutablePath("/proc/self/exe") {
+		t.Fatal("procfs 可执行入口校验错误")
+	}
+}
+
+func TestLinuxIncludeMatchesFallsBackToCurrentConfigDirectory(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, "conf.d")
+	includePath := filepath.Join(configDir, "sites-enabled", "happy.conf")
+	if err := os.MkdirAll(filepath.Dir(includePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(includePath, []byte("<VirtualHost *:8444>\n</VirtualHost>\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	matches := linuxIncludeMatches("sites-enabled/*.conf", configDir, root)
+	if len(matches) != 1 || matches[0] != includePath {
+		t.Fatalf("Include 必须回退到当前配置目录: %#v", matches)
 	}
 }
 

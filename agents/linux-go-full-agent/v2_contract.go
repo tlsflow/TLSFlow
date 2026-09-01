@@ -360,11 +360,21 @@ func collectLinuxProcesses() []map[string]any {
 		if err != nil || pid < 1 {
 			continue
 		}
-		executablePath, err := os.Readlink(filepath.Join("/proc", entry.Name(), "exe"))
-		if err != nil || !filepath.IsAbs(executablePath) {
+		procExecutablePath := filepath.Join("/proc", entry.Name(), "exe")
+		executablePath, err := os.Readlink(procExecutablePath)
+		if err != nil {
 			continue
 		}
-		process := map[string]any{"kind": "process", "pid": pid, "executablePath": executablePath}
+		// 软件升级不会自动替换正在运行的 inode。此时 procfs 会在链接目标后
+		// 追加 " (deleted)"；保留可识别的真实路径，并把 procfs 入口传给
+		// 后续版本和配置查询，避免把仍在提供服务的 Apache 漏掉。
+		if strings.HasSuffix(executablePath, " (deleted)") {
+			executablePath = strings.TrimSuffix(executablePath, " (deleted)")
+		}
+		if !filepath.IsAbs(executablePath) {
+			continue
+		}
+		process := map[string]any{"kind": "process", "pid": pid, "executablePath": executablePath, "procExecutablePath": procExecutablePath}
 		if commandLine, commandErr := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline")); commandErr == nil && len(commandLine) > 0 {
 			text := strings.TrimSpace(strings.ReplaceAll(string(commandLine), "\x00", " "))
 			if len(text) > 4096 {
@@ -375,9 +385,6 @@ func collectLinuxProcesses() []map[string]any {
 			}
 		}
 		processes = append(processes, process)
-		if len(processes) >= 1000 {
-			break
-		}
 	}
 	sort.Slice(processes, func(left, right int) bool {
 		return processes[left]["pid"].(int) < processes[right]["pid"].(int)

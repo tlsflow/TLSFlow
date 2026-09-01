@@ -67,6 +67,18 @@ func TestV2QueueBoundaryConvertsActionTypeToWireAction(t *testing.T) {
 	}
 }
 
+func TestV2QueueBoundaryDefaultsToRegisteredSchemaVersion(t *testing.T) {
+	_, action, schemaVersion, err := decodeQueuedAgentV2Payload(map[string]any{
+		"actionType": agentFactCollect,
+	})
+	if err != nil {
+		t.Fatalf("缺少 schemaVersion 时 canonical 动作不应失败: %v", err)
+	}
+	if action != agentFactCollect || schemaVersion != agentV2SchemaVersion {
+		t.Fatalf("缺省 schemaVersion 必须回退到 Agent v2 已注册版本: action=%s schema=%s", action, schemaVersion)
+	}
+}
+
 func TestV2QueueBoundaryRejectsWireAndLegacyActions(t *testing.T) {
 	for _, payload := range []map[string]any{
 		{"action": agentPlanValidate, "actionSchemaVersion": "1.0"},

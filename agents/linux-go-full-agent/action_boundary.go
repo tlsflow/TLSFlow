@@ -4,9 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	coreRegistry "gcac/linux-go-full-agent/internal/core/registry"
 )
+
+const agentV2SchemaVersion = "1.0"
 
 // decodeQueuedAgentV2Payload 将控制面队列载荷转换为 Agent v2 wire 载荷。
 // 队列字段只在这一层读取；进入 Agent v2 后只保留 canonical action。
@@ -55,7 +55,7 @@ func encodeQueuedAgentV2Payload(payload map[string]any) (map[string]any, string,
 	delete(queuePayload, "action")
 	queuePayload["actionType"] = action
 	if strings.TrimSpace(stringFromMap(queuePayload, "actionSchemaVersion")) == "" {
-		queuePayload["actionSchemaVersion"] = "1.0"
+		queuePayload["actionSchemaVersion"] = agentV2SchemaVersion
 	}
 	return queuePayload, action, nil
 }
@@ -77,5 +77,5 @@ func resolveQueuedActionSchemaVersion(payload map[string]any) string {
 	if schemaVersion := strings.TrimSpace(stringFromMap(payload, "actionSchemaVersion")); schemaVersion != "" {
 		return schemaVersion
 	}
-	return coreRegistry.DefaultSchemaVersion
+	return agentV2SchemaVersion
 }

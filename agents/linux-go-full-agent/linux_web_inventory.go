@@ -289,14 +289,20 @@ func appendLinuxDiscoveryWarning(state *linuxWebDiscoveryState, code, message, p
 func linuxProcessRuntime(process map[string]any) linuxWebRuntime {
 	executable, _ := process["executablePath"].(string)
 	pid, _ := process["pid"].(int)
+	programPath := executable
+	if !fileExists(programPath) {
+		if procPath, ok := process["procExecutablePath"].(string); ok && isLinuxProcExecutablePath(procPath) {
+			programPath = procPath
+		}
+	}
 	workingDirectory := ""
 	serviceName := ""
 	if pid > 0 {
 		workingDirectory, _ = os.Readlink(filepath.Join("/proc", strconv.Itoa(pid), "cwd"))
 		serviceName = linuxServiceNameForPID(pid)
 	}
-	programSha256, _ := sha256FileDigest(executable)
-	return linuxWebRuntime{programPath: executable, programSha256: programSha256, workingDirectory: filepath.Clean(workingDirectory), serviceName: serviceName}
+	programSha256, _ := sha256FileDigest(programPath)
+	return linuxWebRuntime{programPath: programPath, programSha256: programSha256, workingDirectory: filepath.Clean(workingDirectory), serviceName: serviceName}
 }
 
 func linuxServiceNameForPID(pid int) string {
@@ -315,7 +321,7 @@ func linuxServiceNameForPID(pid int) string {
 }
 
 func runLinuxProgram(path string, env []string, args ...string) (string, error) {
-	if !filepath.IsAbs(path) || !fileExists(path) {
+	if !filepath.IsAbs(path) || (!fileExists(path) && !isLinuxProcExecutablePath(path)) {
 		return "", errors.New("运行程序路径不可用")
 	}
 	command := exec.Command(path, args...)
@@ -323,6 +329,26 @@ func runLinuxProgram(path string, env []string, args ...string) (string, error) 
 	command.Env = append(os.Environ(), env...)
 	output, err := command.CombinedOutput()
 	return strings.TrimSpace(string(output)), err
+}
+
+func isLinuxProcExecutablePath(path string) bool {
+	if !strings.HasPrefix(filepath.Clean(path), "/proc/") || !strings.HasSuffix(path, "/exe") {
+		return false
+	}
+	parts := strings.Split(filepath.Clean(path), "/")
+	return len(parts) == 4 && parts[2] != "" && isDecimalString(parts[2])
+}
+
+func isDecimalString(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, char := range value {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func linuxApacheRuntime(process map[string]any) (linuxWebRuntime, string, string, []string, string) {
@@ -335,19 +361,41 @@ func linuxApacheRuntime(process map[string]any) (linuxWebRuntime, string, string
 		return runtime, "", "", nil, fmt.Sprintf("Apache -V 失败: %v", err)
 	}
 	runtime.version = linuxApacheVersion(version)
-	root := linuxApacheDefine(version, "HTTPD_ROOT")
-	if root == "" {
-		root = linuxApacheDefine(version, "SERVER_ROOT")
-	}
-	configName := linuxApacheDefine(version, "SERVER_CONFIG_FILE")
-	if root == "" || configName == "" {
+	root, configPath := linuxApachePaths(version, stringFromMap(process, "commandLine"), runtime.workingDirectory)
+	if root == "" || configPath == "" {
 		return runtime, root, "", nil, "Apache -V 未提供 HTTPD_ROOT/SERVER_CONFIG_FILE"
 	}
-	configPath := configName
-	if !filepath.IsAbs(configPath) {
-		configPath = filepath.Join(root, configName)
-	}
 	return runtime, filepath.Clean(root), filepath.Clean(configPath), []string{"-t", "-d", filepath.Clean(root), "-f", filepath.Clean(configPath)}, ""
+}
+
+// linuxApachePaths 合并编译默认值与运行进程的 -d/-f 覆盖，保证解析的是实际生效配置。
+// Apache 的相对 -f 路径以有效 ServerRoot 为基准；相对 -d 路径以进程工作目录为基准。
+func linuxApachePaths(output, commandLine, workingDirectory string) (string, string) {
+	root := linuxApacheDefine(output, "HTTPD_ROOT")
+	if root == "" {
+		root = linuxApacheDefine(output, "SERVER_ROOT")
+	}
+	if override := linuxCommandLineArg(commandLine, "-d"); override != "" {
+		if filepath.IsAbs(override) {
+			root = override
+		} else if filepath.IsAbs(workingDirectory) {
+			root = filepath.Join(workingDirectory, override)
+		}
+	}
+	if root != "" {
+		root = filepath.Clean(root)
+	}
+	configName := linuxApacheDefine(output, "SERVER_CONFIG_FILE")
+	if override := linuxCommandLineArg(commandLine, "-f"); override != "" {
+		configName = override
+	}
+	if configName == "" {
+		return root, ""
+	}
+	if filepath.IsAbs(configName) {
+		return root, filepath.Clean(configName)
+	}
+	return root, filepath.Clean(filepath.Join(root, configName))
 }
 
 func linuxApacheDefine(output, name string) string {
@@ -837,15 +885,24 @@ func linuxIncludeMatches(value, base, root string) []string {
 	if value == "" {
 		return nil
 	}
+	candidates := []string{value}
 	if !filepath.IsAbs(value) {
-		value = filepath.Join(root, value)
+		candidates = []string{filepath.Join(root, value), filepath.Join(base, value)}
 	}
-	matches, _ := filepath.Glob(filepath.Clean(value))
-	sort.Strings(matches)
-	result := make([]string, 0, len(matches))
-	for _, match := range matches {
-		if info, err := os.Stat(match); err == nil && info.Mode().IsRegular() {
-			result = append(result, filepath.Clean(match))
+	seen := make(map[string]struct{})
+	result := make([]string, 0)
+	for _, candidate := range candidates {
+		matches, _ := filepath.Glob(filepath.Clean(candidate))
+		sort.Strings(matches)
+		for _, match := range matches {
+			match = filepath.Clean(match)
+			if _, exists := seen[match]; exists {
+				continue
+			}
+			if info, err := os.Stat(match); err == nil && info.Mode().IsRegular() {
+				seen[match] = struct{}{}
+				result = append(result, match)
+			}
 		}
 	}
 	return result
