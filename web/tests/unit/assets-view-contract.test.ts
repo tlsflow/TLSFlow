@@ -106,6 +106,15 @@ describe('应用资产卡片契约', () => {
     expect(source).toContain('function closeCreateDialog()')
     expect(source).toContain('editInitializationError.value = \'\'')
   })
+
+  it('手动新建应用按稳定 pluginId 选择插件，不暴露插件版本主键', () => {
+    expect(source).toContain('GcCompatiblePluginSelector')
+    expect(source).toContain('v-model="assetDraft.pluginOverridePluginId"')
+    expect(source).toContain('value-field="pluginId"')
+    expect(source).toContain('pluginOverride: {')
+    expect(source).toContain('pluginId,')
+    expect(source).not.toContain('pluginOverride: {\n        pluginVersionId,')
+  })
 })
 
 describe('统一资产中心入口契约', () => {

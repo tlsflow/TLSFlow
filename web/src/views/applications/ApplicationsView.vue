@@ -15,7 +15,7 @@ import { listManagedDevices } from '@/api/modules/devices.api'
 import { getDeploymentTaskSettings } from '@/api/modules/security.api'
 import type { ApiPageResult, ApiRecord, BusinessListQuery } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
-import { DeploymentInputForm, GcButton, GcCard, GcCertificateDeploymentForm, GcConfirmAction, GcDataTable, GcEffectiveCapabilityCard, GcEmptyState, GcExecutionModeSelector, GcHelpTip, GcManagedTargetSelector, GcModal, GcPagination, GcPermissionButton, GcPluginLogo, GcProgressBar, GcStatusTag, GcTabs, GcUserFlowWizard, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1, type StatusTone } from '@/design-system/components'
+import { DeploymentInputForm, GcButton, GcCard, GcCertificateDeploymentForm, GcCompatiblePluginSelector, GcConfirmAction, GcDataTable, GcEffectiveCapabilityCard, GcEmptyState, GcExecutionModeSelector, GcHelpTip, GcManagedTargetSelector, GcModal, GcPagination, GcPermissionButton, GcPluginLogo, GcProgressBar, GcStatusTag, GcTabs, GcUserFlowWizard, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1, type StatusTone } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import type { UserFlowStep } from '@/design-system/components/GcUserFlowWizard.vue'
 import { useAppStore } from '@/stores/app.store'
@@ -225,6 +225,7 @@ interface AssetDraft {
   pluginOverrideVersionId: string
   workflowExecutionBindingId: string
   workflowExecutionBindingVersion: number
+  pluginOverridePluginId: string
   workflowVersionSelection: WorkflowVersionSelection
   workflowVersionId: string
   workflowRunner: WorkflowRunnerType
@@ -448,6 +449,7 @@ const assetDraft = reactive<AssetDraft>({
   workflowExecutionBindingVersion: 0,
   workflowVersionSelection: 'LATEST_PUBLISHED',
   workflowVersionId: '',
+  pluginOverridePluginId: '',
   workflowRunner: 'CONTROL_PLANE',
   workflowGatewayId: '',
   workflowTargetSiteName: '',
@@ -850,14 +852,14 @@ const effectiveCapabilityOwnerType = computed(() =>
 )
 
 const pluginFallbackCapability = computed(() => {
-  if (assetDraft.pluginOverrideVersionId.trim()) return null
+  if (assetDraft.pluginOverridePluginId.trim()) return null
   if (effectiveCapabilityOwnerType.value === 'APPLICATION_ASSET') return inheritedEffectiveCapability.value
   return effectiveCapability.value ?? inheritedEffectiveCapability.value
 })
 
 const pluginProjectionVersionId = computed(() =>
-  assetDraft.pluginOverrideVersionId.trim()
-  || String(readNested(pluginFallbackCapability.value, ['plugin', 'pluginVersionId']) ?? ''),
+  String(compatibleManagedPlugins.value.find((item) => String(item.pluginId ?? '') === assetDraft.pluginOverridePluginId.trim())?.pluginVersionId ?? '')
+    || (assetDraft.pluginOverridePluginId.trim() ? '' : String(readNested(pluginFallbackCapability.value, ['plugin', 'pluginVersionId']) ?? '')),
 )
 
 const deploymentInputBindingsFingerprint = computed(() => JSON.stringify(deploymentInputBindings.value))
@@ -871,7 +873,7 @@ const showAgentCertificateFormatSelector = computed(() => !pluginProjectionVersi
 const agentCertificateFormatReady = computed(() => isFixedPkcs12Contract.value || Boolean(assetDraft.agentCertificateFormatId.trim()))
 
 const pendingPluginCapability = computed<ApiRecord | null>(() => {
-  const pluginVersionId = assetDraft.pluginOverrideVersionId.trim()
+  const pluginVersionId = pluginProjectionVersionId.value
   if (!pluginVersionId) return null
   const plugin = compatibleManagedPlugins.value.find(
     (item) => String(item.pluginVersionId ?? '') === pluginVersionId,
@@ -974,7 +976,7 @@ const commonStepReady = computed(() => {
 const agentStepReady = computed(() => {
   if (assetDraft.managementMode !== 'MANAGED_TARGET') return true
   const pluginExecutionReady = assetDraft.managedExecutionMode !== 'PLUGIN'
-    || Boolean(assetDraft.pluginOverrideVersionId.trim() || pluginFallbackCapability.value)
+    || Boolean(assetDraft.pluginOverridePluginId.trim() || pluginFallbackCapability.value)
   const pluginInputReady = assetDraft.managedExecutionMode !== 'PLUGIN'
     || !pluginProjectionVersionId.value
     || workflowProjectionReady.value
@@ -2210,6 +2212,7 @@ async function loadManagedTargetPluginResolution(managedTargetId: string): Promi
     compatibleManagedPlugins.value = items.filter((item) => item.compatible === true)
     const effectivePlugin = readRecord(readNested(effectiveCapability.value, ['plugin']))
     const effectivePluginVersionId = String(effectivePlugin?.pluginVersionId ?? '')
+      assetDraft.pluginOverridePluginId = String(plugin?.pluginId ?? '')
     if (
       effectivePluginVersionId
       && effectiveCapability.value?.compatible !== false
@@ -2225,9 +2228,9 @@ async function loadManagedTargetPluginResolution(managedTargetId: string): Promi
       compatibleManagedPlugins.value.sort((left, right) =>
         String(left.pluginId ?? '').localeCompare(String(right.pluginId ?? '')))
     }
-    const selectedPluginVersionId = assetDraft.pluginOverrideVersionId.trim()
-    if (selectedPluginVersionId && !compatibleManagedPlugins.value.some(
-      (item) => String(item.pluginVersionId ?? '') === selectedPluginVersionId,
+    const selectedPluginId = assetDraft.pluginOverridePluginId.trim()
+    if (selectedPluginId && !compatibleManagedPlugins.value.some(
+      (item) => String(item.pluginId ?? '') === selectedPluginId,
     )) {
       const currentPluginId = String(readNested(effectiveCapability.value, ['plugin', 'pluginId']) ?? '')
       const replacementItem = currentPluginId
@@ -2235,8 +2238,9 @@ async function loadManagedTargetPluginResolution(managedTargetId: string): Promi
         : compatibleManagedPlugins.value.length === 1
           ? compatibleManagedPlugins.value[0]
           : undefined
-      const replacement = String(replacementItem?.pluginVersionId ?? '')
-      assetDraft.pluginOverrideVersionId = replacement
+      const replacement = String(replacementItem?.pluginId ?? '')
+      assetDraft.pluginOverridePluginId = replacement
+      assetDraft.pluginOverrideVersionId = String(replacementItem?.pluginVersionId ?? '')
       pluginBindingId.value = ''
       pluginBindingVersion.value = 0
     }
@@ -2312,7 +2316,8 @@ async function submitCreate() {
 
 async function saveManagedTargetConfiguration(applicationAssetId: string): Promise<void> {
   const hasPluginInputOverride = hasInputBindingValues(deploymentInputBindings.value)
-  const pluginId = String(readNested(effectiveCapability.value, ['plugin', 'pluginId'])
+  const selectedPluginId = assetDraft.pluginOverridePluginId.trim()
+  const pluginId = selectedPluginId || String(readNested(effectiveCapability.value, ['plugin', 'pluginId'])
     ?? readNested(inheritedEffectiveCapability.value, ['plugin', 'pluginId']) ?? '').trim()
   await saveApplicationAssetManagedTarget(applicationAssetId, {
     managedTargetId: assetDraft.managedTargetId,
@@ -2322,7 +2327,7 @@ async function saveManagedTargetConfiguration(applicationAssetId: string): Promi
     ...(assetDraft.managedExecutionMode === 'WORKFLOW_OVERRIDE'
       ? { workflowExecution: buildWorkflowExecutionInput() }
       : {}),
-    ...(assetDraft.managedExecutionMode === 'PLUGIN' && hasPluginInputOverride && pluginId ? {
+    ...(assetDraft.managedExecutionMode === 'PLUGIN' && (selectedPluginId || hasPluginInputOverride) && pluginId ? {
       pluginOverride: {
         pluginId,
         pluginBindingId: pluginBindingId.value || undefined,
@@ -2418,6 +2423,7 @@ function resetDraft() {
   workflowProjectionRequestKey = ''
   workflowBindingProjection.value = null
   workflowProjectionLoading.value = false
+  assetDraft.pluginOverridePluginId = ''
   workflowProjectionRefreshing.value = false
   workflowProjectionError.value = ''
   pluginBindingId.value = ''
@@ -2592,9 +2598,13 @@ function toAssetOverviewCard(asset: ApiRecord): AssetOverviewCard {
 }
 
 function assetExecutionCompatibilityLabel(card: AssetOverviewCard): string {
-  if (card.executionCompatibilityStatus === 'UPDATE_REQUIRED') return t('common.status.UPDATE_REQUIRED')
-  if (card.executionCompatibilityStatus === 'UNSUPPORTED') return t('common.status.ERROR')
-  return t(`common.status.${card.executionCompatibilityStatus}`, t('common.status.UNKNOWN'))
+  return card.executionCompatibilityStatus === 'READY'
+    ? t('assets.card.status.executable')
+    : t('assets.card.status.needsConfiguration')
+}
+
+function assetExecutionCompatibilityTone(card: AssetOverviewCard): StatusTone {
+  return card.executionCompatibilityStatus === 'READY' ? 'success' : 'warning'
 }
 
 function assetExecutionReady(asset: ApiRecord): boolean {
@@ -3450,7 +3460,7 @@ watch([isUserViewMode, deviceItems, certificateFormatItems], () => {
 
 watch(
   () => [
-    assetDraft.pluginOverrideVersionId,
+    assetDraft.pluginOverridePluginId,
     pluginProjectionVersionId.value,
     assetDraft.managedTargetId,
     assetDraft.agentCertificateFormatId,
@@ -3479,6 +3489,16 @@ watch(
   async (workflowId, previousWorkflowId) => {
     if (editInitializationLoading.value || targetSelectionInitializing.value) return
     if (previousWorkflowId && workflowId !== previousWorkflowId) {
+watch(
+  () => assetDraft.pluginOverridePluginId,
+  (pluginId, previousPluginId) => {
+    if (!previousPluginId || pluginId === previousPluginId) return
+    assetDraft.pluginOverrideVersionId = ''
+    pluginBindingId.value = ''
+    pluginBindingVersion.value = 0
+  },
+)
+
       assetDraft.workflowVersionId = ''
       assetDraft.workflowExecutionBindingId = ''
       assetDraft.workflowExecutionBindingVersion = 0
@@ -3581,6 +3601,7 @@ watch(
     certificateSupplyDraft.providerId,
     certificateSupplyDraft.certificateAuthorityId,
     certificateSupplyDraft.acmeProviderProfileId,
+    assetDraft.pluginOverridePluginId = ''
     certificateSupplyDraft.dnsProviderId,
     certificateSupplyDraft.credentialRef,
     certificateSupplyDraft.autoRenew,
@@ -3620,6 +3641,7 @@ function deploymentStrategyCompatibilityLabel(value: unknown): string {
 
 async function fetchAllRecords(
   loader: (page: number, pageSize: number) => Promise<ApiPageResult>,
+    assetDraft.pluginOverridePluginId = ''
   pageSize = 200,
 ): Promise<ApiRecord[]> {
   const items: ApiRecord[] = []
@@ -3932,7 +3954,11 @@ function managedTargetLabel(target: ApiRecord): string {
                   <div>
                     <dt>{{ t('assets.columns.status') }}</dt>
                     <dd class="asset-page__card-fact-value">
-                      <GcStatusTag :status="card.executionCompatibilityStatus" :label="assetExecutionCompatibilityLabel(card)" />
+                      <GcStatusTag
+                        :status="card.executionCompatibilityStatus"
+                        :label="assetExecutionCompatibilityLabel(card)"
+                        :tone="assetExecutionCompatibilityTone(card)"
+                      />
                       <span v-if="card.executionCompatibilityIssueCount > 0">({{ card.executionCompatibilityIssueCount }})</span>
                       <span v-if="card.executionCompatibilityIssues.length" class="asset-page__compatibility-summary">
                         {{ assetExecutionCompatibilitySummary(card) }}
@@ -3984,6 +4010,7 @@ function managedTargetLabel(target: ApiRecord): string {
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5" /></svg>
                   <span class="asset-page__icon-action-label">{{ t('assets.actions.detail') }}</span>
+                  :disabled="!assetExecutionReady(card.asset)"
                 </GcPermissionButton>
                 <GcPermissionButton
                   class="asset-page__card-icon-action"
@@ -4107,6 +4134,7 @@ function managedTargetLabel(target: ApiRecord): string {
                   permission="deployment.plan.execute"
                   :disabled="!assetExecutionReady(row.card.asset)"
                   :data-testid="`asset-list-deploy-${row.id}`"
+                  :tone="assetExecutionCompatibilityTone(row.card)"
                   :aria-label="t('assets.actions.deployCertificate')"
                   :title="t('assets.actions.deployCertificate')"
                   @click="openDeploymentDialog(assetOverviewCardRow(row.card))"
@@ -4835,6 +4863,17 @@ function managedTargetLabel(target: ApiRecord): string {
                   :loading="workflowProjectionLoading && !workflowProjectionRefreshing"
                 />
               </section>
+              <GcCompatiblePluginSelector
+                v-model="assetDraft.pluginOverridePluginId"
+                :items="compatibleManagedPlugins"
+                :loading="compatibleManagedPluginsLoading"
+                :required="!pluginFallbackCapability"
+                :label="t('assets.fields.updatePlugin')"
+                :select-text="pluginFallbackCapability ? t('assets.select.updatePluginOptional') : t('assets.select.generic')"
+                :loading-text="t('common.loading')"
+                :empty-text="t('assets.errors.noCompatibleManagedPlugin')"
+                value-field="pluginId"
+              />
             </template>
             <p v-else class="asset-form__hint">{{ t('assets.executionModes.workflowOverride.notice') }}</p>
             <div class="asset-form__binding-summary">

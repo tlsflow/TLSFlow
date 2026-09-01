@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 defineProps<{
   modelValue: string
   items: ApiRecord[]
+  valueField?: 'pluginId' | 'pluginVersionId'
   loading?: boolean
   required?: boolean
   label: string
@@ -27,6 +28,10 @@ function pluginLabel(plugin: ApiRecord): string {
 function text(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
+
+function pluginValue(plugin: ApiRecord, valueField: 'pluginId' | 'pluginVersionId' = 'pluginVersionId'): string {
+  return text(plugin[valueField])
+}
 </script>
 
 <template>
@@ -37,7 +42,7 @@ function text(value: unknown): string {
     </span>
     <select class="gc-native-select" :value="modelValue" :disabled="loading" :required="required" @change="emit('update:modelValue', ($event.target as HTMLSelectElement).value)">
       <option value="">{{ loading ? loadingText : items.length ? selectText : emptyText }}</option>
-      <option v-for="plugin in items" :key="String(plugin.pluginVersionId)" :value="String(plugin.pluginVersionId)">
+      <option v-for="plugin in items" :key="pluginValue(plugin, valueField)" :value="pluginValue(plugin, valueField)">
         {{ pluginLabel(plugin) }}
       </option>
     </select>
