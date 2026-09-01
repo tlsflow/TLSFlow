@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { AppError } from '../../common/errors/app-error.js';
 import { CertificateVersionTargetResolver } from './application/certificate-version-target-resolver.js';
 
 test('证书事件解析器按明确选择的应用资产计算版本影响', async () => {
@@ -508,4 +509,27 @@ test('外部 API 传入证书版本号时解析为真实版本并返回应用资
   assert.equal(items[0]?.target.currentCertificateNotAfter, currentVersion.notAfter);
   assert.equal(items[0]?.target.targetCertificateNotAfter, targetVersion.notAfter);
   assert.equal(items[0]?.target.certificateVersionImpact, 'upgrade');
+});
+
+test('外部 API 证书版本不属于自动化预设域名时拒绝', async () => {
+  const resolver = new CertificateVersionTargetResolver(
+    {
+      getVersion: async () => ({ id: 'version-other-domain', certificateAssetId: 'certificate-other', versionNo: 1, notAfter: '2026-10-25T00:00:00.000Z', deployable: true }),
+      getAsset: async () => ({ id: 'certificate-other', name: 'other.example.net', primaryDomain: 'other.example.net', tags: [] }),
+    } as never,
+    {} as never,
+    {} as never,
+    { canReadTarget: async () => true },
+  );
+
+  await assert.rejects(
+    () => resolver.resolve({
+      tenantId: 'tenant-1',
+      actorId: 'external:api-key',
+      triggerContext: { certificateVersionId: 'version-other-domain', sourceType: 'external_api', domains: ['example.com'] },
+      resolver: { type: 'certificate_version_targets' },
+      guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 2, requirePreview: true, requireDryRun: false, requireApproval: false },
+    }),
+    (error: unknown) => error instanceof AppError && error.errorCode === 'VALIDATION_FAILED' && error.message.includes('预设域名'),
+  );
 });
