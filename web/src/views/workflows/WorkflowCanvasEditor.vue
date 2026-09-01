@@ -2,7 +2,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { compileWorkflowCanvas, testWorkflowTemplateStep, validateWorkflowCanvasOnBackend } from '@/api/modules/workflow-templates.api'
-import { GcModal } from '@/design-system/components'
+import { GcCredentialSelect, GcModal } from '@/design-system/components'
+import type { CredentialKind } from '@/api/modules/credentials.api'
 import {
   loadCredentialProfiles,
   credentialProfileBinding,
@@ -451,13 +452,19 @@ function runtimeCredentialOptions(key: string): CredentialProfileOption[] {
   return managedCredentials.value.filter((item) => allowedKinds.includes(item.kind as typeof allowedKinds[number]))
 }
 
+function runtimeCredentialKinds(key: string): CredentialKind[] {
+  const allowedKinds = canvas.value.inputContract.credentials[key]?.allowedKinds ?? []
+  return allowedKinds
+    .filter((kind) => ['PASSWORD', 'USERNAME_PASSWORD', 'SSH_KEY', 'BEARER_TOKEN', 'API_KEY', 'CLIENT_CERTIFICATE'].includes(kind))
+    .map((kind) => kind as CredentialKind)
+}
+
 function resolveRuntimeCredentialId(key: string): string {
   return stepRuntimeState.value.credentialIds[key] ?? ''
 }
 
-function updateRuntimeCredentialBinding(key: string, event: Event) {
-  const target = event.target as HTMLSelectElement
-  const credential = managedCredentials.value.find((item) => item.id === target.value) ?? null
+function updateRuntimeCredentialBinding(key: string, credentialId: string) {
+  const credential = managedCredentials.value.find((item) => item.id === credentialId) ?? null
   stepRuntimeState.value = {
     ...stepRuntimeState.value,
     credentialIds: {
@@ -1206,13 +1213,16 @@ function firstNumber(...values: unknown[]): number | undefined {
           <p v-if="credentialsLoadError" class="workflow-canvas-editor__runtime-empty">{{ credentialsLoadError }}</p>
           <p v-else-if="credentialsLoading" class="workflow-canvas-editor__runtime-empty">{{ t('workflows.canvasEditor.credentials.loading') }}</p>
           <div v-if="Object.keys(canvas.inputContract.credentials).length" class="workflow-canvas-editor__runtime-form">
-            <label v-for="(_, name) in canvas.inputContract.credentials" :key="`runtime-credential:${name}`">
-              <span>{{ name }}</span>
-              <select :value="resolveRuntimeCredentialId(String(name))" @change="updateRuntimeCredentialBinding(String(name), $event)">
-                <option value="">{{ t('workflows.canvasEditor.options.notSelected') }}</option>
-                <option v-for="item in runtimeCredentialOptions(String(name))" :key="item.id" :value="item.id">{{ credentialProfileLabel(item) }}</option>
-              </select>
-            </label>
+            <GcCredentialSelect
+              v-for="(_, name) in canvas.inputContract.credentials"
+              :key="`runtime-credential:${name}`"
+              :model-value="resolveRuntimeCredentialId(String(name))"
+              :label="String(name)"
+              :accepted-kinds="runtimeCredentialKinds(String(name))"
+              :options="runtimeCredentialOptions(String(name)).map((item) => ({ id: item.id, label: credentialProfileLabel(item), kind: item.kind, username: item.username, metadata: item.metadata }))"
+              :disabled="credentialsLoading"
+              @update:model-value="updateRuntimeCredentialBinding(String(name), $event)"
+            />
           </div>
           <p v-else class="workflow-canvas-editor__runtime-empty">{{ t('workflows.canvasEditor.runtime.noCredentialVariables') }}</p>
           <strong>{{ t('workflows.canvasEditor.sections.runtimeVariables') }}</strong>

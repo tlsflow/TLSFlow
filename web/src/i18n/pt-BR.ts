@@ -2900,7 +2900,7 @@ export default {
     card: {
       presentation: { cards: 'Cartões', list: 'Tabela' },
       total: '{count} no total',
-      status: { valid: 'Válido', attention: 'Atenção', unknown: 'Desconhecido' },
+      status: { valid: 'Válido', attention: 'Atenção', unknown: 'Desconhecido', executable: 'Executável', needsConfiguration: 'Configuração necessária' },
       days: { expired: 'Expirado há {days} dias', expiresToday: 'Expira hoje', notRecorded: 'Não registrado', remaining: '{days} dias' },
       fields: { certificate: 'Certificado', validity: 'Validade', device: 'Dispositivo' },
       actions: { add: 'Adicionar', upToDate: 'Atualizado', deployUpdate: 'Implantar atualização' }
@@ -3316,7 +3316,7 @@ export default {
       archived: 'Arquivado',
       unknownStatus: 'Status desconhecido'
     },
-    certificateSupply: { title: 'Política de fornecimento de certificado', description: 'Configure um certificado manual ou dedicado à aplicação. As versões da política são preservadas.', modeLabel: 'Modo de fornecimento', manual: 'Selecionar certificado', dedicated: 'Usar certificado dedicado', certificateVersion: 'Versão do certificado', selectCertificate: 'Selecione uma versão que corresponda ao domínio atual', domainMatch: 'Somente certificados cujo CN ou SAN cobre {domain} são exibidos.', provider: 'Provider emissor', internalCa: 'Internal CA', acme: 'ACME', ca: 'Autoridade certificadora', selectCa: 'Selecionar CA', profile: 'Certificate Profile', selectProfile: 'Selecionar versão do perfil', acmeProvider: 'ACME Provider', acmeProfile: 'ACME Profile', selectAcmeProfile: 'Selecionar perfil ACME', selectProvider: 'Selecionar Provider', dnsProvider: 'DNS Provider', selectDnsProvider: 'Selecionar DNS Provider', secretRef: 'SecretRef da credencial', secretRefPlaceholder: 'secret://tenant/path', custodyMode: 'Custódia da chave', artifactMode: 'Modo do artefato', canSave: 'Pode salvar', canIssue: 'Pode emitir', canDeploy: 'Pode implantar', lifecycle: 'Status do ciclo de vida', errors: { loadFailed: 'Falha ao carregar a política.', previewFailed: 'Falha ao visualizar a política.' } },
+    certificateSupply: { title: 'Política de fornecimento de certificado', description: 'Configure um certificado manual ou dedicado à aplicação. As versões da política são preservadas.', modeLabel: 'Modo de fornecimento', manual: 'Selecionar certificado', dedicated: 'Usar certificado dedicado', certificateVersion: 'Versão do certificado', selectCertificate: 'Selecione um certificado correspondente ao domínio atual', domainMatch: 'Somente certificados cujo CN ou SAN cobre {domain} são exibidos.', provider: 'Provider emissor', internalCa: 'Internal CA', acme: 'ACME', ca: 'Autoridade certificadora', selectCa: 'Selecionar CA', profile: 'Certificate Profile', selectProfile: 'Selecionar versão do perfil', acmeProvider: 'ACME Provider', acmeProfile: 'ACME Profile', selectAcmeProfile: 'Selecionar perfil ACME', selectProvider: 'Selecionar Provider', dnsProvider: 'DNS Provider', selectDnsProvider: 'Selecionar DNS Provider', secretRef: 'SecretRef da credencial', secretRefPlaceholder: 'secret://tenant/path', custodyMode: 'Custódia da chave', artifactMode: 'Modo do artefato', canSave: 'Pode salvar', canIssue: 'Pode emitir', canDeploy: 'Pode implantar', lifecycle: 'Status do ciclo de vida', errors: { loadFailed: 'Falha ao carregar a política.', previewFailed: 'Falha ao visualizar a política.' } },
     common: {
       required: 'Obrigatório',
       optional: 'Opcional'

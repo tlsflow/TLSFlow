@@ -15,7 +15,7 @@ import { listManagedDevices } from '@/api/modules/devices.api'
 import { getDeploymentTaskSettings } from '@/api/modules/security.api'
 import type { ApiPageResult, ApiRecord, BusinessListQuery } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
-import { DeploymentInputForm, GcButton, GcCard, GcCertificateDeploymentForm, GcCompatiblePluginSelector, GcConfirmAction, GcDataTable, GcEffectiveCapabilityCard, GcEmptyState, GcExecutionModeSelector, GcHelpTip, GcManagedTargetSelector, GcModal, GcPagination, GcPermissionButton, GcPluginLogo, GcProgressBar, GcStatusTag, GcTabs, GcUserFlowWizard, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1, type StatusTone } from '@/design-system/components'
+import { DeploymentInputForm, GcButton, GcCard, GcCertificateDeploymentForm, GcCompatiblePluginSelector, GcConfirmAction, GcCredentialSelect, GcDataTable, GcEffectiveCapabilityCard, GcEmptyState, GcExecutionModeSelector, GcHelpTip, GcManagedTargetSelector, GcModal, GcPagination, GcPermissionButton, GcPluginLogo, GcProgressBar, GcStatusTag, GcTabs, GcUserFlowWizard, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1, type StatusTone } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import type { UserFlowStep } from '@/design-system/components/GcUserFlowWizard.vue'
 import { useAppStore } from '@/stores/app.store'
@@ -46,6 +46,8 @@ import {
 import ApplicationOnboardingModal from '@/views/application-onboarding/ApplicationOnboardingModal.vue'
 import DeviceOnboardingWizard from '@/views/devices/DeviceOnboardingWizard.vue'
 import type { DeviceOnboardingInitialSelection } from '@/views/devices/device-onboarding.model'
+import UnifiedAssetDetailModal from '@/views/assets/UnifiedAssetDetailModal.vue'
+import UnifiedAssetEditModal from '@/views/assets/UnifiedAssetEditModal.vue'
 
 type AssetPlatform = 'LINUX' | 'WINDOWS' | 'APPLIANCE'
 type AssetProtocol = 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP' | 'CUSTOM'
@@ -223,9 +225,9 @@ interface AssetDraft {
   workflowCapabilityKey: string
   workflowKey: string
   pluginOverrideVersionId: string
+  pluginOverridePluginId: string
   workflowExecutionBindingId: string
   workflowExecutionBindingVersion: number
-  pluginOverridePluginId: string
   workflowVersionSelection: WorkflowVersionSelection
   workflowVersionId: string
   workflowRunner: WorkflowRunnerType
@@ -328,6 +330,8 @@ const assetOverviewFilters = reactive({
   status: '',
 })
 const detailModalOpen = ref(false)
+const unifiedAssetDetailModal = ref<InstanceType<typeof UnifiedAssetDetailModal> | null>(null)
+const unifiedAssetEditModal = ref<InstanceType<typeof UnifiedAssetEditModal> | null>(null)
 let openedDetailRouteKey = ''
 let openingRouteAssetKey = ''
 const activeDetailTab = ref<'overview' | 'snapshots'>('overview')
@@ -445,11 +449,11 @@ const assetDraft = reactive<AssetDraft>({
   workflowCapabilityKey: '',
   workflowKey: '',
   pluginOverrideVersionId: '',
+  pluginOverridePluginId: '',
   workflowExecutionBindingId: '',
   workflowExecutionBindingVersion: 0,
   workflowVersionSelection: 'LATEST_PUBLISHED',
   workflowVersionId: '',
-  pluginOverridePluginId: '',
   workflowRunner: 'CONTROL_PLANE',
   workflowGatewayId: '',
   workflowTargetSiteName: '',
@@ -481,7 +485,43 @@ let certificateSupplyPreviewSequence = 0
 
 const activeCertificateSupplyData = computed(() => certificateSupplyPreview.value ?? certificateSupplyData.value)
 const certificateSupplyCandidates = computed(() => activeCertificateSupplyData.value?.certificateCandidates ?? [])
+const certificateSupplyCertificateOptions = computed(() => {
+  const byName = new Map<string, ApiRecord>()
+  for (const candidate of certificateSupplyCandidates.value) {
+    const name = String(candidate.name ?? candidate.primaryDomain ?? candidate.certificateAssetId ?? '').trim()
+    const key = name.toLocaleLowerCase() || String(candidate.certificateAssetId ?? '')
+    if (key && !byName.has(key)) byName.set(key, candidate)
+  }
+  return [...byName.values()]
+})
 const certificateSupplyProviders = computed(() => activeCertificateSupplyData.value?.providers ?? {})
+const certificateSupplyAuthorities = computed(() => {
+  const internalProviderIds = new Set((certificateSupplyProviders.value.ca ?? [])
+    .filter((provider) => String(provider.status ?? '').toLowerCase() === 'active')
+    .map((provider) => String(provider.id ?? '')))
+  return (certificateSupplyProviders.value.authorities ?? []).filter((authority) => (
+    String(authority.status ?? '').toLowerCase() === 'active'
+    && internalProviderIds.has(String(authority.providerId ?? ''))
+  ))
+})
+const certificateSupplyCredentialOptions = computed(() => {
+  const providerId = certificateSupplyDraft.dnsProviderId
+  if (!providerId) return []
+  return credentialProfileItems.value.filter((item) => (
+    item.kind === 'DNS_PROVIDER'
+    && String(item.metadata?.providerId ?? '') === providerId
+    && typeof item.secretRefs.config === 'string'
+    && item.secretRefs.config.length > 0
+  ))
+})
+const certificateSupplyCredentialSelectOptions = computed(() => certificateSupplyCredentialOptions.value.map((item) => ({
+  id: item.id,
+  value: item.secretRefs.config,
+  label: item.name,
+  kind: item.kind,
+  username: item.username,
+  metadata: item.metadata,
+})))
 const certificateSupplyReadiness = computed(() => activeCertificateSupplyData.value?.readiness ?? {})
 const certificateSupplyCanSave = computed(() => {
   if (!isEditMode.value || certificateSupplyLoading.value || !certificateSupplyData.value) return true
@@ -1070,6 +1110,11 @@ async function loadApplicationAssetContext(row: ViewRow) {
 }
 
 async function openDetailModal(row: ViewRow) {
+  const serviceAssetId = String(row.raw?.id ?? row.id ?? '')
+  if (isCloudServiceAsset(row.raw ?? {}) && serviceAssetId) {
+    await unifiedAssetDetailModal.value?.open({ rootType: 'SERVICE_ASSET', id: serviceAssetId })
+    return
+  }
   detailModalOpen.value = true
   await loadApplicationAssetContext(row)
 }
@@ -1418,8 +1463,11 @@ function applyCertificateSupplyData(data: CertificateSupplyData): void {
   certificateSupplyData.value = data
   const version = data.currentVersion ?? {}
   certificateSupplyDraft.supplyMode = String(version.supplyMode ?? 'manual') === 'dedicated' ? 'dedicated' : 'manual'
-  certificateSupplyDraft.certificateAssetId = String(version.certificateAssetId ?? '')
-  certificateSupplyDraft.certificateVersionId = String(version.certificateVersionId ?? '')
+  const currentVersionId = String(version.certificateVersionId ?? '')
+  const candidateForVersion = data.certificateCandidates?.find((item) => String(item.certificateVersionId ?? '') === currentVersionId)
+  certificateSupplyDraft.certificateAssetId = String(version.certificateAssetId ?? candidateForVersion?.certificateAssetId ?? '')
+  // 历史策略仍可能带有版本 ID，但页面只维护证书资产域名。
+  certificateSupplyDraft.certificateVersionId = ''
   certificateSupplyDraft.providerType = String(version.providerType ?? 'internal_ca') === 'acme' ? 'acme' : 'internal_ca'
   certificateSupplyDraft.providerId = String(version.providerId ?? '')
   certificateSupplyDraft.certificateAuthorityId = String(version.certificateAuthorityId ?? '')
@@ -1441,7 +1489,6 @@ function certificateSupplyPayload(): Record<string, unknown> {
   }
   if (certificateSupplyDraft.supplyMode === 'manual') {
     if (certificateSupplyDraft.certificateAssetId) payload.certificateAssetId = certificateSupplyDraft.certificateAssetId
-    if (certificateSupplyDraft.certificateVersionId) payload.certificateVersionId = certificateSupplyDraft.certificateVersionId
     return payload
   }
   payload.providerType = certificateSupplyDraft.providerType
@@ -1453,16 +1500,27 @@ function certificateSupplyPayload(): Record<string, unknown> {
   return payload
 }
 
-function selectCertificateSupplyCandidate(versionId: string): void {
-  const candidate = certificateSupplyCandidates.value.find((item) => String(item.certificateVersionId ?? '') === versionId)
-  certificateSupplyDraft.certificateAssetId = String(candidate?.certificateAssetId ?? '')
+function selectCertificateSupplyCandidate(certificateAssetId: string): void {
+  certificateSupplyDraft.certificateAssetId = certificateAssetId
+  certificateSupplyDraft.certificateVersionId = ''
 }
 
 function certificateSupplyCandidateLabel(candidate: ApiRecord): string {
-  const domain = String(candidate.certificateDomain ?? candidate.primaryDomain ?? candidate.commonName ?? candidate.name ?? candidate.certificateAssetId ?? t('common.notAvailable'))
-  const issuer = firstAssetText(candidate, ['issuer.commonName', 'issuer.organization', 'issuer.raw', 'sourceType']) || t('common.notAvailable')
-  const notAfter = formatBrowserLocalTime(candidate.notAfter, { includeSeconds: false }) || t('common.notAvailable')
-  return `${domain} · ${issuer}--${notAfter}`
+  return String(candidate.primaryDomain ?? candidate.commonName ?? candidate.name ?? candidate.certificateAssetId ?? t('common.notAvailable'))
+}
+
+function resolveAcmeProviderProfileId(providerId: string): string {
+  const provider = certificateSupplyProviders.value.acme?.find((item) => String(item.id ?? '') === providerId)
+  const configuration = readRecord(provider?.configuration)
+  const configured = String(configuration?.profileKey ?? configuration?.preset ?? '').trim()
+  if (configured && certificateSupplyProviders.value.acmeProviderProfiles?.some((item) => String(item.id ?? '') === configured)) return configured
+  const providerName = String(provider?.name ?? '').trim().toLocaleLowerCase()
+  const matched = certificateSupplyProviders.value.acmeProviderProfiles?.find((item) => {
+    const id = String(item.id ?? '').toLocaleLowerCase()
+    const name = String(item.name ?? '').toLocaleLowerCase()
+    return providerName === id || providerName === name
+  })
+  return String(matched?.id ?? '')
 }
 
 async function loadApplicationCertificateSupplyPolicy(applicationAssetId: string): Promise<void> {
@@ -1578,6 +1636,11 @@ function navigateUserFlow(stepId: string) {
 }
 
 async function openEditDialog(row: ViewRow) {
+  const serviceAssetId = String(row.raw?.id ?? row.id ?? '')
+  if (isCloudServiceAsset(row.raw ?? {}) && serviceAssetId) {
+    unifiedAssetEditModal.value?.open({ rootType: 'SERVICE_ASSET', id: serviceAssetId })
+    return
+  }
   resetDraft()
   resetCertificateSupplyDraft()
   assetWizardStep.value = 1
@@ -2409,6 +2472,7 @@ function resetDraft() {
   assetDraft.workflowCapabilityKey = ''
   assetDraft.workflowKey = ''
   assetDraft.pluginOverrideVersionId = ''
+  assetDraft.pluginOverridePluginId = ''
   assetDraft.workflowExecutionBindingId = ''
   assetDraft.workflowExecutionBindingVersion = 0
   assetDraft.workflowVersionSelection = 'LATEST_PUBLISHED'
@@ -2423,7 +2487,6 @@ function resetDraft() {
   workflowProjectionRequestKey = ''
   workflowBindingProjection.value = null
   workflowProjectionLoading.value = false
-  assetDraft.pluginOverridePluginId = ''
   workflowProjectionRefreshing.value = false
   workflowProjectionError.value = ''
   pluginBindingId.value = ''
@@ -3476,21 +3539,21 @@ watch(
 )
 
 watch(
-  () => deploymentInputBindingsFingerprint.value,
-  async () => {
-    if (editInitializationLoading.value || targetSelectionInitializing.value) return
-    if (!workflowBindingProjection.value) return
-    await refreshWorkflowBindingProjection({ preserveRenderedForm: true })
-  },
-)
-
-watch(
   () => assetDraft.pluginOverridePluginId,
   (pluginId, previousPluginId) => {
     if (!previousPluginId || pluginId === previousPluginId) return
     assetDraft.pluginOverrideVersionId = ''
     pluginBindingId.value = ''
     pluginBindingVersion.value = 0
+  },
+)
+
+watch(
+  () => deploymentInputBindingsFingerprint.value,
+  async () => {
+    if (editInitializationLoading.value || targetSelectionInitializing.value) return
+    if (!workflowBindingProjection.value) return
+    await refreshWorkflowBindingProjection({ preserveRenderedForm: true })
   },
 )
 
@@ -3597,7 +3660,7 @@ watch(
 watch(
   () => [
     certificateSupplyDraft.supplyMode,
-    certificateSupplyDraft.certificateVersionId,
+    certificateSupplyDraft.certificateAssetId,
     certificateSupplyDraft.providerType,
     certificateSupplyDraft.providerId,
     certificateSupplyDraft.certificateAuthorityId,
@@ -3612,6 +3675,17 @@ watch(
     if (editInitializationLoading.value || targetSelectionInitializing.value) return
     certificateSupplyPreview.value = null
     if (editingServiceAssetId.value && !certificateSupplyLoading.value) void previewCertificateSupplyPolicy()
+  },
+)
+
+watch(
+  () => [certificateSupplyDraft.providerType, certificateSupplyDraft.providerId],
+  ([providerType, providerId]) => {
+    if (providerType !== 'acme') {
+      certificateSupplyDraft.acmeProviderProfileId = ''
+      return
+    }
+    certificateSupplyDraft.acmeProviderProfileId = resolveAcmeProviderProfileId(String(providerId ?? ''))
   },
 )
 
@@ -3952,6 +4026,10 @@ function managedTargetLabel(target: ApiRecord): string {
               <template #body>
                 <dl class="asset-page__card-facts">
                   <div>
+                    <dt>{{ t('assets.card.fields.device') }}</dt>
+                    <dd v-auto-fit-card-fact-text class="asset-page__card-fact-value asset-page__card-device-name">{{ assetDeviceLabel(card.asset) }}</dd>
+                  </div>
+                  <div>
                     <dt>{{ t('assets.columns.status') }}</dt>
                     <dd class="asset-page__card-fact-value">
                       <GcStatusTag
@@ -3981,10 +4059,6 @@ function managedTargetLabel(target: ApiRecord): string {
                       />
                     </dd>
                   </div>
-                  <div>
-                    <dt>{{ t('assets.card.fields.device') }}</dt>
-                    <dd v-auto-fit-card-fact-text class="asset-page__card-fact-value asset-page__card-device-name">{{ assetDeviceLabel(card.asset) }}</dd>
-                  </div>
                 </dl>
               </template>
 
@@ -3996,6 +4070,7 @@ function managedTargetLabel(target: ApiRecord): string {
                     : 'asset-page__card-deploy-button--latest'"
                   :data-testid="`asset-card-deploy-${card.id}`"
                   permission="deployment.plan.execute"
+                  :disabled="!assetExecutionReady(card.asset)"
                   @click="openDeploymentDialog(assetOverviewCardRow(card))"
                 >
                   {{ t(assetCertificateNeedsUpdate(card.certificate) ? 'assets.card.actions.deployUpdate' : 'assets.card.actions.upToDate') }}
@@ -4010,7 +4085,6 @@ function managedTargetLabel(target: ApiRecord): string {
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5" /></svg>
                   <span class="asset-page__icon-action-label">{{ t('assets.actions.detail') }}</span>
-                  :disabled="!assetExecutionReady(card.asset)"
                 </GcPermissionButton>
                 <GcPermissionButton
                   class="asset-page__card-icon-action"
@@ -4120,6 +4194,7 @@ function managedTargetLabel(target: ApiRecord): string {
                   class="asset-page__card-certificate-state"
                   :status="row.card.executionCompatibilityStatus"
                   :label="assetExecutionCompatibilityLabel(row.card)"
+                  :tone="assetExecutionCompatibilityTone(row.card)"
                   :title="assetExecutionCompatibilitySummary(row.card)"
                 />
                 <span v-if="row.card.executionCompatibilityIssueCount > 0" class="asset-page__compatibility-summary">
@@ -4134,7 +4209,6 @@ function managedTargetLabel(target: ApiRecord): string {
                   permission="deployment.plan.execute"
                   :disabled="!assetExecutionReady(row.card.asset)"
                   :data-testid="`asset-list-deploy-${row.id}`"
-                  :tone="assetExecutionCompatibilityTone(row.card)"
                   :aria-label="t('assets.actions.deployCertificate')"
                   :title="t('assets.actions.deployCertificate')"
                   @click="openDeploymentDialog(assetOverviewCardRow(row.card))"
@@ -4438,6 +4512,9 @@ function managedTargetLabel(target: ApiRecord): string {
       </section>
     </GcModal>
 
+    <UnifiedAssetDetailModal ref="unifiedAssetDetailModal" />
+    <UnifiedAssetEditModal ref="unifiedAssetEditModal" @completed="loadAssetOverviewPage(assetOverviewPage)" />
+
     <GcModal
       v-model:open="deploymentDialogOpen"
       :title="deploymentDialogTitle"
@@ -4534,7 +4611,6 @@ function managedTargetLabel(target: ApiRecord): string {
           <header class="asset-certificate-supply__header">
             <div>
               <h4>{{ t('assets.certificateSupply.title') }}</h4>
-              <p>{{ t('assets.certificateSupply.description') }}</p>
             </div>
             <span v-if="certificateSupplyLoading" class="asset-form__hint">{{ t('common.loading') }}</span>
           </header>
@@ -4550,10 +4626,9 @@ function managedTargetLabel(target: ApiRecord): string {
           </div>
           <div v-if="certificateSupplyDraft.supplyMode === 'manual'" class="asset-form__grid">
             <label class="asset-form__field asset-form__field--wide">
-              <span>{{ t('assets.certificateSupply.certificateVersion') }}</span>
-              <select v-model="certificateSupplyDraft.certificateVersionId" @change="selectCertificateSupplyCandidate(certificateSupplyDraft.certificateVersionId)">
+              <select v-model="certificateSupplyDraft.certificateAssetId" @change="selectCertificateSupplyCandidate(certificateSupplyDraft.certificateAssetId)">
                 <option value="">{{ t('assets.certificateSupply.selectCertificate') }}</option>
-                <option v-for="candidate in certificateSupplyCandidates" :key="String(candidate.certificateVersionId ?? candidate.certificateAssetId)" :value="String(candidate.certificateVersionId ?? '')">
+                <option v-for="candidate in certificateSupplyCertificateOptions" :key="String(candidate.certificateAssetId)" :value="String(candidate.certificateAssetId)">
                   {{ certificateSupplyCandidateLabel(candidate) }}
                 </option>
               </select>
@@ -4572,23 +4647,16 @@ function managedTargetLabel(target: ApiRecord): string {
               <span>{{ t('assets.certificateSupply.ca') }}</span>
               <select v-model="certificateSupplyDraft.certificateAuthorityId">
                 <option value="">{{ t('assets.certificateSupply.selectCa') }}</option>
-                <option v-for="authority in certificateSupplyProviders.authorities ?? []" :key="String(authority.id)" :value="String(authority.id)">{{ String(authority.name ?? authority.id) }}</option>
+                <option v-for="authority in certificateSupplyAuthorities" :key="String(authority.id)" :value="String(authority.id)">{{ String(authority.name ?? authority.id) }}</option>
               </select>
             </label>
-            <label v-if="certificateSupplyDraft.providerType === 'acme'" class="asset-form__field">
+            <div v-if="certificateSupplyDraft.providerType === 'acme'" class="asset-form__field">
               <span>{{ t('assets.certificateSupply.acmeProvider') }}</span>
               <select v-model="certificateSupplyDraft.providerId">
                 <option value="">{{ t('assets.certificateSupply.selectProvider') }}</option>
                 <option v-for="provider in certificateSupplyProviders.acme ?? []" :key="String(provider.id)" :value="String(provider.id)">{{ String(provider.name ?? provider.id) }}</option>
               </select>
-            </label>
-            <label v-if="certificateSupplyDraft.providerType === 'acme'" class="asset-form__field">
-              <span>{{ t('assets.certificateSupply.acmeProfile') }}</span>
-              <select v-model="certificateSupplyDraft.acmeProviderProfileId">
-                <option value="">{{ t('assets.certificateSupply.selectAcmeProfile') }}</option>
-                <option v-for="profile in certificateSupplyProviders.acmeProviderProfiles ?? []" :key="String(profile.id)" :value="String(profile.id)">{{ String(profile.name ?? profile.id) }}</option>
-              </select>
-            </label>
+            </div>
             <label v-if="certificateSupplyDraft.providerType === 'acme'" class="asset-form__field">
               <span>{{ t('assets.certificateSupply.dnsProvider') }}</span>
               <select v-model="certificateSupplyDraft.dnsProviderId">
@@ -4596,12 +4664,17 @@ function managedTargetLabel(target: ApiRecord): string {
                 <option v-for="provider in certificateSupplyProviders.dns ?? []" :key="String(provider.id)" :value="String(provider.id)">{{ String(provider.name ?? provider.id) }}</option>
               </select>
             </label>
-            <label v-if="certificateSupplyDraft.providerType === 'acme'" class="asset-form__field">
-              <span>{{ t('assets.certificateSupply.secretRef') }}</span>
-              <input v-model="certificateSupplyDraft.credentialRef" :placeholder="t('assets.certificateSupply.secretRefPlaceholder')" autocomplete="off">
-            </label>
+            <div v-if="certificateSupplyDraft.providerType === 'acme'" class="asset-form__field">
+              <GcCredentialSelect
+                v-model="certificateSupplyDraft.credentialRef"
+                :label="t('assets.certificateSupply.secretRef')"
+                :accepted-kinds="['DNS_PROVIDER']"
+                :required-metadata="{ providerId: certificateSupplyDraft.dnsProviderId }"
+                value-key="secretRef"
+                :options="certificateSupplyCredentialSelectOptions"
+              />
+            </div>
           </div>
-          <p v-if="certificateSupplyReadiness.reasons?.length" class="asset-form__hint">{{ certificateSupplyReadiness.reasons.join(', ') }}</p>
           <p v-if="certificateSupplyError" class="asset-form__error">{{ certificateSupplyError }}</p>
         </section>
 
@@ -4770,7 +4843,7 @@ function managedTargetLabel(target: ApiRecord): string {
           </div>
           <section class="asset-certificate-supply" :aria-label="t('assets.certificateSupply.title')">
             <header class="asset-certificate-supply__header">
-              <div><h4>{{ t('assets.certificateSupply.title') }}</h4><p>{{ t('assets.certificateSupply.description') }}</p></div>
+              <div><h4>{{ t('assets.certificateSupply.title') }}</h4></div>
               <span v-if="certificateSupplyLoading" class="asset-form__hint">{{ t('common.loading') }}</span>
             </header>
             <div class="asset-certificate-supply__mode" role="group" :aria-label="t('assets.certificateSupply.modeLabel')">
@@ -4779,23 +4852,29 @@ function managedTargetLabel(target: ApiRecord): string {
             </div>
             <div v-if="certificateSupplyDraft.supplyMode === 'manual'" class="asset-form__grid">
               <label class="asset-form__field asset-form__field--wide">
-                <span>{{ t('assets.certificateSupply.certificateVersion') }}</span>
-                <select v-model="certificateSupplyDraft.certificateVersionId" @change="selectCertificateSupplyCandidate(certificateSupplyDraft.certificateVersionId)">
+                <select v-model="certificateSupplyDraft.certificateAssetId" @change="selectCertificateSupplyCandidate(certificateSupplyDraft.certificateAssetId)">
                   <option value="">{{ t('assets.certificateSupply.selectCertificate') }}</option>
-                  <option v-for="candidate in certificateSupplyCandidates" :key="String(candidate.certificateVersionId ?? candidate.certificateAssetId)" :value="String(candidate.certificateVersionId ?? '')">{{ certificateSupplyCandidateLabel(candidate) }}</option>
+                  <option v-for="candidate in certificateSupplyCertificateOptions" :key="String(candidate.certificateAssetId)" :value="String(candidate.certificateAssetId)">{{ certificateSupplyCandidateLabel(candidate) }}</option>
                 </select>
                 <small>{{ t('assets.certificateSupply.domainMatch', { domain: certificateSupplyData?.primaryDomain ?? assetDraft.address }) }}</small>
               </label>
             </div>
             <div v-else class="asset-form__grid">
               <label class="asset-form__field"><span>{{ t('assets.certificateSupply.provider') }}</span><select v-model="certificateSupplyDraft.providerType"><option value="internal_ca">{{ t('assets.certificateSupply.internalCa') }}</option><option value="acme">{{ t('assets.certificateSupply.acme') }}</option></select></label>
-              <label v-if="certificateSupplyDraft.providerType === 'internal_ca'" class="asset-form__field"><span>{{ t('assets.certificateSupply.ca') }}</span><select v-model="certificateSupplyDraft.certificateAuthorityId"><option value="">{{ t('assets.certificateSupply.selectCa') }}</option><option v-for="authority in certificateSupplyProviders.authorities ?? []" :key="String(authority.id)" :value="String(authority.id)">{{ String(authority.name ?? authority.id) }}</option></select></label>
+              <label v-if="certificateSupplyDraft.providerType === 'internal_ca'" class="asset-form__field"><span>{{ t('assets.certificateSupply.ca') }}</span><select v-model="certificateSupplyDraft.certificateAuthorityId"><option value="">{{ t('assets.certificateSupply.selectCa') }}</option><option v-for="authority in certificateSupplyAuthorities" :key="String(authority.id)" :value="String(authority.id)">{{ String(authority.name ?? authority.id) }}</option></select></label>
               <label v-if="certificateSupplyDraft.providerType === 'acme'" class="asset-form__field"><span>{{ t('assets.certificateSupply.acmeProvider') }}</span><select v-model="certificateSupplyDraft.providerId"><option value="">{{ t('assets.certificateSupply.selectProvider') }}</option><option v-for="provider in certificateSupplyProviders.acme ?? []" :key="String(provider.id)" :value="String(provider.id)">{{ String(provider.name ?? provider.id) }}</option></select></label>
-              <label v-if="certificateSupplyDraft.providerType === 'acme'" class="asset-form__field"><span>{{ t('assets.certificateSupply.acmeProfile') }}</span><select v-model="certificateSupplyDraft.acmeProviderProfileId"><option value="">{{ t('assets.certificateSupply.selectAcmeProfile') }}</option><option v-for="profile in certificateSupplyProviders.acmeProviderProfiles ?? []" :key="String(profile.id)" :value="String(profile.id)">{{ String(profile.name ?? profile.id) }}</option></select></label>
               <label v-if="certificateSupplyDraft.providerType === 'acme'" class="asset-form__field"><span>{{ t('assets.certificateSupply.dnsProvider') }}</span><select v-model="certificateSupplyDraft.dnsProviderId"><option value="">{{ t('assets.certificateSupply.selectDnsProvider') }}</option><option v-for="provider in certificateSupplyProviders.dns ?? []" :key="String(provider.id)" :value="String(provider.id)">{{ String(provider.name ?? provider.id) }}</option></select></label>
-              <label v-if="certificateSupplyDraft.providerType === 'acme'" class="asset-form__field"><span>{{ t('assets.certificateSupply.secretRef') }}</span><input v-model="certificateSupplyDraft.credentialRef" :placeholder="t('assets.certificateSupply.secretRefPlaceholder')" autocomplete="off"></label>
+              <GcCredentialSelect
+                v-if="certificateSupplyDraft.providerType === 'acme'"
+                v-model="certificateSupplyDraft.credentialRef"
+                class="asset-form__field"
+                :label="t('assets.certificateSupply.secretRef')"
+                :accepted-kinds="['DNS_PROVIDER']"
+                :required-metadata="{ providerId: certificateSupplyDraft.dnsProviderId }"
+                value-key="secretRef"
+                :options="certificateSupplyCredentialSelectOptions"
+              />
             </div>
-            <p v-if="certificateSupplyReadiness.reasons?.length" class="asset-form__hint">{{ certificateSupplyReadiness.reasons.join(', ') }}</p>
             <p v-if="certificateSupplyError" class="asset-form__error">{{ certificateSupplyError }}</p>
           </section>
         </section>
@@ -4846,6 +4925,17 @@ function managedTargetLabel(target: ApiRecord): string {
               :options="managedExecutionModeOptions"
             />
             <template v-if="assetDraft.managedExecutionMode === 'PLUGIN'">
+              <GcCompatiblePluginSelector
+                v-model="assetDraft.pluginOverridePluginId"
+                :items="compatibleManagedPlugins"
+                :loading="compatibleManagedPluginsLoading"
+                :required="!pluginFallbackCapability"
+                :label="t('assets.fields.updatePlugin')"
+                :select-text="pluginFallbackCapability ? t('assets.select.updatePluginOptional') : t('assets.select.generic')"
+                :loading-text="t('common.loading')"
+                :empty-text="t('assets.errors.noCompatibleManagedPlugin')"
+                value-field="pluginId"
+              />
               <GcEffectiveCapabilityCard
                 :capability="effectiveCapability"
                 :pending-capability="pendingPluginCapability"
@@ -4863,17 +4953,6 @@ function managedTargetLabel(target: ApiRecord): string {
                   :loading="workflowProjectionLoading && !workflowProjectionRefreshing"
                 />
               </section>
-              <GcCompatiblePluginSelector
-                v-model="assetDraft.pluginOverridePluginId"
-                :items="compatibleManagedPlugins"
-                :loading="compatibleManagedPluginsLoading"
-                :required="!pluginFallbackCapability"
-                :label="t('assets.fields.updatePlugin')"
-                :select-text="pluginFallbackCapability ? t('assets.select.updatePluginOptional') : t('assets.select.generic')"
-                :loading-text="t('common.loading')"
-                :empty-text="t('assets.errors.noCompatibleManagedPlugin')"
-                value-field="pluginId"
-              />
             </template>
             <p v-else class="asset-form__hint">{{ t('assets.executionModes.workflowOverride.notice') }}</p>
             <div class="asset-form__binding-summary">
@@ -5549,7 +5628,7 @@ function managedTargetLabel(target: ApiRecord): string {
 
 .asset-page__card-facts {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--gc-space-1);
   margin: 0;
   padding: 0;
@@ -5559,6 +5638,7 @@ function managedTargetLabel(target: ApiRecord): string {
   display: grid;
   gap: var(--gc-space-1);
   min-width: 0;
+  height: var(--gc-size-asset-card-fact-height);
   padding: var(--gc-space-1);
   border-radius: var(--gc-radius-control);
   background: var(--gc-color-surface-muted);
@@ -5685,10 +5765,6 @@ function managedTargetLabel(target: ApiRecord): string {
   }
 
   .asset-page__filters {
-    grid-template-columns: 1fr;
-  }
-
-  .asset-page__card-facts {
     grid-template-columns: 1fr;
   }
 }

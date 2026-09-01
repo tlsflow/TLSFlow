@@ -17,6 +17,7 @@ export interface CredentialProfileOption extends RuntimeCredentialBinding {
   readonly name: string
   readonly apiKeyName?: string
   readonly apiKeyIn?: 'header' | 'query'
+  readonly metadata?: Record<string, unknown>
   readonly createdAt: string
 }
 
@@ -53,6 +54,7 @@ export async function loadCredentialProfiles(): Promise<CredentialProfileOption[
       username: item.username,
       delivery: item.delivery,
       secretRefs: item.secretSlots,
+      metadata: item.metadata,
       apiKeyName: item.delivery?.name,
       apiKeyIn: item.delivery?.location === 'query' ? 'query' : item.delivery?.location === 'header' ? 'header' : undefined,
       createdAt: item.createdAt,

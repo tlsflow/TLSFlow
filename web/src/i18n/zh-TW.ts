@@ -2925,7 +2925,7 @@ export default {
     card: {
       presentation: { cards: '卡片', list: '表格' },
       total: '共 {count} 個',
-      status: { valid: '有效', attention: '關注', unknown: '未知' },
+      status: { valid: '有效', attention: '關注', unknown: '未知', executable: '可執行', needsConfiguration: '需設定' },
       days: { expired: '已過期 {days} 天', expiresToday: '今天到期', notRecorded: '未記錄', remaining: '{days} 天' },
       fields: { certificate: '憑證', validity: '有效期', device: '裝置' },
       actions: { add: '新增', upToDate: '已是最新', deployUpdate: '部署更新' }
@@ -3328,7 +3328,7 @@ export default {
       archived: "已歸檔",
       unknownStatus: "未知狀態"
     },
-    certificateSupply: { title: '憑證供應策略', description: '設定手動憑證或應用程式專屬憑證，策略版本會保留歷史記錄。', userModeDescription: '系統會依租戶預設策略自動申請並部署 HTTPS 憑證，不需要選擇 Provider 或 Profile。', userStatus: { applying: '申請中', deploying: '部署中', effective: '已生效', attention: '需要處理' }, userStatusDescriptions: { applying: '憑證正在申請或續期，請稍候。', deploying: '憑證已簽發，正在部署到應用程式。', effective: '憑證已部署並通過生效檢查。', attention: '預設策略尚未匹配或需要管理員處理。' }, modeLabel: '憑證供應方式', manual: '手動選擇憑證', dedicated: '使用專屬憑證', certificate: '憑證', certificateVersion: '憑證版本', selectCertificate: '選擇符合目前網域的憑證域名', domainMatch: '只顯示 CN 或 SAN 覆蓋 {domain} 的憑證域名。', provider: '簽發 Provider', internalCa: '本產品管理的 CA', acme: 'ACME', ca: '憑證授權單位', selectCa: '選擇 CA', profile: 'Certificate Profile', selectProfile: '選擇 Profile 版本', acmeProvider: 'ACME Provider', acmeProfile: 'ACME Profile', selectAcmeProfile: '選擇 ACME Profile', selectProvider: '選擇 Provider', dnsProvider: 'DNS Provider', selectDnsProvider: '選擇 DNS Provider', secretRef: '憑據 SecretRef', secretRefPlaceholder: 'secret://tenant/path', custodyMode: '金鑰歸屬', artifactMode: '部署產物模式', canSave: '可儲存', canIssue: '可簽發', canDeploy: '可部署', lifecycle: '生命週期狀態', errors: { loadFailed: '載入憑證供應策略失敗。', previewFailed: '預覽憑證供應策略失敗。' } },
+    certificateSupply: { title: '憑證供應策略', description: '設定手動憑證或應用程式專屬憑證，策略版本會保留歷史記錄。', userModeDescription: '系統會依租戶預設策略自動申請並部署 HTTPS 憑證，不需要選擇 Provider 或 Profile。', userStatus: { applying: '申請中', deploying: '部署中', effective: '已生效', attention: '需要處理' }, userStatusDescriptions: { applying: '憑證正在申請或續期，請稍候。', deploying: '憑證已簽發，正在部署到應用程式。', effective: '憑證已部署並通過生效檢查。', attention: '預設策略尚未匹配或需要管理員處理。' }, modeLabel: '憑證供應方式', manual: '手動選擇憑證', dedicated: '使用專屬憑證', certificate: '憑證', certificateVersion: '憑證版本', selectCertificate: '選擇符合目前網域的憑證', domainMatch: '只顯示 CN 或 SAN 覆蓋 {domain} 的憑證域名。', provider: '簽發 Provider', internalCa: '本產品管理的 CA', acme: 'ACME', ca: '憑證授權單位', selectCa: '選擇 CA', profile: 'Certificate Profile', selectProfile: '選擇 Profile 版本', acmeProvider: 'ACME Provider', acmeProfile: 'ACME Profile', selectAcmeProfile: '選擇 ACME Profile', selectProvider: '選擇 Provider', dnsProvider: 'DNS Provider', selectDnsProvider: '選擇 DNS Provider', secretRef: '憑據 SecretRef', secretRefPlaceholder: 'secret://tenant/path', custodyMode: '金鑰歸屬', artifactMode: '部署產物模式', canSave: '可儲存', canIssue: '可簽發', canDeploy: '可部署', lifecycle: '生命週期狀態', errors: { loadFailed: '載入憑證供應策略失敗。', previewFailed: '預覽憑證供應策略失敗。' } },
     common: {
       required: "必填",
       optional: "可選"

@@ -2900,7 +2900,7 @@ export default {
     card: {
       presentation: { cards: 'Карточки', list: 'Таблица' },
       total: 'Всего: {count}',
-      status: { valid: 'Действителен', attention: 'Внимание', unknown: 'Неизвестно' },
+      status: { valid: 'Действителен', attention: 'Внимание', unknown: 'Неизвестно', executable: 'Можно выполнить', needsConfiguration: 'Требуется настройка' },
       days: { expired: 'Истёк {days} дн. назад', expiresToday: 'Истекает сегодня', notRecorded: 'Не записано', remaining: '{days} дн.' },
       fields: { certificate: 'Сертификат', validity: 'Срок действия', device: 'Устройство' },
       actions: { add: 'Добавить', upToDate: 'Актуален', deployUpdate: 'Развернуть обновление' }
@@ -3316,7 +3316,7 @@ export default {
       archived: 'Архивировано',
       unknownStatus: 'Неизвестный статус'
     },
-    certificateSupply: { title: 'Политика предоставления сертификата', description: 'Настройте ручной или выделенный сертификат приложения. Версии политики сохраняются.', modeLabel: 'Режим предоставления', manual: 'Выбрать сертификат', dedicated: 'Использовать выделенный сертификат', certificateVersion: 'Версия сертификата', selectCertificate: 'Выберите версию для текущего домена', domainMatch: 'Показаны только сертификаты, чей CN или SAN покрывает {domain}.', provider: 'Provider выпуска', internalCa: 'Internal CA', acme: 'ACME', ca: 'Центр сертификации', selectCa: 'Выберите CA', profile: 'Certificate Profile', selectProfile: 'Выберите версию профиля', acmeProvider: 'ACME Provider', acmeProfile: 'ACME Profile', selectAcmeProfile: 'Выберите профиль ACME', selectProvider: 'Выберите Provider', dnsProvider: 'DNS Provider', selectDnsProvider: 'Выберите DNS Provider', secretRef: 'SecretRef учетных данных', secretRefPlaceholder: 'secret://tenant/path', custodyMode: 'Хранение ключа', artifactMode: 'Режим артефакта', canSave: 'Можно сохранить', canIssue: 'Можно выпустить', canDeploy: 'Можно развернуть', lifecycle: 'Состояние жизненного цикла', errors: { loadFailed: 'Не удалось загрузить политику сертификата.', previewFailed: 'Не удалось просмотреть политику сертификата.' } },
+    certificateSupply: { title: 'Политика предоставления сертификата', description: 'Настройте ручной или выделенный сертификат приложения. Версии политики сохраняются.', modeLabel: 'Режим предоставления', manual: 'Выбрать сертификат', dedicated: 'Использовать выделенный сертификат', certificateVersion: 'Версия сертификата', selectCertificate: 'Выберите сертификат для текущего домена', domainMatch: 'Показаны только сертификаты, чей CN или SAN покрывает {domain}.', provider: 'Provider выпуска', internalCa: 'Internal CA', acme: 'ACME', ca: 'Центр сертификации', selectCa: 'Выберите CA', profile: 'Certificate Profile', selectProfile: 'Выберите версию профиля', acmeProvider: 'ACME Provider', acmeProfile: 'ACME Profile', selectAcmeProfile: 'Выберите профиль ACME', selectProvider: 'Выберите Provider', dnsProvider: 'DNS Provider', selectDnsProvider: 'Выберите DNS Provider', secretRef: 'SecretRef учетных данных', secretRefPlaceholder: 'secret://tenant/path', custodyMode: 'Хранение ключа', artifactMode: 'Режим артефакта', canSave: 'Можно сохранить', canIssue: 'Можно выпустить', canDeploy: 'Можно развернуть', lifecycle: 'Состояние жизненного цикла', errors: { loadFailed: 'Не удалось загрузить политику сертификата.', previewFailed: 'Не удалось просмотреть политику сертификата.' } },
     common: {
       required: 'Обязательно',
       optional: 'Необязательно'

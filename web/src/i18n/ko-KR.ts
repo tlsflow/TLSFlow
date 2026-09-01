@@ -2900,7 +2900,7 @@ export default {
     card: {
       presentation: { cards: '카드', list: '표' },
       total: '총 {count}개',
-      status: { valid: '유효', attention: '주의', unknown: '알 수 없음' },
+      status: { valid: '유효', attention: '주의', unknown: '알 수 없음', executable: '실행 가능', needsConfiguration: '설정 필요' },
       days: { expired: '{days}일 전 만료', expiresToday: '오늘 만료', notRecorded: '기록 없음', remaining: '{days}일' },
       fields: { certificate: '인증서', validity: '유효 기간', device: '장치' },
       actions: { add: '추가', upToDate: '최신 상태', deployUpdate: '업데이트 배포' }
@@ -3303,7 +3303,7 @@ export default {
       archived: '압축 파일',
       unknownStatus: '알 수 없는 상태'
     },
-    certificateSupply: { title: '인증서 공급 정책', description: '수동 인증서 또는 애플리케이션 전용 인증서를 구성합니다. 정책 버전은 보존됩니다.', modeLabel: '인증서 공급 방식', manual: '인증서 수동 선택', dedicated: '전용 인증서 사용', certificateVersion: '인증서 버전', selectCertificate: '현재 도메인과 일치하는 인증서 버전 선택', domainMatch: 'CN 또는 SAN이 {domain}을(를) 포함하는 인증서만 표시됩니다.', provider: '발급 Provider', internalCa: 'Internal CA', acme: 'ACME', ca: '인증 기관', selectCa: 'CA 선택', profile: 'Certificate Profile', selectProfile: '프로필 버전 선택', acmeProvider: 'ACME Provider', acmeProfile: 'ACME Profile', selectAcmeProfile: 'ACME 프로필 선택', selectProvider: 'Provider 선택', dnsProvider: 'DNS Provider', selectDnsProvider: 'DNS Provider 선택', secretRef: '자격 증명 SecretRef', secretRefPlaceholder: 'secret://tenant/path', custodyMode: '키 보관', artifactMode: '배포 아티팩트 모드', canSave: '저장 가능', canIssue: '발급 가능', canDeploy: '배포 가능', lifecycle: '수명 주기 상태', errors: { loadFailed: '인증서 공급 정책을 불러오지 못했습니다.', previewFailed: '인증서 공급 정책 미리보기에 실패했습니다.' } },
+    certificateSupply: { title: '인증서 공급 정책', description: '수동 인증서 또는 애플리케이션 전용 인증서를 구성합니다. 정책 버전은 보존됩니다.', modeLabel: '인증서 공급 방식', manual: '인증서 수동 선택', dedicated: '전용 인증서 사용', certificateVersion: '인증서 버전', selectCertificate: '현재 도메인과 일치하는 인증서 선택', domainMatch: 'CN 또는 SAN이 {domain}을(를) 포함하는 인증서만 표시됩니다.', provider: '발급 Provider', internalCa: 'Internal CA', acme: 'ACME', ca: '인증 기관', selectCa: 'CA 선택', profile: 'Certificate Profile', selectProfile: '프로필 버전 선택', acmeProvider: 'ACME Provider', acmeProfile: 'ACME Profile', selectAcmeProfile: 'ACME 프로필 선택', selectProvider: 'Provider 선택', dnsProvider: 'DNS Provider', selectDnsProvider: 'DNS Provider 선택', secretRef: '자격 증명 SecretRef', secretRefPlaceholder: 'secret://tenant/path', custodyMode: '키 보관', artifactMode: '배포 아티팩트 모드', canSave: '저장 가능', canIssue: '발급 가능', canDeploy: '배포 가능', lifecycle: '수명 주기 상태', errors: { loadFailed: '인증서 공급 정책을 불러오지 못했습니다.', previewFailed: '인증서 공급 정책 미리보기에 실패했습니다.' } },
     common: {
       required: '필수',
       optional: '선택 사항'

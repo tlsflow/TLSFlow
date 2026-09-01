@@ -3105,7 +3105,7 @@ export default {
     card: {
       presentation: { cards: '卡片', list: '表格' },
       total: '共 {count} 个',
-      status: { valid: '有效', attention: '关注', unknown: '未知' },
+      status: { valid: '有效', attention: '关注', unknown: '未知', executable: '可执行', needsConfiguration: '需配置' },
       days: { expired: '已过期 {days} 天', expiresToday: '今天到期', notRecorded: '未记录', remaining: '{days} 天' },
       fields: { certificate: '证书', validity: '有效期', device: '设备' },
       actions: { add: '添加', upToDate: '已是最新', deployUpdate: '部署更新' }
@@ -3576,7 +3576,7 @@ export default {
       manual: '手动选择证书',
       dedicated: '使用专属证书',
       certificateVersion: '证书版本',
-      selectCertificate: '选择匹配当前域名的证书版本',
+      selectCertificate: '匹配当前域名的证书',
       domainMatch: '仅显示 CN 或 SAN 覆盖 {domain} 的证书。',
       provider: '签发 Provider',
       internalCa: 'Internal CA',

@@ -2,6 +2,8 @@
 import { computed, ref, toRaw } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { cloneReactiveValue } from '@/utils/clone-reactive-value'
+import GcCredentialSelect from './GcCredentialSelect.vue'
+import type { CredentialKind } from '@/api/modules/credentials.api'
 import type {
   DeploymentArtifactOption,
   DeploymentArtifactProjectionV1,
@@ -123,6 +125,10 @@ function updateCredential(slot: string, credentialId: string): void {
   if (credentialId) credentials[slot] = { credentialId }
   else delete credentials[slot]
   model.value = { ...model.value, credentials }
+}
+
+function credentialKinds(item: { allowedKinds: string[] }): CredentialKind[] {
+  return item.allowedKinds.filter((kind): kind is CredentialKind => ['PASSWORD', 'USERNAME_PASSWORD', 'SSH_KEY', 'BEARER_TOKEN', 'API_KEY', 'CLIENT_CERTIFICATE', 'DNS_PROVIDER', 'CLOUD_PROVIDER', 'BROWSER_SESSION'].includes(kind))
 }
 
 function selectedCredential(slot: string, projected?: string): string {
@@ -283,14 +289,16 @@ function hasValues(value: Record<string, unknown>): boolean {
         </div>
       </section>
 
-      <div v-for="item in requiredCredentials" :key="`credential:${item.slot}`" class="deployment-input-form__field">
-        <label><span>{{ label(item.slot, item) }}{{ item.required ? ' *' : '' }}</span>
-          <select :value="selectedCredential(item.slot, item.selectedCredentialId)" :disabled="disabled" @change="updateCredential(item.slot, ($event.target as HTMLSelectElement).value)">
-            <option value="">{{ t('deploymentInputs.placeholders.credential') }}</option>
-            <option v-for="option in credentialOptions.filter((candidate) => !candidate.kind || item.allowedKinds.includes(candidate.kind))" :key="option.id" :value="option.id">{{ option.label }}</option>
-          </select>
-        </label>
-      </div>
+      <GcCredentialSelect
+        v-for="item in requiredCredentials"
+        :key="`credential:${item.slot}`"
+        :model-value="selectedCredential(item.slot, item.selectedCredentialId)"
+        :label="`${label(item.slot, item)}${item.required ? ' *' : ''}`"
+        :accepted-kinds="credentialKinds(item)"
+        :options="credentialOptions.filter((candidate) => !candidate.kind || item.allowedKinds.includes(candidate.kind))"
+        :disabled="disabled"
+        @update:model-value="updateCredential(item.slot, $event)"
+      />
 
       <section v-for="item in requiredArtifacts" :key="`artifact:${item.slot}`" class="deployment-input-form__section">
         <header><h4>{{ label(item.slot, item) }}</h4></header>
@@ -328,7 +336,16 @@ function hasValues(value: Record<string, unknown>): boolean {
         <div v-if="advancedExpanded" class="deployment-input-form__grid">
           <label v-for="item in projection.advancedVariables" :key="`advanced-variable:${item.slot}`" class="deployment-input-form__field"><span>{{ label(item.slot, item) }}</span><input :value="String(variableValue(item) ?? '')" :disabled="disabled || !isEditable(item)" autocomplete="off" @input="updateVariable(item, ($event.target as HTMLInputElement).value)"><small>{{ sourceLabel(item) }}</small></label>
           <template v-for="connection in advancedConnections" :key="`advanced-connection:${connection.slot}`"><label v-for="(field, path) in connection.fields" :key="`${connection.slot}:${path}`" class="deployment-input-form__field"><span>{{ label(connection.slot, connection) }} · {{ label(String(path), field) }}</span><input :value="String(connectionValue(connection.slot, String(path), field) ?? '')" :disabled="disabled || !isEditable(field)" autocomplete="off" @input="updateConnection(connection.slot, String(path), field, ($event.target as HTMLInputElement).value)"><small>{{ sourceLabel(field) }}</small></label></template>
-          <label v-for="item in advancedCredentials" :key="`advanced-credential:${item.slot}`" class="deployment-input-form__field"><span>{{ label(item.slot, item) }}</span><select :value="selectedCredential(item.slot, item.selectedCredentialId)" :disabled="disabled" @change="updateCredential(item.slot, ($event.target as HTMLSelectElement).value)"><option value="">{{ t('deploymentInputs.placeholders.credential') }}</option><option v-for="option in credentialOptions.filter((candidate) => !candidate.kind || item.allowedKinds.includes(candidate.kind))" :key="option.id" :value="option.id">{{ option.label }}</option></select></label>
+          <GcCredentialSelect
+            v-for="item in advancedCredentials"
+            :key="`advanced-credential:${item.slot}`"
+            :model-value="selectedCredential(item.slot, item.selectedCredentialId)"
+            :label="label(item.slot, item)"
+            :accepted-kinds="credentialKinds(item)"
+            :options="credentialOptions.filter((candidate) => !candidate.kind || item.allowedKinds.includes(candidate.kind))"
+            :disabled="disabled"
+            @update:model-value="updateCredential(item.slot, $event)"
+          />
           <template v-for="item in advancedArtifacts" :key="`advanced-artifact:${item.slot}`">
             <label class="deployment-input-form__field"><span>{{ label(item.slot, item) }} · {{ t('deploymentInputs.artifacts.format') }}</span><span v-if="isArtifactFormatFixed(item)">{{ artifactFormatLabel(item) }}</span><select v-else :value="artifactBinding(item)?.certificateFormatId ?? ''" :disabled="disabled" @change="updateArtifactFormat(item, ($event.target as HTMLSelectElement).value)"><option value="">{{ t('deploymentInputs.placeholders.artifact') }}</option><option v-for="option in artifactOptions[item.slot] ?? []" :key="option.id" :value="option.id">{{ option.label }}</option></select></label>
             <template v-if="showArtifactOutputs">
