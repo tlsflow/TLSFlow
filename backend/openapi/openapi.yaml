@@ -15749,6 +15749,13 @@ paths:
       summary: "创建通知渠道"
       tags:
         - "Notifications"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              additionalProperties: true
       responses:
         200:
           description: "成功"
@@ -15785,6 +15792,32 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+    post:
+      operationId: "createNotificationRoute"
+      summary: "创建通知路由"
+      tags:
+        - "Notifications"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              additionalProperties: true
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/notification-templates:
     get:
       operationId: "listNotificationTemplates"
@@ -15807,6 +15840,32 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+    post:
+      operationId: "createNotificationTemplate"
+      summary: "保存通知模板"
+      tags:
+        - "Notifications"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              additionalProperties: true
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/notification-silences:
     get:
       operationId: "listNotificationSilences"
@@ -15823,6 +15882,32 @@ paths:
                 items:
                   type: "object"
                   additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+    post:
+      operationId: "createNotificationSilence"
+      summary: "创建通知静默"
+      tags:
+        - "Notifications"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              additionalProperties: true
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
         400:
           $ref: "#/components/responses/ErrorResponse"
         404:
@@ -16446,6 +16531,392 @@ paths:
       summary: "获取 OpenAPI 契约"
       tags:
         - "System"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/notification-settings:
+    get:
+      operationId: "getNotificationSettings"
+      summary: "查询通知设置"
+      tags:
+        - "Notifications"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+    patch:
+      operationId: "updateNotificationSettings"
+      summary: "更新通知设置"
+      tags:
+        - "Notifications"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              additionalProperties: true
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/notification-channels/:id:
+    patch:
+      operationId: "updateNotificationChannel"
+      summary: "更新通知渠道"
+      tags:
+        - "Notifications"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              additionalProperties: true
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+    delete:
+      operationId: "deleteNotificationChannel"
+      summary: "删除通知渠道"
+      tags:
+        - "Notifications"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              additionalProperties: true
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/notification-channels/:id/actions/test:
+    post:
+      operationId: "testNotificationChannel"
+      summary: "测试通知渠道"
+      tags:
+        - "Notifications"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              additionalProperties: true
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/notification-channels/:id/actions/enable:
+    post:
+      operationId: "enableNotificationChannel"
+      summary: "启用通知渠道"
+      tags:
+        - "Notifications"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/notification-channels/:id/actions/disable:
+    post:
+      operationId: "disableNotificationChannel"
+      summary: "停用通知渠道"
+      tags:
+        - "Notifications"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/notification-routes/:id:
+    patch:
+      operationId: "updateNotificationRoute"
+      summary: "更新通知路由"
+      tags:
+        - "Notifications"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              additionalProperties: true
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+    delete:
+      operationId: "deleteNotificationRoute"
+      summary: "删除通知路由"
+      tags:
+        - "Notifications"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              additionalProperties: true
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/notification-templates/:id:
+    patch:
+      operationId: "updateNotificationTemplate"
+      summary: "更新通知模板"
+      tags:
+        - "Notifications"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              additionalProperties: true
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/notification-templates/preview:
+    post:
+      operationId: "previewNotificationTemplate"
+      summary: "预览通知模板"
+      tags:
+        - "Notifications"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              additionalProperties: true
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/notification-silences/:id:
+    patch:
+      operationId: "updateNotificationSilence"
+      summary: "更新通知静默"
+      tags:
+        - "Notifications"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              additionalProperties: true
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+    delete:
+      operationId: "deleteNotificationSilence"
+      summary: "删除通知静默"
+      tags:
+        - "Notifications"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              additionalProperties: true
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/notification-requests/:id:
+    get:
+      operationId: "getNotificationRequest"
+      summary: "查询通知请求详情"
+      tags:
+        - "Notifications"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/notification-deliveries/:id:
+    get:
+      operationId: "getNotificationDelivery"
+      summary: "查询通知投递详情"
+      tags:
+        - "Notifications"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/notification-deliveries/:id/actions/retry:
+    post:
+      operationId: "retryNotificationDelivery"
+      summary: "重试通知投递"
+      tags:
+        - "Notifications"
       responses:
         200:
           description: "成功"
