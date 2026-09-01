@@ -103,7 +103,7 @@ export const BUSINESS_PERMISSION_REGISTRY: Readonly<Record<BusinessPermissionDom
         resources: [
           resource('application_asset', 'edit', 'application.read', 'application.update', 'application.asset.rescan', 'application.monitor.read'),
           resource('service_asset', 'edit', 'application.read', 'application.update', 'service_asset.manage', 'application.asset.rescan', 'application.monitor.read'),
-          resource('device_asset', 'read', 'application.device.read'),
+          resource('device_asset', 'edit', 'application.device.read', 'application.device.update'),
           resource('certificate_binding', 'edit', 'application.certificate.read', 'application.certificate.update', 'binding.manage', 'certificate.binding.update'),
           resource('monitor_target', 'read', 'application.monitor.read', 'monitor.target.read'),
           resource('monitor_risk', 'read', 'application.monitor.read', 'monitor.risk.read'),

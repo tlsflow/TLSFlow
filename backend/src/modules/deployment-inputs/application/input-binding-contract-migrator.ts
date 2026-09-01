@@ -54,6 +54,7 @@ function connectionDefinitionField(
   if (path === 'port') return definition.port;
   if (path === 'username') return definition.username;
   if (path === 'tls.verifyPeer') return definition.tls?.verifyPeer;
+  if (path === 'tls.enabled') return definition.tls?.enabled;
   if (path === 'tls.serverName') return definition.tls?.serverName;
   if (path === 'hostKey.expectedFingerprint') return definition.hostKey?.expectedFingerprint;
   return undefined;
