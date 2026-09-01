@@ -153,6 +153,23 @@ export class PgBindingsRepository implements BindingsRepository {
   }
 
   async listCertificateBindings(tenantId: string, query: PageQuery): Promise<PageResult<CertificateBindingDto>> {
+    if (canUseSqlPage(query)) {
+      const countResult = await this.db.query<{ count: string }>(
+        `select count(*)::text as count from pg_certificate_bindings where tenant_id = $1 and deleted_at is null`,
+        [tenantId],
+      );
+      const sortColumn = certificateBindingSortColumn(query.sort?.field);
+      const direction = query.sort?.direction === 'asc' ? 'asc' : 'desc';
+      const offset = Math.max(0, (query.page - 1) * query.pageSize);
+      const rows = (await this.db.query<CertificateBindingRow>(
+        `select * from pg_certificate_bindings
+          where tenant_id = $1 and deleted_at is null
+          order by ${sortColumn} ${direction}, id desc
+          limit $2 offset $3`,
+        [tenantId, query.pageSize, offset],
+      )).rows.map(toBinding);
+      return { items: rows, page: query.page, pageSize: query.pageSize, total: Number(countResult.rows[0]?.count ?? 0) };
+    }
     const rows = (await this.db.query<CertificateBindingRow>(`select * from pg_certificate_bindings where tenant_id = $1 and deleted_at is null`, [tenantId])).rows.map(toBinding);
     return page(rows, query, bindingFilter);
   }
@@ -667,6 +684,36 @@ function page<T extends object>(items: T[], query: PageQuery, filterFn: (item: T
 
 function bindingFilter(binding: CertificateBindingDto, field: string, expected: string): boolean {
   return String(readField(binding, field) ?? '').toLowerCase().includes(expected.toLowerCase());
+}
+
+function certificateBindingSortColumn(field?: string): string {
+  const columns: Record<string, string> = {
+    domainName: 'domain_name',
+    domain: 'domain',
+    port: 'port',
+    protocol: 'protocol',
+    bindingKey: 'binding_key',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+    lastVerifiedAt: 'last_verified_at',
+    status: 'status',
+    bindingType: 'binding_type',
+    serviceInstanceId: 'service_instance_id',
+    hostId: 'host_id',
+  };
+  return columns[field ?? ''] ?? 'created_at';
+}
+
+function canUseSqlPage(query: PageQuery): boolean {
+  if (Object.keys(query.filter).length > 0) return false;
+  const authorization = query.authorization;
+  if (!authorization) return true;
+  return authorization.unrestricted === true
+    && !authorization.empty
+    && !(authorization.objectIds?.length)
+    && !(authorization.dynamicConditions?.length)
+    && !(authorization.deniedObjectIds?.length)
+    && !(authorization.deniedDynamicConditions?.length);
 }
 
 function readField(item: object, field: string): unknown {

@@ -289,6 +289,25 @@ export class PgCertificatesRepository implements CertificatesRepository {
   }
 
   async listAssets(query: PageQuery, tenantId?: string): Promise<PageResponse<CertificateAssetEntity>> {
+    if (canUseSqlPage(query)) {
+      const scopedTenantId = effectiveTenantId(tenantId);
+      const countResult = await this.db.query<{ count: string }>(
+        `select count(*)::text as count from pg_certificate_assets
+          where status <> 'deleted' and ($1::text is null or tenant_id = $1)`,
+        [scopedTenantId ?? null],
+      );
+      const sortColumn = certificateAssetSortColumn(query.sort?.field);
+      const direction = query.sort?.direction === 'asc' ? 'asc' : 'desc';
+      const offset = Math.max(0, (query.page - 1) * query.pageSize);
+      const rows = (await this.db.query<CertificateAssetRow>(
+        `select * from pg_certificate_assets
+          where status <> 'deleted' and ($1::text is null or tenant_id = $1)
+          order by ${sortColumn} ${direction}, id desc
+          limit $2 offset $3`,
+        [scopedTenantId ?? null, query.pageSize, offset],
+      )).rows.map(toAssetEntity);
+      return createPageResponse(rows, query.page, query.pageSize, Number(countResult.rows[0]?.count ?? 0));
+    }
     const rows = (await this.db.query<CertificateAssetRow>(
       `select * from pg_certificate_assets
         where status <> 'deleted'
@@ -396,6 +415,39 @@ export class PgCertificatesRepository implements CertificatesRepository {
   }
 
   async listVersions(query: PageQuery, tenantId?: string): Promise<PageResponse<CertificateVersionEntity>> {
+    if (canUseSqlPage(query)) {
+      const scopedTenantId = effectiveTenantId(tenantId);
+      const countResult = await this.db.query<{ count: string }>(
+        `select count(*)::text as count from pg_certificate_versions version
+          where version.status <> 'deleted'
+            and ($1::text is null or version.tenant_id = $1)
+            and exists (
+              select 1 from pg_certificate_assets asset
+               where asset.id = version.certificate_asset_id
+                 and asset.tenant_id = version.tenant_id
+                 and asset.status <> 'deleted'
+            )`,
+        [scopedTenantId ?? null],
+      );
+      const sortColumn = certificateVersionSortColumn(query.sort?.field);
+      const direction = query.sort?.direction === 'asc' ? 'asc' : 'desc';
+      const offset = Math.max(0, (query.page - 1) * query.pageSize);
+      const rows = (await this.db.query<CertificateVersionRow>(
+        `select version.* from pg_certificate_versions version
+          where version.status <> 'deleted'
+            and ($1::text is null or version.tenant_id = $1)
+            and exists (
+              select 1 from pg_certificate_assets asset
+               where asset.id = version.certificate_asset_id
+                 and asset.tenant_id = version.tenant_id
+                 and asset.status <> 'deleted'
+            )
+          order by ${sortColumn} ${direction}, version.id desc
+          limit $2 offset $3`,
+        [scopedTenantId ?? null, query.pageSize, offset],
+      )).rows.map(toVersionEntity);
+      return createPageResponse(rows, query.page, query.pageSize, Number(countResult.rows[0]?.count ?? 0));
+    }
     const scopedTenantId = effectiveTenantId(tenantId);
     const versions = (await this.db.query<CertificateVersionRow>(
       `select * from pg_certificate_versions
@@ -754,6 +806,45 @@ function page<T>(rows: T[], query: PageQuery): PageResponse<T> {
   const start = (query.page - 1) * query.pageSize;
   const sorted = query.sort ? [...rows].sort((left, right) => compareRows(left, right, query.sort!.field, query.sort!.direction)) : rows;
   return createPageResponse(sorted.slice(start, start + query.pageSize), query.page, query.pageSize, sorted.length);
+}
+
+function certificateAssetSortColumn(field?: string): string {
+  const columns: Record<string, string> = {
+    name: 'name',
+    primaryDomain: 'primary_domain',
+    sourceType: 'source_type',
+    status: 'status',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  };
+  return columns[field ?? ''] ?? 'created_at';
+}
+
+function certificateVersionSortColumn(field?: string): string {
+  const columns: Record<string, string> = {
+    certificateAssetId: 'version.certificate_asset_id',
+    versionNo: 'version.version_no',
+    commonName: 'version.common_name',
+    fingerprintSha256: 'version.fingerprint_sha256',
+    serialNumber: 'version.serial_number',
+    notBefore: 'version.not_before',
+    notAfter: 'version.not_after',
+    status: 'version.status',
+    createdAt: 'version.created_at',
+  };
+  return columns[field ?? ''] ?? 'version.created_at';
+}
+
+function canUseSqlPage(query: PageQuery): boolean {
+  if (Object.keys(query.filter).length > 0) return false;
+  const authorization = query.authorization;
+  if (!authorization) return true;
+  return authorization.unrestricted === true
+    && !authorization.empty
+    && !(authorization.objectIds?.length)
+    && !(authorization.dynamicConditions?.length)
+    && !(authorization.deniedObjectIds?.length)
+    && !(authorization.deniedDynamicConditions?.length);
 }
 
 function compareRows<T>(left: T, right: T, field: string, direction: 'asc' | 'desc'): number {
