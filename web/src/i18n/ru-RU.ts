@@ -669,7 +669,7 @@ export default {
     deployments: 'Развертывание сертификатов',
     deploymentsDesc: 'Планы развертывания, workflow, автоматизации и записи выполнения',
     deploymentPlans: 'Планы развертывания',
-    deploymentPlansDesc: 'Планы развертывания сертификатов и входы согласования',
+    deploymentPlansDesc: 'Планы развертывания сертификатов',
     executions: 'Записи выполнения',
     executionsDesc: 'Шаги выполнения, журналы, ошибки и откат',
     reports: 'Отчеты',
@@ -722,11 +722,11 @@ export default {
     empty: 'Автоматизации отсутствуют.',
     emptyDescription: 'Нет описания',
     common: { notAvailable: 'Нет данных', allRelated: 'All related targets' },
-    externalApi: { executionModeLabel: 'Режим внешнего запуска', executionModeAria: 'Режим внешнего запуска', direct: 'Запустить напрямую (без согласования)', approval: 'Использовать встроенное согласование', keyTitle: 'Внешний API Key', keyDescription: 'Этот ключ постоянно отображается на странице автоматизации, и его можно копировать в любое время.', keyNotice: 'Передавайте его в заголовке X-Automation-API-Key.', keyStatusPending: 'Создаётся после сохранения и включения', keyStatusActive: 'Создан', keyStatusUnavailable: 'Создан (полный ключ не отображается на этой странице)', keyEditorDescription: 'Полный ключ постоянно отображается на текущей странице, и его можно копировать в любое время. После обновления старый ключ немедленно перестаёт действовать.', keyValueLabel: 'API Key', keyValueAria: 'Внешний API Key', keyUnavailableValue: 'Полный ключ не отображается на этой странице', keyUnavailable: 'На этой странице нет полного ключа. Нажмите «Обновить Key», чтобы создать новый.', rotate: 'Обновить Key', rotating: 'Обновление', rotateNotice: 'После обновления старый Key немедленно перестаёт действовать.', mode: 'Режим запуска: {mode}', copy: 'Копировать Key', copied: 'Скопировано', copyAria: 'Копировать API Key', copyCurlAria: 'Копировать команду CURL', rotateAria: 'Обновить API Key', apiManualButton: 'Руководство API', apiManualAutomationId: 'ID текущей автоматизации', apiManualAutomationIdUnavailable: 'Создаётся после сохранения', apiManualTitle: 'Руководство внешнего API', apiManualDescription: 'Используйте ID автоматизации и API Key для вызова интерфейсов. Домены сертификатов заранее заданы в автоматизации.', apiManualCertificateVersion: 'Для запуска и проверки совместимости требуется точный certificateVersionId.', apiManualRunTitle: 'Запустить автоматизацию', apiManualRunDescription: 'Передайте версию сертификата для одного запуска. В зависимости от настройки запуск выполняется сразу или проходит согласование.', apiManualRunCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/run' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -H Idempotency-Key:automation-run-$(date +%s) \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualPreviewTitle: 'Проверить совместимость приложений', apiManualPreviewDescription: 'Передайте версию сертификата, чтобы получить соответствующие приложения, возможность запуска и причины исключений.', apiManualPreviewCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/preview' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualVersionsTitle: 'Получить доступные версии сертификата', apiManualVersionsDescription: 'Возвращает выбираемые версии для доменов сертификатов, заданных в этой автоматизации.', apiManualVersionsCurl: "curl 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/certificate-versions' \\\n  -H 'X-Automation-API-Key: ak_xxx'" },
+    externalApi: { executionModeLabel: 'Режим внешнего запуска', executionModeAria: 'Режим внешнего запуска', keyTitle: 'Внешний API Key', keyDescription: 'Этот ключ постоянно отображается на странице автоматизации, и его можно копировать в любое время.', keyNotice: 'Передавайте его в заголовке X-Automation-API-Key.', keyStatusPending: 'Создаётся после сохранения и включения', keyStatusActive: 'Создан', keyStatusUnavailable: 'Создан (полный ключ не отображается на этой странице)', keyEditorDescription: 'Полный ключ постоянно отображается на текущей странице, и его можно копировать в любое время. После обновления старый ключ немедленно перестаёт действовать.', keyValueLabel: 'API Key', keyValueAria: 'Внешний API Key', keyUnavailableValue: 'Полный ключ не отображается на этой странице', keyUnavailable: 'На этой странице нет полного ключа. Нажмите «Обновить Key», чтобы создать новый.', rotate: 'Обновить Key', rotating: 'Обновление', rotateNotice: 'После обновления старый Key немедленно перестаёт действовать.', mode: 'Режим запуска: {mode}', copy: 'Копировать Key', copied: 'Скопировано', copyAria: 'Копировать API Key', copyCurlAria: 'Копировать команду CURL', rotateAria: 'Обновить API Key', apiManualButton: 'Руководство API', apiManualAutomationId: 'ID текущей автоматизации', apiManualAutomationIdUnavailable: 'Создаётся после сохранения', apiManualTitle: 'Руководство внешнего API', apiManualDescription: 'Используйте ID автоматизации и API Key для вызова интерфейсов. Домены сертификатов заранее заданы в автоматизации.', apiManualCertificateVersion: 'Для запуска и проверки совместимости требуется точный certificateVersionId.', apiManualRunTitle: 'Запустить автоматизацию', apiManualRunDescription: 'Передайте версию сертификата для одного запуска. Запуск помещается в текущую очередь выполнения.', apiManualRunCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/run' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -H Idempotency-Key:automation-run-$(date +%s) \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualPreviewTitle: 'Проверить совместимость приложений', apiManualPreviewDescription: 'Передайте версию сертификата, чтобы получить соответствующие приложения, возможность запуска и причины исключений.', apiManualPreviewCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/preview' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualVersionsTitle: 'Получить доступные версии сертификата', apiManualVersionsDescription: 'Возвращает выбираемые версии для доменов сертификатов, заданных в этой автоматизации.', apiManualVersionsCurl: "curl 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/certificate-versions' \\\n  -H 'X-Automation-API-Key: ak_xxx'" },
     formStep: { stepProgress: 'Step {current} of {total}', previous: 'Back', next: 'Next', reviewTitle: 'Configuration summary', reviewText: 'Trigger: {trigger}; execution scope: {scope}; certificate domains: {domains}. The target snapshot is frozen when the run starts.' },
     scheduleBuilder: { api: 'Запуск через внешний API', once: 'Однократный запуск в заданное время', onceHelp: 'Выберите локальное время браузера. После выполнения задача не планируется повторно.', recurring: 'Периодический запуск', scheduleHelp: 'Используйте периодический график только при реальной необходимости постоянной проверки.', recurringHelp: 'Используйте периодический график только при реальной необходимости постоянной проверки.', recurringWarningTitle: 'Периодический запуск не рекомендуется для сертификатов', recurringWarning: 'Обычно замену следует запускать после выпуска сертификата или назначать один фиксированный запуск.', certificateVersionCreated: 'Certificate new-version event', runAt: 'Время запуска', frequency: 'Периодичность', daily: 'Ежедневно', weekly: 'Еженедельно', monthly: 'Ежемесячно', time: 'Время', weekday: 'День недели', monthDay: 'День месяца', legacyCustom: 'Сохранить существующий пользовательский график', legacyCron: 'Существующий Cron (только чтение)', weekdays: { 0: 'Воскресенье', 1: 'Понедельник', 2: 'Вторник', 3: 'Среда', 4: 'Четверг', 5: 'Пятница', 6: 'Суббота' } },
-    form: { existingAssetTitle: 'Обновлять только существующие активы приложений', existingAssetDescription: 'Автоматизация обрабатывает только активы с существующими привязками сертификатов. Первичная установка и добавление целей не выполняются.', certificateDomains: 'Домены сертификата', certificateDomainsPlaceholder: 'Введите домены через запятую', certificateDomainsHelp: 'Обновляются только существующие привязки активов для этих доменов.', versionSelection: 'Версия сертификата для развертывания', versionSelectionLatest: 'Автоматически использовать последнюю версию', versionSelectionSpecific: 'Использовать указанные версии', versionSelectionHelp: 'Версия определяется и фиксируется в начале запуска.', certificateVersionIds: 'Указанные версии сертификата', certificateVersionIdsPlaceholder: 'Введите ID версий через запятую', certificateVersionIdsHelp: 'Каждая версия должна принадлежать сертификату, выбранному по доменам.', versionLoading: 'Загрузка доступных версий сертификата.', versionLoadFailed: 'Не удалось загрузить версии. Повторите попытку позже.', versionEmpty: 'Для этих доменов нет доступных версий.', schedule: 'Когда обновлять', scheduleHelp: 'Запускайте по запросу или периодически по Cron и часовому поясу.', execution: 'Что происходит при запуске', executionHelp: 'Для каждой существующей привязки создается отдельный план с повторным использованием DeploymentPlan, согласования и ExecutionRun.', snapshot: 'Зафиксировать снимок домена, актива и версии сертификата' },
-    fields: { name: 'Название', description: 'Описание', trigger: 'Триггер', eventSources: 'Event sources', targetScope: 'Update scope', selectedAssets: 'Selected managed applications', selectedAssetsHelp: 'Select at least one managed application.', certificateTags: 'Certificate tags (comma separated)', certificateTagsHelp: 'Filter the event or polling scope by certificate tags.', targetEnvironments: 'Target environments (comma separated)', targetEnvironmentsHelp: 'Filter by target application environment.', targetOwners: 'Target owners (comma separated)', targetOwnersHelp: 'Filter by target owner.', cron: 'Выражение Cron', timeZone: 'Часовой пояс', expiresWithinDays: 'Срок истечения в днях', environments: 'Целевые среды (через запятую)', certificateIds: 'Конкретные сертификаты (необязательно)', certificateIdsPlaceholder: 'Введите ID сертификатов через запятую', certificateIdsHelp: 'Если указано, обрабатываются только эти сертификаты; иначе применяются правила срока и среды.', expiresWithinDaysHelp: 'Выбирать только сертификаты, истекающие в этот период.', environmentsHelp: 'Обрабатывать сертификаты только из указанных сред.', planType: 'Тип плана развертывания', planTypeHelp: 'При запуске для каждой подходящей цели создается отдельный DeploymentPlan.', planTypeUpdate: 'Обновить существующую привязку сертификата', planTypeInstall: 'Установить сертификат на цель', planTypeVerifyOnly: 'Только проверить, без изменения сертификата', planMode: 'Режим запуска', planModeHelp: 'Автоматизация не связывается с существующим планом; для каждой цели создается новый план.', planModeCreateAndExecute: 'Создать и выполнить план', planModeCreateOnly: 'Только создать планы, без выполнения', maxTargets: 'Максимум целей за запуск', concurrency: 'Параллельность', failureCount: 'Порог количества ошибок', requireDryRun: 'Историческая настройка Dry run (не блокирует запуск)', requireApproval: 'Требовать согласование перед выполнением', startedAt: 'Время начала', finishedAt: 'Время завершения', failureStage: 'Этап ошибки', parentRun: 'Родительский запуск' },
+    form: { existingAssetTitle: 'Обновлять только существующие активы приложений', existingAssetDescription: 'Автоматизация обрабатывает только активы с существующими привязками сертификатов. Первичная установка и добавление целей не выполняются.', certificateDomains: 'Домены сертификата', certificateDomainsPlaceholder: 'Введите домены через запятую', certificateDomainsHelp: 'Обновляются только существующие привязки активов для этих доменов.', versionSelection: 'Версия сертификата для развертывания', versionSelectionLatest: 'Автоматически использовать последнюю версию', versionSelectionSpecific: 'Использовать указанные версии', versionSelectionHelp: 'Версия определяется и фиксируется в начале запуска.', certificateVersionIds: 'Указанные версии сертификата', certificateVersionIdsPlaceholder: 'Введите ID версий через запятую', certificateVersionIdsHelp: 'Каждая версия должна принадлежать сертификату, выбранному по доменам.', versionLoading: 'Загрузка доступных версий сертификата.', versionLoadFailed: 'Не удалось загрузить версии. Повторите попытку позже.', versionEmpty: 'Для этих доменов нет доступных версий.', schedule: 'Когда обновлять', scheduleHelp: 'Запускайте по запросу или периодически по Cron и часовому поясу.', execution: 'Что происходит при запуске', executionHelp: 'Для каждой существующей привязки создается отдельный план с повторным использованием DeploymentPlan и ExecutionRun.', snapshot: 'Зафиксировать снимок домена, актива и версии сертификата' },
+    fields: { name: 'Название', description: 'Описание', trigger: 'Триггер', eventSources: 'Event sources', targetScope: 'Update scope', selectedAssets: 'Selected managed applications', selectedAssetsHelp: 'Select at least one managed application.', certificateTags: 'Certificate tags (comma separated)', certificateTagsHelp: 'Filter the event or polling scope by certificate tags.', targetEnvironments: 'Target environments (comma separated)', targetEnvironmentsHelp: 'Filter by target application environment.', targetOwners: 'Target owners (comma separated)', targetOwnersHelp: 'Filter by target owner.', cron: 'Выражение Cron', timeZone: 'Часовой пояс', expiresWithinDays: 'Срок истечения в днях', environments: 'Целевые среды (через запятую)', certificateIds: 'Конкретные сертификаты (необязательно)', certificateIdsPlaceholder: 'Введите ID сертификатов через запятую', certificateIdsHelp: 'Если указано, обрабатываются только эти сертификаты; иначе применяются правила срока и среды.', expiresWithinDaysHelp: 'Выбирать только сертификаты, истекающие в этот период.', environmentsHelp: 'Обрабатывать сертификаты только из указанных сред.', planType: 'Тип плана развертывания', planTypeHelp: 'При запуске для каждой подходящей цели создается отдельный DeploymentPlan.', planTypeUpdate: 'Обновить существующую привязку сертификата', planTypeInstall: 'Установить сертификат на цель', planTypeVerifyOnly: 'Только проверить, без изменения сертификата', planMode: 'Режим запуска', planModeHelp: 'Автоматизация не связывается с существующим планом; для каждой цели создается новый план.', planModeCreateAndExecute: 'Создать и выполнить план', planModeCreateOnly: 'Только создать планы, без выполнения', maxTargets: 'Максимум целей за запуск', concurrency: 'Параллельность', failureCount: 'Порог количества ошибок', requireDryRun: 'Историческая настройка Dry run (не блокирует запуск)', startedAt: 'Время начала', finishedAt: 'Время завершения', failureStage: 'Этап ошибки', parentRun: 'Родительский запуск' },
     actions: { create: 'Создать автоматизацию', detail: 'Details', edit: 'Изменить', delete: 'Удалить', cancel: 'Отмена', save: 'Сохранить', copy: 'Копировать', enable: 'Включить', disable: 'Отключить', runNow: 'Run now', preview: 'Предпросмотр целей', history: 'История запусков', confirmRun: 'Подтвердить запуск', stop: 'Остановить запуск', retryFailed: 'Повторить ошибки', openPlan: 'Открыть план развертывания', openExecution: 'Открыть выполнение' },
     manualRun: { title: 'Ручной запуск', description: 'Выберите версию сертификата перед запуском.', versionLabel: 'Версия сертификата', versionPlaceholder: 'Выберите версию сертификата', help: 'Запуск разрешит связанные активы приложений по выбранной версии.', empty: 'Нет доступных версий сертификата для ручного запуска.', stopOnError: 'Останавливать при ошибке', dryRun: 'Выполнить необязательный предпросмотр dry-run', start: 'Запустить', downgradeNotice: 'Для {count} активов приложений срок действия целевого сертификата короче текущего. Выполнение продолжится после подтверждения.', downgradeConfirmTitle: 'Подтвердите сокращение срока действия', downgradeConfirmDescription: 'Это ручная операция. После подтверждения {count} активов приложений будут обновлены сертификатом с более коротким сроком действия.', downgradeConfirmAction: 'Подтвердить и запустить' },
     columns: { status: 'Status', trigger: 'Триггер', targets: 'Лимит целей', actions: 'Действия', nextRun: 'Следующий запуск', lastRun: 'Последний запуск' },
@@ -744,9 +744,9 @@ export default {
     exclusions: { permission_denied: 'Нет доступа к цели', missing_version: 'Версия сертификата отсутствует', version_not_deployable: 'Версия сертификата недоступна для развертывания', binding_not_managed: 'Привязка не управляется', environment_not_allowed: 'Среда не разрешена', binding_missing: 'Привязка отсутствует', asset_missing_deployment_capability: 'Цель не может развернуть сертификаты', certificate_version_downgrade: 'Целевая версия старше текущей версии актива', certificate_already_up_to_date: 'Срок действия цели уже совпадает с текущим сертификатом, обновление пропущено', filter_not_matched: 'Условия фильтра не совпали', runtime_context_required: 'Требуется контекст выполнения', unknown: 'Неизвестная причина исключения' },
     failureStages: { selection: 'Выбор целей', plan_creation: 'Создание плана', dry_run: 'Dry run', approval: 'Согласование', execution: 'Выполнение', verification: 'Проверка', rollback: 'Откат', notification: 'Уведомление' },
     progress: { total: 'Всего', pending: 'Ожидание', running: 'Выполняется', waitingApproval: 'Ожидает согласования', succeeded: 'Успешно', failed: 'Ошибка', skipped: 'Пропущено', cancelled: 'Отменено' },
-    editor: { createTitle: 'Создать автоматизацию', editTitle: 'Изменить автоматизацию', description: 'Настройте время запуска, сертификаты, создание планов и поведение при ошибке.', exactVersionFromEvent: 'The certificate new-version event freezes the exact certificate version into the run snapshot.', sections: { basic: 'Основная информация', basicHelp: 'Укажите понятное имя автоматизации и опишите изменения сертификатов.', trigger: 'Trigger', triggerHelp: 'Define what fact starts the automation before choosing execution and conditions.', targets: 'Обрабатываемые сертификаты', targetsHelp: 'Выбираются цели-сертификаты, а не существующие планы; снимок целей фиксируется при запуске.', execution: 'Execution', executionHelp: 'Decide how the automation updates assets first, then add matching conditions and safety guardrails.', conditions: 'Conditions and safety', conditionsHelp: 'Define matching conditions, target filters, approval, and concurrency guardrails together in this step.', plan: 'План развертывания сертификата', planRelationTitle: 'Существующий план развертывания не привязывается', planRelationDescription: 'План создается во время запуска по фильтрам сертификатов.', planRelationHelp: 'Для каждой цели создается собственный DeploymentPlan, его ID отображается в деталях запуска.', guardrails: 'Контроль безопасности', guardrailsHelp: 'Эти ограничения управляют размером пакета, проверкой, согласованием и остановкой при ошибках.' }, chain: { createPlan: 'Создать DeploymentPlan для каждой цели', dryRun: 'Выполнить необязательный предпросмотр Dry run', approval: 'Дождаться согласования', executePlan: 'Выполнить DeploymentPlan цели' } },
+    editor: { createTitle: 'Создать автоматизацию', editTitle: 'Изменить автоматизацию', description: 'Настройте время запуска, сертификаты, создание планов и поведение при ошибке.', exactVersionFromEvent: 'The certificate new-version event freezes the exact certificate version into the run snapshot.', sections: { basic: 'Основная информация', basicHelp: 'Укажите понятное имя автоматизации и опишите изменения сертификатов.', trigger: 'Trigger', triggerHelp: 'Define what fact starts the automation before choosing execution and conditions.', targets: 'Обрабатываемые сертификаты', targetsHelp: 'Выбираются цели-сертификаты, а не существующие планы; снимок целей фиксируется при запуске.', execution: 'Execution', executionHelp: 'Decide how the automation updates assets first, then add matching conditions and safety guardrails.', conditions: 'Conditions and safety', conditionsHelp: 'Define matching conditions, target filters and concurrency guardrails together in this step.', plan: 'План развертывания сертификата', planRelationTitle: 'Существующий план развертывания не привязывается', planRelationDescription: 'План создается во время запуска по фильтрам сертификатов.', planRelationHelp: 'Для каждой цели создается собственный DeploymentPlan, его ID отображается в деталях запуска.', guardrails: 'Контроль безопасности', guardrailsHelp: 'Эти ограничения управляют размером пакета, проверкой и остановкой при ошибках.' }, chain: { createPlan: 'Создать DeploymentPlan для каждой цели', dryRun: 'Выполнить необязательный предпросмотр Dry run', executePlan: 'Выполнить DeploymentPlan цели' } },
     runs: { title: 'История автоматизаций', description: 'Просмотр состояния запуска, неизменяемых снимков целей и этапов ошибок.', progress: 'Успешно {succeeded}/{total}' },
-    runDetail: { title: 'Детали запуска автоматизации', description: 'Версия конфигурации {version}', noFailure: 'Ошибок нет', triggerContext: 'Trigger context', sourceType: 'Source type', certificateVersion: 'Exact certificate version', approvalId: 'Approval ID', deliveryId: 'Delivery ID', excludedReasons: 'Excluded reasons' },
+    runDetail: { title: 'Детали запуска автоматизации', description: 'Версия конфигурации {version}', noFailure: 'Ошибок нет', triggerContext: 'Trigger context', sourceType: 'Source type', certificateVersion: 'Exact certificate version', deliveryId: 'Delivery ID', excludedReasons: 'Excluded reasons' },
     aria: { preview: 'Предпросмотр целей автоматизации', runs: 'Список запусков автоматизации', progress: 'Ход выполнения автоматизации' },
     errors: { loadFailed: 'Не удалось загрузить автоматизации', applicationAssetsLoadFailed: 'Failed to load managed applications. Try again later.' }
   },
@@ -862,7 +862,7 @@ export default {
       },
       tlsGrantRequired: {
         label: 'Dry-run завершен, требуется авторизация хоста',
-        detail: 'Структурные проверки и проверки безопасности завершены. Dry-run не выдает формальный ExecutionGrant, поэтому обход проверки TLS отклонен. После согласования хост выдаст краткосрочный ExecutionGrant для формального выполнения.'
+        detail: 'Структурные проверки и проверки безопасности завершены. Dry-run не выдает формальный ExecutionGrant, поэтому обход проверки TLS отклонен. При формальном выполнении хост выдаст краткосрочный ExecutionGrant.'
       },
       warning: {
         label: 'Dry-run содержит предупреждения о рисках',
@@ -1102,7 +1102,7 @@ export default {
     userView: {
       stepLabel: 'Step 3 of 3 · Deploy',
       title: 'Deploy the certificate to an application',
-      description: 'Choose a certificate and a connected application. GCAC keeps the same preview, approval, and execution safeguards in the background.',
+      description: 'Choose a certificate and a connected application. GCAC keeps preview and execution safeguards in the background.',
       createAction: 'Start deployment',
       listTitle: 'Deployment tasks',
       listDescription: 'Only the next action and business status are shown here.',
@@ -1112,12 +1112,12 @@ export default {
       unnamedPlan: 'Unnamed deployment task',
       pendingCertificate: 'Certificate pending',
       pendingApplication: 'Application pending',
-      nextActionHint: 'The next action follows the current approval and preview status.',
+      nextActionHint: 'The next action follows the current preview and execution status.',
       prepareAction: 'Prepare deployment',
-      waiting: 'Waiting for approval or execution'
+      waiting: 'Waiting for execution'
     },
     title: 'Планы развертывания',
-    description: 'Предпросмотр плана, область влияния, согласование, партии выполнения, проверка и входы отката.',
+    description: 'Предпросмотр плана, область влияния, партии выполнения, проверка и входы отката.',
     resourceName: 'План развертывания',
     apiActions: {
       submit: 'Отправить план развертывания',
@@ -1131,13 +1131,8 @@ export default {
       edit: 'Редактировать план',
       dryRun: 'Dry-run предпросмотр влияния',
       dryRunRisk: 'Формирует только предпросмотр влияния и не выполняет реальное развертывание.',
-      submit: 'Отправить на согласование',
-      submitRisk: 'После отправки план перейдет в состояние согласования или ожидания выполнения.',
-      review: 'Рассмотреть согласование',
-      approve: 'Одобрить запрос',
-      approveRisk: 'После одобрения план допускается к выполнению; выданный хостом ExecutionGrant по-прежнему требуется во время выполнения.',
-      reject: 'Отклонить запрос',
-      rejectRisk: 'Отклоненный план нельзя выполнить; его нужно снова отправить на согласование.',
+      submit: 'Отправить план',
+      submitRisk: 'После отправки план перейдет в состояние ожидания выполнения.',
       execute: 'Выполнить развертывание',
       executeRisk: 'Выполнение изменит целевую конфигурацию сертификатов. Завершенные и ошибочные планы также используют этот вход для повторного запуска; выполнение синхронно проводит обязательные проверки, а необязательный Dry-run доступен в развертывании из карточки актива.',
       cancel: 'Отменить план',
@@ -1158,7 +1153,7 @@ export default {
     metrics: {
       total: {
         title: 'Всего планов',
-        description: 'Планы в ожидании согласования, выполнения или уже выполняющиеся.'
+        description: 'Планы в ожидании выполнения или уже выполняющиеся.'
       },
       risky: {
         title: 'Высокий риск к обработке',
@@ -1169,7 +1164,6 @@ export default {
       planId: 'ID плана',
       name: 'Название плана',
       status: 'Статус плана',
-      approvalStatus: 'Статус согласования',
       certificateVersionId: 'ID версии сертификата',
       certificateFormatId: 'ID конфигурации формата сертификата',
       workflowDslVersion: 'Версия DSL рабочего процесса',
@@ -1177,7 +1171,6 @@ export default {
       updateNeeded: 'Требует обновления',
       targetSummary: 'Сводка целевых привязок',
       latestRun: 'Последняя партия выполнения',
-      approvalId: 'ID согласования',
       snapshotHash: 'Hash снимка',
       failureReason: 'Причина ошибки',
       createdAt: 'Время создания',
@@ -1192,9 +1185,6 @@ export default {
       description: 'Сначала перейдите из сертификата или привязки в мастер развертывания, сформируйте предпросмотр влияния и затем отправьте план.'
     },
     disabled: {
-      missingApproval: 'Нет сведений о пройденном согласовании, выполнение невозможно.',
-      approvalPending: 'Запрос на согласование отправлен. До одобрения согласующим выполнение недоступно.',
-      approvalRejected: 'Согласование отклонено. Выполнение недоступно.',
       needDryRun: 'Dry-run — необязательный предпросмотр влияния для проверки сертификата, домена и совместимости цели.',
       missingRunId: 'Нет runId, откат невозможен.',
       missingSelection: 'Не выбран план развертывания'
@@ -1204,16 +1194,6 @@ export default {
       close: 'Закрыть',
       notConfigured: 'Не настроено',
       notProvided: 'Не предоставлено'
-    },
-    approval: {
-      title: 'Детали согласования',
-      description: 'Проверьте область действия плана и напрямую одобрите или отклоните запрос.',
-      requestedBy: 'Запросил',
-      riskLevel: 'Уровень риска',
-      decisionHint: 'После одобрения план можно выполнить. Отклоненный план нужно отправить повторно.',
-      processing: 'Обработка...',
-      missingApprovalId: 'ID согласования отсутствует, поэтому запрос нельзя рассмотреть.',
-      decisionFailed: 'Операция согласования не выполнена.'
     },
     detail: {
       certificateVersionLabel: 'Версия сертификата',
@@ -1288,17 +1268,12 @@ export default {
       executionTaskStarted: 'Задача запущена. Ход выполнения доступен в списке задач справа вверху.',
       executionTaskSucceeded: 'Задача успешно завершена. Результат доступен в списке задач справа вверху.',
       executeTaskStarted: 'Развертывание сертификата запущено. Ход выполнения доступен в списке задач справа вверху.',
-      executeTaskPendingApproval: 'Запрос на развертывание сертификата отправлен и ожидает согласования. Следите за ним в списке задач справа вверху.',
       rollbackTaskStarted: 'Откат сертификата запущен. Ход выполнения доступен в списке задач справа вверху.',
       loadedDraft: 'Черновик плана загружен.',
       loadedDraftWithPlanId: 'Черновик загружен (план {planId}).',
       savedWithPlanId: 'План сохранен ({planId}).',
       submitted: 'План развертывания отправлен.',
       submittedWithPlanId: 'План развертывания отправлен (план {planId}).',
-      approvalApproved: 'Согласование одобрено. План можно выполнить.',
-      approvalApprovedWithPlanId: 'Согласование одобрено. План {planId} можно выполнить.',
-      approvalRejected: 'Согласование отклонено. План нельзя выполнить.',
-      approvalRejectedWithPlanId: 'Согласование отклонено. План {planId} нельзя выполнить.'
     },
     target: {
       controlPlane: 'Платформа',
@@ -2171,11 +2146,10 @@ export default {
     deploymentTasks: {
       eyebrow: 'Задачи развертывания',
       title: 'Параметры задач развертывания',
-      description: 'Настройте для арендатора Dry-run и обязательность согласования для приложений без отдельного требования.',
+      description: 'Настройте, выполнять ли для арендатора Dry-run перед развертыванием сертификата.',
       readonly: 'У этой учетной записи доступ только для чтения.',
       fields: {
-        dryRun: { title: 'Включить Dry-run', description: 'Выполнять предварительную проверку только для чтения перед развертыванием; результаты носят справочный характер и не блокируют выполнение.', aria: 'Включить Dry-run развертывания сертификата' },
-        approval: { title: 'Включить согласование', description: 'Для приложений без отдельного требования этот параметр арендатора определяет, нужно ли согласование развертывания сертификата.', aria: 'Включить согласование развертывания сертификата' }
+        dryRun: { title: 'Включить Dry-run', description: 'Выполнять предварительную проверку только для чтения перед развертыванием; результаты носят справочный характер и не блокируют выполнение.', aria: 'Включить Dry-run развертывания сертификата' }
       },
       actions: { save: 'Сохранить настройки', saving: 'Сохранение...' },
       messages: { saved: 'Параметры задач развертывания сохранены.' },
@@ -2527,7 +2501,7 @@ export default {
         },
         deployment: {
           name: 'Журналы планов обновления',
-          description: 'Планы развертывания, выполнение, откат и согласование'
+          description: 'Планы развертывания, выполнение и откат'
         },
         workflow: {
           name: 'Журналы рабочих процессов',
@@ -2892,7 +2866,7 @@ export default {
     allowInsecureTls: {
       label: 'Разрешить пропуск проверки TLS-сертификата',
       description: 'Явно разрешает этому развертыванию пропустить проверку TLS-сертификата, если устройство использует самоподписанный или недоверенный сертификат.',
-      help: 'Это только фиксирует намерение развертывания и не выдает право на выполнение. По-прежнему требуются утверждение и разрешение на выполнение, выданное хостом.'
+      help: 'Это только фиксирует намерение развертывания и не выдает право на выполнение. По-прежнему требуется разрешение на выполнение, выданное хостом.'
     },
     runtimeValue: 'Предоставляется источником {source} во время выполнения',
     source: 'Источник: {source}',
@@ -3056,8 +3030,7 @@ export default {
       publishedVersion: 'Опубликованная версия',
       runner: 'Место запуска',
       artifactFormat: 'Конфигурация формата артефакта',
-      updatePlugin: 'Плагин обновления сертификата',
-      approvalRequired: 'Требовать согласование развертывания сертификата'
+      updatePlugin: 'Плагин обновления сертификата'
     },
     capability: { source: 'Источник возможности', plugin: 'Версия плагина', runtime: 'Среда выполнения', executionLocation: 'Место выполнения', pendingAssignment: 'После сохранения будет создано назначение возможности развертывания на уровне ресурса приложения.' },
     links: {
@@ -3108,9 +3081,9 @@ export default {
     deployment: {
       title: 'Развертывание сертификата',
       noCertificateAsset: 'Нет доступного для развертывания актива сертификата',
-      description: 'Выберите версию сертификата для этого актива приложения. Система создаст снимок, выполнит предпроверку, запросит согласование и запустит выполнение после разрешения.',
+      description: 'Выберите версию сертификата для этого актива приложения. Система создаст снимок, выполнит необходимую предпроверку и запустит развертывание.',
       dialogTitle: 'Развертывание сертификата',
-      dialogDescription: 'Операция относится только к текущему активу приложения. План остается серверной границей снимка, согласования и выполнения.',
+      dialogDescription: 'Операция относится только к текущему активу приложения. План остается серверной границей снимка, и выполнения.',
       targetLocked: 'Цель обновления зафиксирована',
       latestVersionPointer: 'Автоматически применять последнюю версию текущего сертификата',
       deployThisVersion: 'Развернуть эту версию сертификата',
@@ -3119,8 +3092,8 @@ export default {
       preflightAvailable: 'Получено проверок предпроверки: {count}',
       preflightUnavailable: 'Предпроверка еще не запускалась',
       rollbackUnavailable: 'Откат не запрашивался',
-      fields: { status: 'Статус развертывания', approval: 'Согласование', latestRun: 'Последний запуск', preflight: 'Предпроверка', rollback: 'Откат', updatedAt: 'Обновлено' },
-      feedback: { preflightRunning: 'Ожидание завершения предпроверки.', pendingApproval: 'Предпроверка завершена; развертывание ожидает согласования.', executionStarted: 'Предпроверка и согласование завершены; выполнение запущено.' },
+      fields: { status: 'Статус развертывания', latestRun: 'Последний запуск', preflight: 'Предпроверка', rollback: 'Откат', updatedAt: 'Обновлено' },
+      feedback: { preflightRunning: 'Ожидание завершения предпроверки.', executionStarted: 'Предпроверка завершена; выполнение запущено.' },
       errors: { missingApplicationAssetId: 'Требуется идентификатор актива приложения.', loadOptionsFailed: 'Не удалось загрузить доступные версии сертификата.', createPlanMissingId: 'Созданный снимок не вернул идентификатор плана.', deployFailed: 'Не удалось развернуть сертификат.', preflightFailed: 'Предпроверка развертывания не пройдена.', preflightTimeout: 'Предпроверка развертывания завершилась по тайм-ауту.', loadRecordsFailed: 'Не удалось загрузить записи развертывания.' }
     },
     compatibilityModes: {
@@ -3221,7 +3194,6 @@ export default {
       createRequestCompleted: 'Запрос создания завершен.',
       editRequestCompleted: 'Запрос сохранения завершен.',
       agentCertificateFormatHint: 'В режиме Agent эта конфигурация артефакта сертификата будет использоваться для формирования материалов развертывания.',
-      approvalRequiredHint: 'Если включено, развертывания этого приложения всегда требуют согласования; в противном случае используется общая настройка развертывания арендатора.',
       placeholders: {
         displayName: 'Например: вход продуктивного сайта',
         verifyUrl: 'Например: https://example.com/health',

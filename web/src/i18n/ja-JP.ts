@@ -669,7 +669,7 @@ export default {
     deployments: '証明書デプロイ',
     deploymentsDesc: 'デプロイプラン、ワークフロー、自動化、実行記録',
     deploymentPlans: 'デプロイプラン',
-    deploymentPlansDesc: '証明書デプロイプランと承認導線',
+    deploymentPlansDesc: '証明書デプロイプラン',
     executions: '実行記録',
     executionsDesc: '実行ステップ、ログ、失敗とロールバック',
     reports: 'レポート',
@@ -724,9 +724,9 @@ export default {
     common: { notAvailable: 'なし', allRelated: 'All related targets' },
     formStep: { stepProgress: 'Step {current} of {total}', previous: 'Back', next: 'Next', reviewTitle: 'Configuration summary', reviewText: 'Trigger: {trigger}; execution scope: {scope}; certificate domains: {domains}. The target snapshot is frozen when the run starts.' },
     scheduleBuilder: { api: '外部 API でトリガー', once: '指定時刻に一度だけ実行', onceHelp: 'ブラウザーのローカル時刻を選択します。実行後に再スケジュールされません。', recurring: '定期実行', scheduleHelp: '継続的な確認が本当に必要な場合だけ使用してください。', recurringHelp: '継続的な確認が本当に必要な場合だけ使用してください。', recurringWarningTitle: '証明書更新での定期実行は推奨されません', recurringWarning: '通常は証明書発行後に外部システムから起動するか、固定時刻に一度だけ実行します。', certificateVersionCreated: 'Certificate new-version event', runAt: '実行時刻', frequency: '実行周期', daily: '毎日', weekly: '毎週', monthly: '毎月', time: '時刻', weekday: '曜日', monthDay: '日付', legacyCustom: '既存のカスタム計画を保持', legacyCron: '既存 Cron（読み取り専用）', weekdays: { 0: '日曜日', 1: '月曜日', 2: '火曜日', 3: '水曜日', 4: '木曜日', 5: '金曜日', 6: '土曜日' } },
-    externalApi: { executionModeLabel: '外部実行モード', executionModeAria: '外部実行モード', direct: '直接実行（承認なし）', approval: '組み込み承認フローを使用', keyTitle: '外部 API Key', keyDescription: 'この Key は現在の自動化ページに表示され続け、いつでもコピーできます。', keyNotice: 'X-Automation-API-Key リクエストヘッダーで送信します。', keyStatusPending: '保存して有効化すると生成', keyStatusActive: '生成済み', keyStatusUnavailable: '生成済み（このページでは完全な Key を表示していません）', keyEditorDescription: '完全な Key は現在のページに表示され続け、いつでもコピーできます。更新すると古い Key は直ちに無効になります。', keyValueLabel: 'API Key', keyValueAria: '外部 API Key', keyUnavailableValue: 'このページでは完全な Key を表示していません', keyUnavailable: 'このページに完全な Key はありません。「Key を更新」をクリックして新しい Key を生成してください。', rotate: 'Key を更新', rotating: '更新中', rotateNotice: '更新すると古い Key は直ちに無効になります。', mode: '実行モード：{mode}', copy: 'Key をコピー', copied: 'コピーしました', copyAria: 'API Key をコピー', copyCurlAria: 'CURL コマンドをコピー', rotateAria: 'API Key を更新', apiManualButton: 'API ガイド', apiManualAutomationId: '現在の自動化 ID', apiManualAutomationIdUnavailable: '保存後に生成', apiManualTitle: '外部 API ガイド', apiManualDescription: '自動化 ID と API Key を使って以下のインターフェースを呼び出します。証明書ドメインは自動化に事前設定されています。', apiManualCertificateVersion: '起動と互換性確認には正確な certificateVersionId が必要です。', apiManualRunTitle: '自動化を起動', apiManualRunDescription: '証明書バージョンを指定して 1 回実行します。設定したモードに応じて直接実行または承認フローに進みます。', apiManualRunCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/run' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -H Idempotency-Key:automation-run-$(date +%s) \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualPreviewTitle: '現在のアプリケーション互換性を確認', apiManualPreviewDescription: '証明書バージョンを指定し、対象アプリケーション、実行可否、除外理由を確認します。', apiManualPreviewCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/preview' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualVersionsTitle: '利用可能な証明書バージョン一覧', apiManualVersionsDescription: 'この自動化に事前設定された証明書ドメインで選択可能なバージョンを返します。', apiManualVersionsCurl: "curl 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/certificate-versions' \\\n  -H 'X-Automation-API-Key: ak_xxx'" },
-    form: { existingAssetTitle: '既存アプリ資産のみを更新', existingAssetDescription: '既存の証明書バインドがあるアプリ資産だけを処理します。初回インストールや新しい対象の追加は行いません。', certificateDomains: '証明書ドメイン', certificateDomainsPlaceholder: '証明書ドメインをカンマ区切りで入力', certificateDomainsHelp: '指定したドメインに対応する既存のアプリ資産バインドだけを更新します。', versionSelection: '更新する証明書バージョン', versionSelectionLatest: '最新の証明書バージョンを自動使用', versionSelectionSpecific: '指定した証明書バージョンを使用', versionSelectionHelp: '実行開始時にバージョンを解決して固定します。', certificateVersionIds: '指定する証明書バージョン', certificateVersionIdsPlaceholder: '証明書バージョン ID をカンマ区切りで入力', certificateVersionIdsHelp: '各バージョンは上記ドメインの証明書に属している必要があります。', versionLoading: '選択可能な証明書バージョンを読み込んでいます。', versionLoadFailed: '証明書バージョンの読み込みに失敗しました。後で再試行してください。', versionEmpty: 'このドメインに選択可能な証明書バージョンはありません。', schedule: '更新するタイミング', scheduleHelp: 'オンデマンドで開始するか、Cron とタイムゾーンで定期実行します。', execution: '実行時の処理', executionHelp: '既存バインドごとに個別の更新計画を作成し、DeploymentPlan、承認、ExecutionRun を再利用します。', snapshot: 'ドメイン、資産、証明書バージョンのスナップショットを固定' },
-    fields: { name: '名前', description: '説明', trigger: 'トリガー', eventSources: 'Event sources', targetScope: 'Update scope', selectedAssets: 'Selected managed applications', selectedAssetsHelp: 'Select at least one managed application.', certificateTags: 'Certificate tags (comma separated)', certificateTagsHelp: 'Filter the event or polling scope by certificate tags.', targetEnvironments: 'Target environments (comma separated)', targetEnvironmentsHelp: 'Filter by target application environment.', targetOwners: 'Target owners (comma separated)', targetOwnersHelp: 'Filter by target owner.', cron: 'Cron 式', timeZone: 'タイムゾーン', expiresWithinDays: '有効期限までの日数', environments: '対象環境（カンマ区切り）', certificateIds: '指定証明書（任意）', certificateIdsPlaceholder: '証明書 ID をカンマ区切りで入力', certificateIdsHelp: '入力した場合は指定証明書だけを処理し、空欄の場合は期限と環境で自動選択します。', expiresWithinDaysHelp: 'この期間内に期限切れとなる証明書だけを対象にします。', environmentsHelp: '指定した環境の証明書だけを処理します。', planType: 'デプロイ計画の種類', planTypeHelp: '一致した証明書対象ごとに実行時に独立した DeploymentPlan を作成します。', planTypeUpdate: '既存の証明書バインドを更新', planTypeInstall: '対象へ証明書をインストール', planTypeVerifyOnly: '検証のみ、証明書は変更しない', planMode: '実行方式', planModeHelp: '既存計画には紐付けず、対象ごとに実行時に新しい計画を作成します。', planModeCreateAndExecute: '計画を作成して実行', planModeCreateOnly: '計画だけ作成して実行しない', maxTargets: '1 回の最大対象数', concurrency: '同時実行数', failureCount: '失敗件数しきい値', requireDryRun: '過去の Dry run 設定（実行の必須条件ではありません）', requireApproval: '実行前に承認を必須にする', startedAt: '開始時刻', finishedAt: '終了時刻', failureStage: '失敗段階', parentRun: '親実行' },
+    externalApi: { executionModeLabel: '外部実行モード', executionModeAria: '外部実行モード', keyTitle: '外部 API Key', keyDescription: 'この Key は現在の自動化ページに表示され続け、いつでもコピーできます。', keyNotice: 'X-Automation-API-Key リクエストヘッダーで送信します。', keyStatusPending: '保存して有効化すると生成', keyStatusActive: '生成済み', keyStatusUnavailable: '生成済み（このページでは完全な Key を表示していません）', keyEditorDescription: '完全な Key は現在のページに表示され続け、いつでもコピーできます。更新すると古い Key は直ちに無効になります。', keyValueLabel: 'API Key', keyValueAria: '外部 API Key', keyUnavailableValue: 'このページでは完全な Key を表示していません', keyUnavailable: 'このページに完全な Key はありません。「Key を更新」をクリックして新しい Key を生成してください。', rotate: 'Key を更新', rotating: '更新中', rotateNotice: '更新すると古い Key は直ちに無効になります。', mode: '実行モード：{mode}', copy: 'Key をコピー', copied: 'コピーしました', copyAria: 'API Key をコピー', copyCurlAria: 'CURL コマンドをコピー', rotateAria: 'API Key を更新', apiManualButton: 'API ガイド', apiManualAutomationId: '現在の自動化 ID', apiManualAutomationIdUnavailable: '保存後に生成', apiManualTitle: '外部 API ガイド', apiManualDescription: '自動化 ID と API Key を使って以下のインターフェースを呼び出します。証明書ドメインは自動化に事前設定されています。', apiManualCertificateVersion: '起動と互換性確認には正確な certificateVersionId が必要です。', apiManualRunTitle: '自動化を起動', apiManualRunDescription: '証明書バージョンを指定して 1 回実行します。実行キューに追加されます。', apiManualRunCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/run' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -H Idempotency-Key:automation-run-$(date +%s) \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualPreviewTitle: '現在のアプリケーション互換性を確認', apiManualPreviewDescription: '証明書バージョンを指定し、対象アプリケーション、実行可否、除外理由を確認します。', apiManualPreviewCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/preview' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualVersionsTitle: '利用可能な証明書バージョン一覧', apiManualVersionsDescription: 'この自動化に事前設定された証明書ドメインで選択可能なバージョンを返します。', apiManualVersionsCurl: "curl 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/certificate-versions' \\\n  -H 'X-Automation-API-Key: ak_xxx'" },
+    form: { existingAssetTitle: '既存アプリ資産のみを更新', existingAssetDescription: '既存の証明書バインドがあるアプリ資産だけを処理します。初回インストールや新しい対象の追加は行いません。', certificateDomains: '証明書ドメイン', certificateDomainsPlaceholder: '証明書ドメインをカンマ区切りで入力', certificateDomainsHelp: '指定したドメインに対応する既存のアプリ資産バインドだけを更新します。', versionSelection: '更新する証明書バージョン', versionSelectionLatest: '最新の証明書バージョンを自動使用', versionSelectionSpecific: '指定した証明書バージョンを使用', versionSelectionHelp: '実行開始時にバージョンを解決して固定します。', certificateVersionIds: '指定する証明書バージョン', certificateVersionIdsPlaceholder: '証明書バージョン ID をカンマ区切りで入力', certificateVersionIdsHelp: '各バージョンは上記ドメインの証明書に属している必要があります。', versionLoading: '選択可能な証明書バージョンを読み込んでいます。', versionLoadFailed: '証明書バージョンの読み込みに失敗しました。後で再試行してください。', versionEmpty: 'このドメインに選択可能な証明書バージョンはありません。', schedule: '更新するタイミング', scheduleHelp: 'オンデマンドで開始するか、Cron とタイムゾーンで定期実行します。', execution: '実行時の処理', executionHelp: '既存バインドごとに個別の更新計画を作成し、DeploymentPlan と ExecutionRun を再利用します。', snapshot: 'ドメイン、資産、証明書バージョンのスナップショットを固定' },
+    fields: { name: '名前', description: '説明', trigger: 'トリガー', eventSources: 'Event sources', targetScope: 'Update scope', selectedAssets: 'Selected managed applications', selectedAssetsHelp: 'Select at least one managed application.', certificateTags: 'Certificate tags (comma separated)', certificateTagsHelp: 'Filter the event or polling scope by certificate tags.', targetEnvironments: 'Target environments (comma separated)', targetEnvironmentsHelp: 'Filter by target application environment.', targetOwners: 'Target owners (comma separated)', targetOwnersHelp: 'Filter by target owner.', cron: 'Cron 式', timeZone: 'タイムゾーン', expiresWithinDays: '有効期限までの日数', environments: '対象環境（カンマ区切り）', certificateIds: '指定証明書（任意）', certificateIdsPlaceholder: '証明書 ID をカンマ区切りで入力', certificateIdsHelp: '入力した場合は指定証明書だけを処理し、空欄の場合は期限と環境で自動選択します。', expiresWithinDaysHelp: 'この期間内に期限切れとなる証明書だけを対象にします。', environmentsHelp: '指定した環境の証明書だけを処理します。', planType: 'デプロイ計画の種類', planTypeHelp: '一致した証明書対象ごとに実行時に独立した DeploymentPlan を作成します。', planTypeUpdate: '既存の証明書バインドを更新', planTypeInstall: '対象へ証明書をインストール', planTypeVerifyOnly: '検証のみ、証明書は変更しない', planMode: '実行方式', planModeHelp: '既存計画には紐付けず、対象ごとに実行時に新しい計画を作成します。', planModeCreateAndExecute: '計画を作成して実行', planModeCreateOnly: '計画だけ作成して実行しない', maxTargets: '1 回の最大対象数', concurrency: '同時実行数', failureCount: '失敗件数しきい値', requireDryRun: '過去の Dry run 設定（実行の必須条件ではありません）', startedAt: '開始時刻', finishedAt: '終了時刻', failureStage: '失敗段階', parentRun: '親実行' },
     actions: { create: '自動化を作成', detail: 'Details', edit: '編集', delete: '削除', cancel: 'キャンセル', save: '保存', copy: '複製', enable: '有効化', disable: '無効化', runNow: 'Run now', preview: '対象をプレビュー', history: '実行履歴', confirmRun: '実行を確認', stop: '実行を停止', retryFailed: '失敗対象を再試行', openPlan: 'デプロイ計画を表示', openExecution: '実行記録を表示' },
     manualRun: { title: '手動実行', description: '実行前に証明書バージョンを選択してください。', versionLabel: '証明書バージョン', versionPlaceholder: '証明書バージョンを選択', help: '実行時に選択したバージョンに紐づくアプリ資産を解決します。', empty: '手動実行できる証明書バージョンがありません。', stopOnError: 'エラーで中断', dryRun: '任意の Dry-run プレビューを実行', start: '実行開始', downgradeNotice: '{count} 件のアプリ資産では対象証明書の有効期限が現在より短くなります。確認後にのみ実行を続行します。', downgradeConfirmTitle: '証明書の有効期限短縮を確認', downgradeConfirmDescription: '手動操作です。確認すると {count} 件のアプリ資産をより短い有効期限の証明書へ更新します。', downgradeConfirmAction: '確認して実行' },
     columns: { status: 'Status', trigger: 'トリガー', targets: '対象上限', actions: '実行アクション', nextRun: '次回実行', lastRun: '前回実行' },
@@ -744,9 +744,9 @@ export default {
     exclusions: { permission_denied: '対象への権限がありません', missing_version: '証明書バージョンがありません', version_not_deployable: '証明書バージョンをデプロイできません', binding_not_managed: 'バインディングが管理対象外です', environment_not_allowed: '環境が許可されていません', binding_missing: 'バインディングがありません', asset_missing_deployment_capability: '対象アセットは証明書をデプロイできません', certificate_version_downgrade: '対象バージョンが現在の資産より古いです', certificate_already_up_to_date: '対象の有効期限が現在の証明書と一致するため、更新をスキップします', filter_not_matched: 'フィルター条件に一致しません', runtime_context_required: '実行コンテキストが必要です', unknown: '不明な除外理由' },
     failureStages: { selection: '対象選択', plan_creation: '計画作成', dry_run: 'Dry run', approval: '承認', execution: '実行', verification: '検証', rollback: 'ロールバック', notification: '通知' },
     progress: { total: '合計', pending: '待機中', running: '実行中', waitingApproval: '承認待ち', succeeded: '成功', failed: '失敗', skipped: 'スキップ', cancelled: 'キャンセル済み' },
-    editor: { createTitle: '自動化を作成', editTitle: '自動化を編集', description: '実行時期、対象証明書、計画の作成方法、失敗時の安全境界を設定します。', exactVersionFromEvent: 'The certificate new-version event freezes the exact certificate version into the run snapshot.', sections: { basic: '基本情報', basicHelp: '自動化の名前と、対象となる証明書変更を説明します。', trigger: 'Trigger', triggerHelp: 'Define what fact starts the automation before choosing execution and conditions.', targets: '処理する証明書', targetsHelp: '選択するのは証明書対象であり既存計画ではありません。実行開始時にスナップショットを固定します。', execution: 'Execution', executionHelp: 'Decide how the automation updates assets first, then add matching conditions and safety guardrails.', conditions: 'Conditions and safety', conditionsHelp: 'Define matching conditions, target filters, approval, and concurrency guardrails together in this step.', plan: '証明書デプロイ計画', planRelationTitle: '既存のデプロイ計画には紐付けません', planRelationDescription: '上の証明書条件から実行時に計画を作成します。', planRelationHelp: '対象ごとに固有の DeploymentPlan を作成し、計画 ID は実行詳細に表示します。', guardrails: '実行の安全制御', guardrailsHelp: 'バッチ数、事前チェック、承認、失敗時の停止条件を制御します。' }, chain: { createPlan: '対象ごとに DeploymentPlan を作成', dryRun: '任意の Dry run プレビューを実行', approval: '承認を待機', executePlan: '対象の DeploymentPlan を実行' } },
+    editor: { createTitle: '自動化を作成', editTitle: '自動化を編集', description: '実行時期、対象証明書、計画の作成方法、失敗時の安全境界を設定します。', exactVersionFromEvent: 'The certificate new-version event freezes the exact certificate version into the run snapshot.', sections: { basic: '基本情報', basicHelp: '自動化の名前と、対象となる証明書変更を説明します。', trigger: 'Trigger', triggerHelp: 'Define what fact starts the automation before choosing execution and conditions.', targets: '処理する証明書', targetsHelp: '選択するのは証明書対象であり既存計画ではありません。実行開始時にスナップショットを固定します。', execution: 'Execution', executionHelp: 'Decide how the automation updates assets first, then add matching conditions and safety guardrails.', conditions: 'Conditions and safety', conditionsHelp: 'Define matching conditions, target filters and concurrency guardrails together in this step.', plan: '証明書デプロイ計画', planRelationTitle: '既存のデプロイ計画には紐付けません', planRelationDescription: '上の証明書条件から実行時に計画を作成します。', planRelationHelp: '対象ごとに固有の DeploymentPlan を作成し、計画 ID は実行詳細に表示します。', guardrails: '実行の安全制御', guardrailsHelp: 'バッチ数、事前チェック、失敗時の停止条件を制御します。' }, chain: { createPlan: '対象ごとに DeploymentPlan を作成', dryRun: '任意の Dry run プレビューを実行', executePlan: '対象の DeploymentPlan を実行' } },
     runs: { title: '自動化実行履歴', description: '実行単位の状態、不変の対象スナップショット、失敗段階を確認します。', progress: '{succeeded}/{total} 成功' },
-    runDetail: { title: '自動化実行詳細', description: '設定バージョン {version}', noFailure: '失敗なし', triggerContext: 'Trigger context', sourceType: 'Source type', certificateVersion: 'Exact certificate version', approvalId: 'Approval ID', deliveryId: 'Delivery ID', excludedReasons: 'Excluded reasons' },
+    runDetail: { title: '自動化実行詳細', description: '設定バージョン {version}', noFailure: '失敗なし', triggerContext: 'Trigger context', sourceType: 'Source type', certificateVersion: 'Exact certificate version', deliveryId: 'Delivery ID', excludedReasons: 'Excluded reasons' },
     aria: { preview: '自動化対象プレビュー', runs: '自動化実行一覧', progress: '自動化実行進捗' },
     errors: { loadFailed: '自動化一覧の読み込みに失敗しました', applicationAssetsLoadFailed: 'Failed to load managed applications. Try again later.' }
   },
@@ -862,7 +862,7 @@ export default {
       },
       tlsGrantRequired: {
         label: 'Dry-run は完了しましたが、ホスト認証が必要です',
-        detail: '構造検証とセキュリティ検証は完了しました。Dry-run では正式な ExecutionGrant を発行しないため、TLS 検証スキップが拒否されました。承認後、正式実行時にホストが短期 ExecutionGrant を発行します。'
+        detail: '構造検証とセキュリティ検証は完了しました。Dry-run では正式な ExecutionGrant を発行しないため、TLS 検証スキップが拒否されました。正式実行時にホストが短期 ExecutionGrant を発行します。'
       },
       warning: {
         label: 'Dry-run 有リスク警告',
@@ -1128,7 +1128,7 @@ export default {
     userView: {
       stepLabel: 'Step 3 of 3 · Deploy',
       title: 'Deploy the certificate to an application',
-      description: 'Choose a certificate and a connected application. GCAC keeps the same preview, approval, and execution safeguards in the background.',
+      description: 'Choose a certificate and a connected application. GCAC keeps preview and execution safeguards in the background.',
       createAction: 'Start deployment',
       listTitle: 'Deployment tasks',
       listDescription: 'Only the next action and business status are shown here.',
@@ -1138,12 +1138,12 @@ export default {
       unnamedPlan: 'Unnamed deployment task',
       pendingCertificate: 'Certificate pending',
       pendingApplication: 'Application pending',
-      nextActionHint: 'The next action follows the current approval and preview status.',
+      nextActionHint: 'The next action follows the current preview and execution status.',
       prepareAction: 'Prepare deployment',
-      waiting: 'Waiting for approval or execution'
+      waiting: 'Waiting for execution'
     },
     title: 'デプロイプラン',
-    description: 'プランのプレビュー、影響範囲、承認、実行バッチ、検証、ロールバック導線を扱います。',
+    description: 'プランのプレビュー、影響範囲、実行バッチ、検証、ロールバック導線を扱います。',
     resourceName: 'デプロイプラン',
     apiActions: {
       submit: '送信デプロイプラン',
@@ -1157,13 +1157,8 @@ export default {
       edit: '編集プラン',
       dryRun: 'Dry-run 影響プレビュー',
       dryRunRisk: 'のみ生成影響プレビュー、しません実行正式デプロイ。',
-      submit: '送信承認',
-      submitRisk: '送信後プランは開く承認または待実行ステータス。',
-      review: '承認を確認',
-      approve: '承認を許可',
-      approveRisk: '承認後に実行資格を得ます。ホスト発行の ExecutionGrant は実行時に引き続き必要です。',
-      reject: '承認を却下',
-      rejectRisk: '却下されたプランは実行できず、再度承認申請が必要です。',
+      submit: '計画を送信',
+      submitRisk: '送信後プランは待実行ステータス。',
       execute: '実行デプロイ',
       executeRisk: '実行すると対象の証明書設定が変更されます。完了済みまたは失敗したプランの再実行にもこの導線を使用します。実行時に必要な同期事前チェックを行い、資産詳細の証明書デプロイから任意の Dry-run プレビューを実行できます。',
       cancel: 'キャンセルプラン',
@@ -1184,7 +1179,7 @@ export default {
     metrics: {
       total: {
         title: 'プラン合計',
-        description: '承認待ち、実行待ち、実行中のプランです。'
+        description: '実行待ちまたは実行中のプランです。'
       },
       risky: {
         title: '高リスク待処理',
@@ -1195,7 +1190,6 @@ export default {
       planId: 'プラン ID',
       name: 'プラン名前',
       status: 'プランステータス',
-      approvalStatus: '承認ステータス',
       certificateVersionId: '証明書バージョン ID',
       certificateFormatId: '証明書形式設定 ID',
       workflowDslVersion: 'ワークフロー DSL バージョン',
@@ -1203,7 +1197,6 @@ export default {
       updateNeeded: '必要更新',
       targetSummary: 'ターゲットバインドサマリー',
       latestRun: '最新実行批回',
-      approvalId: '承認 ID',
       snapshotHash: 'スナップショット Hash',
       failureReason: '失敗原因',
       createdAt: '作成時刻',
@@ -1218,9 +1211,6 @@ export default {
       description: '先から証明書またはバインド開くデプロイ向導、生成影響プレビュー後再送信プラン。'
     },
     disabled: {
-      missingApproval: '承認合格情報、できません実行。が不足しています',
-      approvalPending: '承認申請は送信済みです。承認者の承認後に実行できます。',
-      approvalRejected: '承認が却下されたため実行できません。',
       needDryRun: 'Dry-run は証明書、ドメイン、対象互換性のチェック結果を確認する任意の影響プレビューです。',
       missingRunId: ' runId、できませんロールバック。が不足しています',
       missingSelection: 'デプロイプラン選択が不足しています'
@@ -1230,16 +1220,6 @@ export default {
       close: '閉じる',
       notConfigured: '未設定',
       notProvided: '未提供'
-    },
-    approval: {
-      title: '承認詳細',
-      description: 'デプロイプランの範囲を確認し、申請を直接承認または却下します。',
-      requestedBy: '申請者',
-      riskLevel: 'リスクレベル',
-      decisionHint: '承認後に正式実行できます。却下されたプランは再申請が必要です。',
-      processing: '処理中...',
-      missingApprovalId: '承認 ID がないため、確認できません。',
-      decisionFailed: '承認操作に失敗しました。'
     },
     detail: {
       certificateVersionLabel: '証明書バージョン',
@@ -1314,17 +1294,12 @@ export default {
       executionTaskStarted: 'タスクを開始しました。右上のタスクリストで進行状況を確認できます。',
       executionTaskSucceeded: 'タスクが正常に完了しました。結果は右上のタスクリストで確認できます。',
       executeTaskStarted: '証明書デプロイを開始しました。右上のタスクリストで進行状況を確認できます。',
-      executeTaskPendingApproval: '証明書デプロイを申請しました。承認待ちの進行状況は右上のタスクリストで確認できます。',
       rollbackTaskStarted: '証明書ロールバックを開始しました。右上のタスクリストで進行状況を確認できます。',
       loadedDraft: '読み込みドラフトプラン済み。',
       loadedDraftWithPlanId: '読み込みドラフト（プラン {planId}）済み。',
       savedWithPlanId: 'プラン保存済み（{planId}）。',
       submitted: 'デプロイプラン送信済み。',
       submittedWithPlanId: 'デプロイプラン送信（プラン {planId}）済み。',
-      approvalApproved: '承認済みです。プランを実行できます。',
-      approvalApprovedWithPlanId: '承認済みです。プラン {planId} を実行できます。',
-      approvalRejected: '承認が却下されました。プランは実行できません。',
-      approvalRejectedWithPlanId: '承認が却下されました。プラン {planId} は実行できません。'
     },
     target: {
       controlPlane: 'プラットフォーム',
@@ -2193,11 +2168,10 @@ export default {
     deploymentTasks: {
       eyebrow: 'デプロイタスク',
       title: 'デプロイタスク設定',
-      description: 'テナント全体の Dry-run と、個別に承認を指定していないアプリケーションの承認要否を設定します。',
+      description: 'テナント全体で証明書デプロイ前に Dry-run を実行するか設定します。',
       readonly: 'このアカウントは読み取り専用です。',
       fields: {
-        dryRun: { title: 'Dry-run を有効化', description: 'デプロイ前に読み取り専用の事前確認を行います。結果は参考情報であり、正式デプロイをブロックしません。', aria: '証明書デプロイ Dry-run を有効化' },
-        approval: { title: '承認フローを有効化', description: '個別に承認を指定していないアプリケーションでは、このテナント設定で証明書デプロイの承認要否を決定します。', aria: '証明書デプロイ承認フローを有効化' }
+        dryRun: { title: 'Dry-run を有効化', description: 'デプロイ前に読み取り専用の事前確認を行います。結果は参考情報であり、正式デプロイをブロックしません。', aria: '証明書デプロイ Dry-run を有効化' }
       },
       actions: { save: '設定を保存', saving: '保存中...' },
       messages: { saved: 'デプロイタスク設定を保存しました。' },
@@ -2549,7 +2523,7 @@ export default {
         },
         deployment: {
           name: '更新プランログ',
-          description: 'デプロイプラン、実行、ロールバックと承認'
+          description: 'デプロイプラン、実行、ロールバック'
         },
         workflow: {
           name: 'ワークフローログ',
@@ -2914,7 +2888,7 @@ export default {
     allowInsecureTls: {
       label: 'TLS 証明書の検証をスキップする',
       description: 'デバイスが自己署名または信頼されていない証明書を使用する場合に、今回のデプロイで TLS 証明書の検証をスキップすることを明示的に許可します。',
-      help: 'これはデプロイの意図を記録するだけで、実行権限は付与しません。承認とホストが発行する実行許可が引き続き必要です。'
+      help: 'これはデプロイの意図を記録するだけで、実行権限は付与しません。ホストが発行する実行許可が引き続き必要です。'
     },
     runtimeValue: '実行時に {source} から提供',
     source: 'ソース：{source}',
@@ -3078,8 +3052,7 @@ export default {
       publishedVersion: '公開済みバージョン',
       runner: '実行場所',
       artifactFormat: '成果物形式設定',
-      updatePlugin: '証明書更新プラグイン',
-      approvalRequired: '証明書デプロイに承認を要求'
+      updatePlugin: '証明書更新プラグイン'
     },
     capability: { source: '機能の取得元', plugin: 'プラグインバージョン', runtime: 'ランタイム', executionLocation: '実行場所', pendingAssignment: '保存すると、アプリケーション資産レベルのデプロイ機能割り当てが作成されます。' },
     links: {
@@ -3130,7 +3103,7 @@ export default {
     deployment: {
       targetLocked: '更新対象を固定', latestVersionPointer: '現在の証明書の最新バージョンを自動適用',
       noCertificateAsset: 'デプロイ可能な証明書アセットがありません',
-      title: '証明書デプロイ', description: 'このアプリケーション資産の証明書バージョンを選択します。システムはデプロイスナップショットの作成、事前確認、承認申請、承認後の実行を行います。', dialogTitle: '証明書デプロイ', dialogDescription: '現在のアプリケーション資産だけに適用されます。デプロイプランはバックエンドのスナップショット、承認、実行の境界として保持されます。', deployThisVersion: 'この証明書バージョンをデプロイ', loadingRecords: 'デプロイ記録を読み込み中...', emptyRecords: 'このアプリケーション資産にはデプロイ記録がありません。', preflightAvailable: '{count} 件の事前確認が返されました', preflightUnavailable: '事前確認は未実行です', rollbackUnavailable: 'ロールバックは要求されていません', fields: { status: 'デプロイ状態', approval: '承認状態', latestRun: '最新実行', preflight: '事前確認', rollback: 'ロールバック', updatedAt: '更新日時' }, feedback: { preflightRunning: '事前確認の完了を待っています。', pendingApproval: '事前確認が完了し、デプロイは承認待ちです。', executionStarted: '事前確認と承認が完了し、デプロイ実行を開始しました。' }, errors: { missingApplicationAssetId: '証明書デプロイを作成するにはアプリケーション資産 ID が必要です。', loadOptionsFailed: 'デプロイ可能な証明書バージョンを読み込めませんでした。', createPlanMissingId: 'デプロイスナップショットの作成後にプラン ID が返されませんでした。', deployFailed: '証明書デプロイに失敗しました。', preflightFailed: '証明書デプロイの事前確認に失敗しました。', preflightTimeout: '証明書デプロイの事前確認がタイムアウトしました。', loadRecordsFailed: 'アプリケーション資産のデプロイ記録を読み込めませんでした。' }
+      title: '証明書デプロイ', description: 'このアプリケーション資産の証明書バージョンを選択します。システムはデプロイスナップショットを作成し、必要な事前確認を行ってデプロイを開始します。', dialogTitle: '証明書デプロイ', dialogDescription: '現在のアプリケーション資産だけに適用されます。デプロイプランはバックエンドのスナップショットと実行の境界として保持されます。', deployThisVersion: 'この証明書バージョンをデプロイ', loadingRecords: 'デプロイ記録を読み込み中...', emptyRecords: 'このアプリケーション資産にはデプロイ記録がありません。', preflightAvailable: '{count} 件の事前確認が返されました', preflightUnavailable: '事前確認は未実行です', rollbackUnavailable: 'ロールバックは要求されていません', fields: { status: 'デプロイ状態', latestRun: '最新実行', preflight: '事前確認', rollback: 'ロールバック', updatedAt: '更新日時' }, feedback: { preflightRunning: '事前確認の完了を待っています。', executionStarted: '事前確認が完了し、デプロイ実行を開始しました。' }, errors: { missingApplicationAssetId: '証明書デプロイを作成するにはアプリケーション資産 ID が必要です。', loadOptionsFailed: 'デプロイ可能な証明書バージョンを読み込めませんでした。', createPlanMissingId: 'デプロイスナップショットの作成後にプラン ID が返されませんでした。', deployFailed: '証明書デプロイに失敗しました。', preflightFailed: '証明書デプロイの事前確認に失敗しました。', preflightTimeout: '証明書デプロイの事前確認がタイムアウトしました。', loadRecordsFailed: 'アプリケーション資産のデプロイ記録を読み込めませんでした。' }
     },
     compatibilityModes: {
       unified: '統一プラグインバインド',
@@ -3230,7 +3203,6 @@ export default {
       createRequestCompleted: '作成リクエスト完了済み。',
       editRequestCompleted: '保存リクエスト完了済み。',
       agentCertificateFormatHint: 'Agent モードではは使用この証明書成果物設定生成デプロイマテリアル。',
-      approvalRequiredHint: 'オンにすると、このアプリケーションのデプロイは常に承認が必要です。オフの場合はテナント全体のデプロイ設定を使用します。',
       placeholders: {
         displayName: '例：本番サイトエントリ',
         verifyUrl: '例：https://example.com/health',

@@ -669,7 +669,7 @@ export default {
     deployments: '인증서 배포',
     deploymentsDesc: '배포 계획, 워크플로, 자동화 및 실행 기록',
     deploymentPlans: '계획을 배포하다.',
-    deploymentPlansDesc: '인증서 배포 계획 및 승인 포털입니다',
+    deploymentPlansDesc: '인증서 배포 계획',
     executions: '실행 기록',
     executionsDesc: '실행 단계, 로그, 실패, 스크롤백',
     reports: '보고서',
@@ -724,9 +724,9 @@ export default {
     common: { notAvailable: '없음', allRelated: 'All related targets' },
     formStep: { stepProgress: 'Step {current} of {total}', previous: 'Back', next: 'Next', reviewTitle: 'Configuration summary', reviewText: 'Trigger: {trigger}; execution scope: {scope}; certificate domains: {domains}. The target snapshot is frozen when the run starts.' },
     scheduleBuilder: { api: '외부 API로 실행', once: '고정 시간에 한 번 실행', onceHelp: '브라우저 로컬 시간을 선택합니다. 실행 후 다시 예약되지 않습니다.', recurring: '정기 실행', scheduleHelp: '지속적인 확인이 실제로 필요한 경우에만 사용하세요.', recurringHelp: '지속적인 확인이 실제로 필요한 경우에만 사용하세요.', recurringWarningTitle: '인증서 업데이트에는 정기 실행을 권장하지 않습니다', recurringWarning: '일반적으로 인증서 발급 후 외부 시스템에서 실행하거나 고정 시간에 한 번만 실행해야 합니다.', certificateVersionCreated: 'Certificate new-version event', runAt: '실행 시간', frequency: '실행 주기', daily: '매일', weekly: '매주', monthly: '매월', time: '시간', weekday: '요일', monthDay: '매월 날짜', legacyCustom: '기존 사용자 지정 일정 유지', legacyCron: '기존 Cron(읽기 전용)', weekdays: { 0: '일요일', 1: '월요일', 2: '화요일', 3: '수요일', 4: '목요일', 5: '금요일', 6: '토요일' } },
-    externalApi: { executionModeLabel: '외부 실행 모드', executionModeAria: '외부 실행 모드', direct: '직접 실행(승인 없음)', approval: '내장 승인 흐름 사용', keyTitle: '외부 API Key', keyDescription: '이 Key는 현재 자동화 페이지에 계속 표시되며 언제든지 복사할 수 있습니다.', keyNotice: 'X-Automation-API-Key 요청 헤더로 전송하세요.', keyStatusPending: '저장하고 활성화하면 생성됩니다', keyStatusActive: '생성됨', keyStatusUnavailable: '생성됨 (이 페이지에는 전체 Key가 표시되지 않음)', keyEditorDescription: '전체 Key는 현재 페이지에 계속 표시되며 언제든지 복사할 수 있습니다. 새로 고치면 이전 Key가 즉시 무효화됩니다.', keyValueLabel: 'API Key', keyValueAria: '외부 API Key', keyUnavailableValue: '이 페이지에는 전체 Key가 표시되지 않음', keyUnavailable: '이 페이지에 전체 Key가 없습니다. “Key 새로 고침”을 눌러 새 Key를 생성하세요.', rotate: 'Key 새로 고침', rotating: '새로 고치는 중', rotateNotice: '새로 고치면 이전 Key가 즉시 무효화됩니다.', mode: '실행 모드: {mode}', copy: 'Key 복사', copied: '복사됨', copyAria: 'API Key 복사', copyCurlAria: 'CURL 명령 복사', rotateAria: 'API Key 새로 고침', apiManualButton: 'API 가이드', apiManualAutomationId: '현재 자동화 ID', apiManualAutomationIdUnavailable: '저장 후 생성', apiManualTitle: '외부 API 가이드', apiManualDescription: '자동화 ID와 API Key로 다음 인터페이스를 호출합니다. 인증서 도메인은 자동화에 미리 설정되어 있습니다.', apiManualCertificateVersion: '실행 및 호환성 인터페이스에는 정확한 certificateVersionId가 필요합니다.', apiManualRunTitle: '자동화 시작', apiManualRunDescription: '인증서 버전을 제출하여 한 번 실행합니다. 설정된 모드에 따라 직접 실행하거나 승인 흐름으로 진행합니다.', apiManualRunCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/run' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -H Idempotency-Key:automation-run-$(date +%s) \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualPreviewTitle: '현재 애플리케이션 호환성 확인', apiManualPreviewDescription: '인증서 버전을 제출하여 대상 애플리케이션, 실행 가능 여부 및 제외 사유를 확인합니다.', apiManualPreviewCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/preview' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualVersionsTitle: '사용 가능한 인증서 버전 목록', apiManualVersionsDescription: '이 자동화에 미리 설정된 인증서 도메인에서 선택할 수 있는 버전을 반환합니다.', apiManualVersionsCurl: "curl 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/certificate-versions' \\\n  -H 'X-Automation-API-Key: ak_xxx'" },
-    form: { existingAssetTitle: '기존 애플리케이션 자산만 업데이트', existingAssetDescription: '기존 인증서 바인딩이 있는 애플리케이션 자산만 처리합니다. 최초 설치나 새 대상 추가는 수행하지 않습니다.', certificateDomains: '인증서 도메인', certificateDomainsPlaceholder: '인증서 도메인을 쉼표로 구분해 입력', certificateDomainsHelp: '지정한 도메인에 해당하는 기존 애플리케이션 자산 바인딩만 업데이트합니다.', versionSelection: '업데이트할 인증서 버전', versionSelectionLatest: '최신 인증서 버전 자동 사용', versionSelectionSpecific: '지정한 인증서 버전 사용', versionSelectionHelp: '실행 시작 시 버전을 확인하고 고정하므로 실행 중 새 버전으로 바뀌지 않습니다.', certificateVersionIds: '지정 인증서 버전', certificateVersionIdsPlaceholder: '인증서 버전 ID를 쉼표로 구분해 입력', certificateVersionIdsHelp: '각 버전은 위 도메인이 선택한 인증서에 속해야 합니다.', versionLoading: '선택 가능한 인증서 버전을 불러오는 중입니다.', versionLoadFailed: '인증서 버전을 불러오지 못했습니다. 나중에 다시 시도하세요.', versionEmpty: '이 도메인에 선택 가능한 인증서 버전이 없습니다.', schedule: '업데이트 시점', scheduleHelp: '요청 시 시작하거나 Cron과 시간대로 정기 실행할 수 있습니다.', execution: '실행 중 처리', executionHelp: '기존 바인딩마다 독립적인 업데이트 계획을 만들고 DeploymentPlan, 승인, ExecutionRun을 재사용합니다.', snapshot: '도메인, 자산 및 인증서 버전 스냅샷 고정' },
-    fields: { name: '이름', description: '설명', trigger: '트리거', eventSources: 'Event sources', targetScope: 'Update scope', selectedAssets: 'Selected managed applications', selectedAssetsHelp: 'Select at least one managed application.', certificateTags: 'Certificate tags (comma separated)', certificateTagsHelp: 'Filter the event or polling scope by certificate tags.', targetEnvironments: 'Target environments (comma separated)', targetEnvironmentsHelp: 'Filter by target application environment.', targetOwners: 'Target owners (comma separated)', targetOwnersHelp: 'Filter by target owner.', cron: 'Cron 표현식', timeZone: '시간대', expiresWithinDays: '만료 예정 일수', environments: '대상 환경(쉼표로 구분)', certificateIds: '지정 인증서(선택)', certificateIdsPlaceholder: '인증서 ID를 쉼표로 구분해 입력', certificateIdsHelp: '입력하면 지정된 인증서만 처리하고, 비워두면 만료 기간과 환경으로 자동 선택합니다.', expiresWithinDaysHelp: '이 기간 내에 만료되는 인증서만 대상으로 합니다.', environmentsHelp: '지정한 환경의 인증서만 처리합니다.', planType: '배포 계획 유형', planTypeHelp: '일치하는 인증서 대상마다 실행 시 독립적인 DeploymentPlan을 만듭니다.', planTypeUpdate: '기존 인증서 바인딩 업데이트', planTypeInstall: '대상에 인증서 설치', planTypeVerifyOnly: '검증만 수행하고 인증서는 변경하지 않음', planMode: '실행 방식', planModeHelp: '기존 계획에 연결하지 않고 대상마다 실행 시 새 계획을 만듭니다.', planModeCreateAndExecute: '계획 생성 후 실행', planModeCreateOnly: '계획만 생성하고 실행하지 않음', maxTargets: '실행당 최대 대상 수', concurrency: '동시 실행 수', failureCount: '실패 수 임계값', requireDryRun: '기존 Dry run 설정(실행 조건으로 사용되지 않음)', requireApproval: '실행 전 승인 필수', startedAt: '시작 시간', finishedAt: '완료 시간', failureStage: '실패 단계', parentRun: '상위 실행' },
+    externalApi: { executionModeLabel: '외부 실행 모드', executionModeAria: '외부 실행 모드', keyTitle: '외부 API Key', keyDescription: '이 Key는 현재 자동화 페이지에 계속 표시되며 언제든지 복사할 수 있습니다.', keyNotice: 'X-Automation-API-Key 요청 헤더로 전송하세요.', keyStatusPending: '저장하고 활성화하면 생성됩니다', keyStatusActive: '생성됨', keyStatusUnavailable: '생성됨 (이 페이지에는 전체 Key가 표시되지 않음)', keyEditorDescription: '전체 Key는 현재 페이지에 계속 표시되며 언제든지 복사할 수 있습니다. 새로 고치면 이전 Key가 즉시 무효화됩니다.', keyValueLabel: 'API Key', keyValueAria: '외부 API Key', keyUnavailableValue: '이 페이지에는 전체 Key가 표시되지 않음', keyUnavailable: '이 페이지에 전체 Key가 없습니다. “Key 새로 고침”을 눌러 새 Key를 생성하세요.', rotate: 'Key 새로 고침', rotating: '새로 고치는 중', rotateNotice: '새로 고치면 이전 Key가 즉시 무효화됩니다.', mode: '실행 모드: {mode}', copy: 'Key 복사', copied: '복사됨', copyAria: 'API Key 복사', copyCurlAria: 'CURL 명령 복사', rotateAria: 'API Key 새로 고침', apiManualButton: 'API 가이드', apiManualAutomationId: '현재 자동화 ID', apiManualAutomationIdUnavailable: '저장 후 생성', apiManualTitle: '외부 API 가이드', apiManualDescription: '자동화 ID와 API Key로 다음 인터페이스를 호출합니다. 인증서 도메인은 자동화에 미리 설정되어 있습니다.', apiManualCertificateVersion: '실행 및 호환성 인터페이스에는 정확한 certificateVersionId가 필요합니다.', apiManualRunTitle: '자동화 시작', apiManualRunDescription: '인증서 버전을 제출하여 한 번 실행합니다. 실행 큐에 추가됩니다.', apiManualRunCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/run' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -H Idempotency-Key:automation-run-$(date +%s) \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualPreviewTitle: '현재 애플리케이션 호환성 확인', apiManualPreviewDescription: '인증서 버전을 제출하여 대상 애플리케이션, 실행 가능 여부 및 제외 사유를 확인합니다.', apiManualPreviewCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/preview' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualVersionsTitle: '사용 가능한 인증서 버전 목록', apiManualVersionsDescription: '이 자동화에 미리 설정된 인증서 도메인에서 선택할 수 있는 버전을 반환합니다.', apiManualVersionsCurl: "curl 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/certificate-versions' \\\n  -H 'X-Automation-API-Key: ak_xxx'" },
+    form: { existingAssetTitle: '기존 애플리케이션 자산만 업데이트', existingAssetDescription: '기존 인증서 바인딩이 있는 애플리케이션 자산만 처리합니다. 최초 설치나 새 대상 추가는 수행하지 않습니다.', certificateDomains: '인증서 도메인', certificateDomainsPlaceholder: '인증서 도메인을 쉼표로 구분해 입력', certificateDomainsHelp: '지정한 도메인에 해당하는 기존 애플리케이션 자산 바인딩만 업데이트합니다.', versionSelection: '업데이트할 인증서 버전', versionSelectionLatest: '최신 인증서 버전 자동 사용', versionSelectionSpecific: '지정한 인증서 버전 사용', versionSelectionHelp: '실행 시작 시 버전을 확인하고 고정하므로 실행 중 새 버전으로 바뀌지 않습니다.', certificateVersionIds: '지정 인증서 버전', certificateVersionIdsPlaceholder: '인증서 버전 ID를 쉼표로 구분해 입력', certificateVersionIdsHelp: '각 버전은 위 도메인이 선택한 인증서에 속해야 합니다.', versionLoading: '선택 가능한 인증서 버전을 불러오는 중입니다.', versionLoadFailed: '인증서 버전을 불러오지 못했습니다. 나중에 다시 시도하세요.', versionEmpty: '이 도메인에 선택 가능한 인증서 버전이 없습니다.', schedule: '업데이트 시점', scheduleHelp: '요청 시 시작하거나 Cron과 시간대로 정기 실행할 수 있습니다.', execution: '실행 중 처리', executionHelp: '기존 바인딩마다 독립적인 업데이트 계획을 만들고 DeploymentPlan과 ExecutionRun을 재사용합니다.', snapshot: '도메인, 자산 및 인증서 버전 스냅샷 고정' },
+    fields: { name: '이름', description: '설명', trigger: '트리거', eventSources: 'Event sources', targetScope: 'Update scope', selectedAssets: 'Selected managed applications', selectedAssetsHelp: 'Select at least one managed application.', certificateTags: 'Certificate tags (comma separated)', certificateTagsHelp: 'Filter the event or polling scope by certificate tags.', targetEnvironments: 'Target environments (comma separated)', targetEnvironmentsHelp: 'Filter by target application environment.', targetOwners: 'Target owners (comma separated)', targetOwnersHelp: 'Filter by target owner.', cron: 'Cron 표현식', timeZone: '시간대', expiresWithinDays: '만료 예정 일수', environments: '대상 환경(쉼표로 구분)', certificateIds: '지정 인증서(선택)', certificateIdsPlaceholder: '인증서 ID를 쉼표로 구분해 입력', certificateIdsHelp: '입력하면 지정된 인증서만 처리하고, 비워두면 만료 기간과 환경으로 자동 선택합니다.', expiresWithinDaysHelp: '이 기간 내에 만료되는 인증서만 대상으로 합니다.', environmentsHelp: '지정한 환경의 인증서만 처리합니다.', planType: '배포 계획 유형', planTypeHelp: '일치하는 인증서 대상마다 실행 시 독립적인 DeploymentPlan을 만듭니다.', planTypeUpdate: '기존 인증서 바인딩 업데이트', planTypeInstall: '대상에 인증서 설치', planTypeVerifyOnly: '검증만 수행하고 인증서는 변경하지 않음', planMode: '실행 방식', planModeHelp: '기존 계획에 연결하지 않고 대상마다 실행 시 새 계획을 만듭니다.', planModeCreateAndExecute: '계획 생성 후 실행', planModeCreateOnly: '계획만 생성하고 실행하지 않음', maxTargets: '실행당 최대 대상 수', concurrency: '동시 실행 수', failureCount: '실패 수 임계값', requireDryRun: '기존 Dry run 설정(실행 조건으로 사용되지 않음)', startedAt: '시작 시간', finishedAt: '완료 시간', failureStage: '실패 단계', parentRun: '상위 실행' },
     actions: { create: '자동화 만들기', detail: 'Details', edit: '편집', delete: '삭제', cancel: '취소', save: '저장', copy: '복사', enable: '활성화', disable: '비활성화', runNow: 'Run now', preview: '대상 미리 보기', history: '실행 기록', confirmRun: '실행 확인', stop: '실행 중지', retryFailed: '실패 대상 재시도', openPlan: '배포 계획 보기', openExecution: '실행 기록 보기' },
     manualRun: { title: '수동 실행', description: '실행 전에 인증서 버전을 선택하세요.', versionLabel: '인증서 버전', versionPlaceholder: '인증서 버전 선택', help: '선택한 버전에 연결된 애플리케이션 자산을 실행 시점에 해석합니다.', empty: '수동 실행할 인증서 버전이 없습니다.', stopOnError: '오류 시 중단', dryRun: '선택적 Dry-run 미리보기 실행', start: '실행 시작', downgradeNotice: '{count}개 애플리케이션 자산의 대상 인증서 유효 기간이 현재 인증서보다 짧습니다. 확인 후에만 실행을 계속합니다.', downgradeConfirmTitle: '인증서 유효 기간 단축 확인', downgradeConfirmDescription: '수동 작업입니다. 확인하면 {count}개 애플리케이션 자산을 더 짧은 유효 기간의 인증서로 업데이트합니다.', downgradeConfirmAction: '확인 후 실행' },
     columns: { status: 'Status', trigger: '트리거', targets: '대상 한도', actions: '실행 작업', nextRun: '다음 실행', lastRun: '최근 실행' },
@@ -744,9 +744,9 @@ export default {
     exclusions: { permission_denied: '대상 권한 없음', missing_version: '인증서 버전 없음', version_not_deployable: '인증서 버전을 배포할 수 없음', binding_not_managed: '바인딩이 관리되지 않음', environment_not_allowed: '허용되지 않은 환경', binding_missing: '바인딩 없음', asset_missing_deployment_capability: '대상 자산은 인증서를 배포할 수 없음', certificate_version_downgrade: '대상 버전이 현재 자산 버전보다 낮음', certificate_already_up_to_date: '대상 만료 시각이 현재 인증서와 같아 업데이트를 건너뜀', filter_not_matched: '필터 조건이 일치하지 않음', runtime_context_required: '실행 컨텍스트가 필요함', unknown: '알 수 없는 제외 이유' },
     failureStages: { selection: '대상 선택', plan_creation: '계획 생성', dry_run: 'Dry run', approval: '승인', execution: '실행', verification: '검증', rollback: '롤백', notification: '알림' },
     progress: { total: '전체', pending: '대기 중', running: '실행 중', waitingApproval: '승인 대기', succeeded: '성공', failed: '실패', skipped: '건너뜀', cancelled: '취소됨' },
-    editor: { createTitle: '자동화 만들기', editTitle: '자동화 편집', description: '실행 시점, 대상 인증서, 계획 생성 방식과 실패 시 안전 경계를 설정합니다.', exactVersionFromEvent: 'The certificate new-version event freezes the exact certificate version into the run snapshot.', sections: { basic: '기본 정보', basicHelp: '자동화 이름과 처리할 인증서 변경을 설명합니다.', trigger: 'Trigger', triggerHelp: 'Define what fact starts the automation before choosing execution and conditions.', targets: '처리할 인증서', targetsHelp: '기존 배포 계획이 아니라 인증서 대상을 선택하며, 실행 시작 시 스냅샷을 고정합니다.', execution: 'Execution', executionHelp: 'Decide how the automation updates assets first, then add matching conditions and safety guardrails.', conditions: 'Conditions and safety', conditionsHelp: 'Define matching conditions, target filters, approval, and concurrency guardrails together in this step.', plan: '인증서 배포 계획', planRelationTitle: '기존 배포 계획에 연결하지 않습니다', planRelationDescription: '위 인증서 조건에 따라 실행 시 계획을 생성합니다.', planRelationHelp: '대상마다 별도의 DeploymentPlan을 만들고 계획 ID를 실행 상세에 표시합니다.', guardrails: '실행 안전 제어', guardrailsHelp: '배치 수, 사전 점검, 승인 및 실패 중지 조건을 제어합니다.' }, chain: { createPlan: '대상별 DeploymentPlan 생성', dryRun: '선택적 Dry run 미리보기 실행', approval: '승인 대기', executePlan: '대상 DeploymentPlan 실행' } },
+    editor: { createTitle: '자동화 만들기', editTitle: '자동화 편집', description: '실행 시점, 대상 인증서, 계획 생성 방식과 실패 시 안전 경계를 설정합니다.', exactVersionFromEvent: 'The certificate new-version event freezes the exact certificate version into the run snapshot.', sections: { basic: '기본 정보', basicHelp: '자동화 이름과 처리할 인증서 변경을 설명합니다.', trigger: 'Trigger', triggerHelp: 'Define what fact starts the automation before choosing execution and conditions.', targets: '처리할 인증서', targetsHelp: '기존 배포 계획이 아니라 인증서 대상을 선택하며, 실행 시작 시 스냅샷을 고정합니다.', execution: 'Execution', executionHelp: 'Decide how the automation updates assets first, then add matching conditions and safety guardrails.', conditions: 'Conditions and safety', conditionsHelp: 'Define matching conditions, target filters and concurrency guardrails together in this step.', plan: '인증서 배포 계획', planRelationTitle: '기존 배포 계획에 연결하지 않습니다', planRelationDescription: '위 인증서 조건에 따라 실행 시 계획을 생성합니다.', planRelationHelp: '대상마다 별도의 DeploymentPlan을 만들고 계획 ID를 실행 상세에 표시합니다.', guardrails: '실행 안전 제어', guardrailsHelp: '배치 수, 사전 점검 및 실패 중지 조건을 제어합니다.' }, chain: { createPlan: '대상별 DeploymentPlan 생성', dryRun: '선택적 Dry run 미리보기 실행', executePlan: '대상 DeploymentPlan 실행' } },
     runs: { title: '자동화 실행 기록', description: '실행 상태, 변경 불가능한 대상 스냅샷 및 실패 단계를 확인합니다.', progress: '{succeeded}/{total} 성공' },
-    runDetail: { title: '자동화 실행 상세', description: '구성 버전 {version}', noFailure: '실패 없음', triggerContext: 'Trigger context', sourceType: 'Source type', certificateVersion: 'Exact certificate version', approvalId: 'Approval ID', deliveryId: 'Delivery ID', excludedReasons: 'Excluded reasons' },
+    runDetail: { title: '자동화 실행 상세', description: '구성 버전 {version}', noFailure: '실패 없음', triggerContext: 'Trigger context', sourceType: 'Source type', certificateVersion: 'Exact certificate version', deliveryId: 'Delivery ID', excludedReasons: 'Excluded reasons' },
     aria: { preview: '자동화 대상 미리 보기', runs: '자동화 실행 목록', progress: '자동화 실행 진행률' },
     errors: { loadFailed: '자동화 목록을 불러오지 못했습니다', applicationAssetsLoadFailed: 'Failed to load managed applications. Try again later.' }
   },
@@ -862,7 +862,7 @@ export default {
       },
       tlsGrantRequired: {
         label: 'Dry-run 완료, 호스트 승인이 필요합니다',
-        detail: '구조 및 보안 검사가 완료되었습니다. Dry-run은 정식 ExecutionGrant를 발급하지 않으므로 TLS 검증 우회가 거부되었습니다. 승인 후 정식 실행 시 호스트가 단기 ExecutionGrant를 발급합니다.'
+        detail: '구조 및 보안 검사가 완료되었습니다. Dry-run은 정식 ExecutionGrant를 발급하지 않으므로 TLS 검증 우회가 거부되었습니다. 정식 실행 시 호스트가 단기 ExecutionGrant를 발급합니다.'
       },
       warning: {
         label: 'Dry-run에 위험정보가 있습니다',
@@ -1102,7 +1102,7 @@ export default {
     userView: {
       stepLabel: 'Step 3 of 3 · Deploy',
       title: 'Deploy the certificate to an application',
-      description: 'Choose a certificate and a connected application. GCAC keeps the same preview, approval, and execution safeguards in the background.',
+      description: 'Choose a certificate and a connected application. GCAC keeps preview and execution safeguards in the background.',
       createAction: 'Start deployment',
       listTitle: 'Deployment tasks',
       listDescription: 'Only the next action and business status are shown here.',
@@ -1112,12 +1112,12 @@ export default {
       unnamedPlan: 'Unnamed deployment task',
       pendingCertificate: 'Certificate pending',
       pendingApplication: 'Application pending',
-      nextActionHint: 'The next action follows the current approval and preview status.',
+      nextActionHint: 'The next action follows the current preview and execution status.',
       prepareAction: 'Prepare deployment',
-      waiting: 'Waiting for approval or execution'
+      waiting: 'Waiting for execution'
     },
     title: '계획을 배포하다.',
-    description: '계획 미리보기, 영향 범위, 승인, 배포 실행, 인증 및 롤백 항목.',
+    description: '계획 미리보기, 영향 범위, 배포 실행, 인증 및 롤백 항목.',
     resourceName: '계획을 배포하다.',
     apiActions: {
       submit: '배포 계획을 제출하다',
@@ -1131,13 +1131,8 @@ export default {
       edit: '계획 편집',
       dryRun: 'Dry-run 영향 미리보기',
       dryRunRisk: '영향 미리보기만 생성하고 정식 배포는 하지 않습니다.',
-      submit: '심사 비준에 회부하다.',
-      submitRisk: '제출되면 계획은 허가 또는 이행 상태에 들어갈 것이다.',
-      review: '승인 검토',
-      approve: '승인 요청 승인',
-      approveRisk: '승인 후 실행할 수 있으며 호스트가 발급한 ExecutionGrant는 실행 시 계속 필요합니다.',
-      reject: '승인 요청 거부',
-      rejectRisk: '거부된 계획은 실행할 수 없으며 다시 승인을 제출해야 합니다.',
+      submit: '계획 제출',
+      submitRisk: '제출되면 계획은 실행 대기 상태가 됩니다.',
       execute: '포치를 실행하다.',
       executeRisk: '실행은 대상 인증서 설정을 수정합니다. 완료되었거나 실패한 계획을 다시 실행할 때도 이 항목을 사용합니다. 실행 시 필요한 동기 사전 검사를 수행하며, 자산 상세 인증서 배포에서 선택적으로 Dry-run 미리보기를 실행할 수 있습니다.',
       cancel: '계획을 취소하다',
@@ -1158,7 +1153,7 @@ export default {
     metrics: {
       total: {
         title: '계획 총수',
-        description: '승인, 실행 및 실행을 기다리는 계획.'
+        description: '실행 대기 또는 실행 중인 계획.'
       },
       risky: {
         title: '고위험군은 처리를 기다린다.',
@@ -1169,7 +1164,6 @@ export default {
       planId: 'ID로 계획한다',
       name: '프로젝트 이름',
       status: '계획 상태',
-      approvalStatus: '승인상태',
       certificateVersionId: '인증서 버전 ID',
       certificateFormatId: '인증서 형식 설정 ID',
       workflowDslVersion: '워크플로 DSL 버전',
@@ -1177,7 +1171,6 @@ export default {
       updateNeeded: '업데이트 필요',
       targetSummary: '대상 바인딩 요약',
       latestRun: '최신 실행 일정',
-      approvalId: 'ID를 심사비준한다',
       snapshotHash: 'Hash 스냅샷',
       failureReason: '실패 원인',
       createdAt: '만든 시간',
@@ -1192,9 +1185,6 @@ export default {
       description: '인증서나 바인딩에서 배포 마법사를 시작하여 영향 미리보기를 만든 다음 계획을 제출합니다.'
     },
     disabled: {
-      missingApproval: '승인 정보가 없으면 실행할 수 없습니다.',
-      approvalPending: '승인 요청이 제출되었습니다. 승인자가 승인한 후 실행할 수 있습니다.',
-      approvalRejected: '승인이 거부되어 실행할 수 없습니다.',
       needDryRun: 'Dry-run은 인증서, 도메인 및 대상 호환성 검사를 확인하는 선택적 영향 미리보기입니다.',
       missingRunId: 'runId 가 없으면 롤백할 수 없습니다.',
       missingSelection: '배포 계획 선택이 없습니다'
@@ -1204,16 +1194,6 @@ export default {
       close: '닫기',
       notConfigured: '구성되지 않음',
       notProvided: '제공되지 않음'
-    },
-    approval: {
-      title: '승인 상세',
-      description: '배포 계획 범위를 검토한 후 요청을 직접 승인하거나 거부합니다.',
-      requestedBy: '요청자',
-      riskLevel: '위험 수준',
-      decisionHint: '승인 후 실제 실행이 가능합니다. 거부된 계획은 다시 제출해야 합니다.',
-      processing: '처리 중...',
-      missingApprovalId: '승인 ID가 없어 검토할 수 없습니다.',
-      decisionFailed: '승인 작업에 실패했습니다.'
     },
     detail: {
       certificateVersionLabel: '인증서 버전',
@@ -1288,17 +1268,12 @@ export default {
       executionTaskStarted: '작업이 시작되었습니다. 오른쪽 위 작업 목록에서 진행 상황을 확인하세요.',
       executionTaskSucceeded: '작업이 성공적으로 완료되었습니다. 오른쪽 위 작업 목록에서 결과를 확인하세요.',
       executeTaskStarted: '인증서 배포가 시작되었습니다. 오른쪽 위 작업 목록에서 진행 상황을 확인하세요.',
-      executeTaskPendingApproval: '인증서 배포가 제출되었고 승인을 기다리고 있습니다. 오른쪽 위 작업 목록에서 확인하세요.',
       rollbackTaskStarted: '인증서 롤백이 시작되었습니다. 오른쪽 위 작업 목록에서 진행 상황을 확인하세요.',
       loadedDraft: '계획 초안을 불러왔습니다.',
       loadedDraftWithPlanId: '초안 로딩 ({planId}).',
       savedWithPlanId: '계획저장({planId}).',
       submitted: '배포 계획이 제출되었습니다.',
       submittedWithPlanId: '배포 계획이 제출되었습니다(계획 {planId}).',
-      approvalApproved: '승인이 완료되었습니다. 이제 계획을 실행할 수 있습니다.',
-      approvalApprovedWithPlanId: '승인이 완료되었습니다. 계획 {planId}을(를) 실행할 수 있습니다.',
-      approvalRejected: '승인이 거부되었습니다. 계획을 실행할 수 없습니다.',
-      approvalRejectedWithPlanId: '승인이 거부되었습니다. 계획 {planId}을(를) 실행할 수 없습니다.'
     },
     target: {
       controlPlane: '플랫폼',
@@ -2171,11 +2146,10 @@ export default {
     deploymentTasks: {
       eyebrow: '배포 작업',
       title: '배포 작업 매개변수',
-      description: '테넌트 전체 Dry-run과 앱에서 별도로 승인을 지정하지 않은 경우의 인증서 배포 승인 여부를 제어합니다.',
+      description: '테넌트 전체에서 인증서 배포 전에 Dry-run을 실행할지 제어합니다.',
       readonly: '이 계정은 읽기 전용 권한입니다.',
       fields: {
-        dryRun: { title: 'Dry-run 활성화', description: '배포 전에 읽기 전용 사전 검사를 실행합니다. 결과는 참고용이며 실제 배포를 차단하지 않습니다.', aria: '인증서 배포 Dry-run 활성화' },
-        approval: { title: '승인 흐름 활성화', description: '앱에서 별도로 승인을 지정하지 않은 경우 이 테넌트 설정으로 인증서 배포 승인 여부를 결정합니다.', aria: '인증서 배포 승인 흐름 활성화' }
+        dryRun: { title: 'Dry-run 활성화', description: '배포 전에 읽기 전용 사전 검사를 실행합니다. 결과는 참고용이며 실제 배포를 차단하지 않습니다.', aria: '인증서 배포 Dry-run 활성화' }
       },
       actions: { save: '설정 저장', saving: '저장 중...' },
       messages: { saved: '배포 작업 매개변수를 저장했습니다.' },
@@ -2527,7 +2501,7 @@ export default {
         },
         deployment: {
           name: '예약 로그 업데이트 중',
-          description: '배포 계획, 실행, 롤백 및 승인'
+          description: '배포 계획, 실행 및 롤백'
         },
         workflow: {
           name: '워크플로 로그',
@@ -2892,7 +2866,7 @@ export default {
     allowInsecureTls: {
       label: 'TLS 인증서 검증 건너뛰기 허용',
       description: '장비가 자체 서명 또는 신뢰할 수 없는 인증서를 사용하는 경우 이번 배포에서 TLS 인증서 검증을 건너뛰도록 명시적으로 허용합니다.',
-      help: '이는 배포 의도만 기록하며 실행 권한을 부여하지 않습니다. 승인과 호스트가 발급한 실행 권한이 계속 필요합니다.'
+      help: '이는 배포 의도만 기록하며 실행 권한을 부여하지 않습니다. 호스트가 발급한 실행 권한이 계속 필요합니다.'
     },
     runtimeValue: '런타임에 {source}에서 제공',
     source: '출처: {source}',
@@ -3056,8 +3030,7 @@ export default {
       publishedVersion: '배포된 버전',
       runner: '실행 위치',
       artifactFormat: '제품 형식 설정',
-      updatePlugin: '인증서 업데이트 플러그인',
-      approvalRequired: '인증서 배포 승인 필요'
+      updatePlugin: '인증서 업데이트 플러그인'
     },
     capability: { source: '기능 출처', plugin: '플러그인 버전', runtime: '런타임', executionLocation: '실행 위치', pendingAssignment: '저장하면 애플리케이션 자산 수준 배포 기능 할당이 생성됩니다.' },
     links: {
@@ -3108,7 +3081,7 @@ export default {
     deployment: {
       noCertificateAsset: '배포 가능한 인증서 자산이 없습니다',
       targetLocked: '업데이트 대상 고정',
-      title: '인증서 배포', description: '이 애플리케이션 자산에 적용할 인증서 버전을 선택합니다. 시스템은 배포 스냅샷 생성, 사전 점검, 승인 제출 및 승인 후 실행을 수행합니다.', dialogTitle: '인증서 배포', dialogDescription: '현재 애플리케이션 자산에만 적용됩니다. 배포 계획은 백엔드의 스냅샷, 승인 및 실행 경계로 유지됩니다.', latestVersionPointer: '현재 인증서의 최신 버전 자동 적용', deployThisVersion: '이 인증서 버전 배포', loadingRecords: '배포 기록을 불러오는 중...', emptyRecords: '이 애플리케이션 자산에는 배포 기록이 없습니다.', preflightAvailable: '사전 점검 {count}개 반환됨', preflightUnavailable: '사전 점검이 아직 실행되지 않았습니다', rollbackUnavailable: '롤백이 요청되지 않았습니다', fields: { status: '배포 상태', approval: '승인 상태', latestRun: '최근 실행', preflight: '사전 점검', rollback: '롤백', updatedAt: '업데이트 시간' }, feedback: { preflightRunning: '사전 점검 실행이 완료되기를 기다리는 중입니다.', pendingApproval: '사전 점검이 완료되었으며 배포는 승인을 기다리고 있습니다.', executionStarted: '사전 점검과 승인이 완료되어 배포 실행이 시작되었습니다.' }, errors: { missingApplicationAssetId: '인증서 배포를 만들려면 애플리케이션 자산 ID가 필요합니다.', loadOptionsFailed: '배포 가능한 인증서 버전을 불러오지 못했습니다.', createPlanMissingId: '배포 스냅샷 생성 후 계획 ID가 반환되지 않았습니다.', deployFailed: '인증서 배포에 실패했습니다.', preflightFailed: '인증서 배포 사전 점검을 통과하지 못했습니다.', preflightTimeout: '인증서 배포 사전 점검 시간이 초과되었습니다.', loadRecordsFailed: '애플리케이션 자산 배포 기록을 불러오지 못했습니다.' }
+      title: '인증서 배포', description: '이 애플리케이션 자산에 적용할 인증서 버전을 선택합니다. 시스템은 배포 스냅샷 생성, 사전 점검 및 실행을 수행합니다.', dialogTitle: '인증서 배포', dialogDescription: '현재 애플리케이션 자산에만 적용됩니다. 배포 계획은 백엔드의 스냅샷 및 실행 경계로 유지됩니다.', latestVersionPointer: '현재 인증서의 최신 버전 자동 적용', deployThisVersion: '이 인증서 버전 배포', loadingRecords: '배포 기록을 불러오는 중...', emptyRecords: '이 애플리케이션 자산에는 배포 기록이 없습니다.', preflightAvailable: '사전 점검 {count}개 반환됨', preflightUnavailable: '사전 점검이 아직 실행되지 않았습니다', rollbackUnavailable: '롤백이 요청되지 않았습니다', fields: { status: '배포 상태', latestRun: '최근 실행', preflight: '사전 점검', rollback: '롤백', updatedAt: '업데이트 시간' }, feedback: { preflightRunning: '사전 점검 실행이 완료되기를 기다리는 중입니다.', executionStarted: '사전 점검이 완료되어 배포 실행이 시작되었습니다.' }, errors: { missingApplicationAssetId: '인증서 배포를 만들려면 애플리케이션 자산 ID가 필요합니다.', loadOptionsFailed: '배포 가능한 인증서 버전을 불러오지 못했습니다.', createPlanMissingId: '배포 스냅샷 생성 후 계획 ID가 반환되지 않았습니다.', deployFailed: '인증서 배포에 실패했습니다.', preflightFailed: '인증서 배포 사전 점검을 통과하지 못했습니다.', preflightTimeout: '인증서 배포 사전 점검 시간이 초과되었습니다.', loadRecordsFailed: '애플리케이션 자산 배포 기록을 불러오지 못했습니다.' }
     },
     compatibilityModes: {
       unified: '통합 플러그인 바인딩',
@@ -3208,7 +3181,6 @@ export default {
       createRequestCompleted: '생성 요청이 완료되었습니다.',
       editRequestCompleted: '저장 요청이 완료되었습니다.',
       agentCertificateFormatHint: 'Agent 모드에서 이 인증서 아티팩트 구성을 사용해 배포 자료를 생성합니다.',
-      approvalRequiredHint: '선택하면 이 애플리케이션의 배포는 항상 승인이 필요하며, 선택하지 않으면 테넌트 전체 배포 설정을 사용합니다.',
       placeholders: {
         displayName: '예를 들어, 생산 사이트 액세스',
         verifyUrl: '예: https://example.com/health',

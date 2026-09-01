@@ -687,7 +687,7 @@ export default {
     deployments: 'Certificate deployment',
     deploymentsDesc: 'Deployment plans, workflows, automations, and execution records',
     deploymentPlans: 'Deployment plans',
-    deploymentPlansDesc: 'Certificate deployment plans and approval entry points',
+    deploymentPlansDesc: 'Certificate deployment plans',
     executions: 'Execution records',
     executionsDesc: 'Execution steps, logs, failures, and rollback',
     workflows: 'Workflows',
@@ -742,9 +742,9 @@ export default {
     common: { notAvailable: 'Not available', allRelated: 'All related targets' },
     formStep: { stepProgress: 'Step {current} of {total}', previous: 'Back', next: 'Next', reviewTitle: 'Configuration summary', reviewText: 'Trigger: {trigger}; execution scope: {scope}; certificate domains: {domains}. The target snapshot is frozen when the run starts.' },
     scheduleBuilder: { api: 'Trigger through external API', once: 'Run once at a fixed time', onceHelp: 'Choose a browser-local time. The task is not scheduled again after it runs.', recurring: 'Run periodically', scheduleHelp: 'Run on a recurring schedule. Use only when continuous polling is genuinely required.', recurringHelp: 'Run on a recurring schedule. Use only when continuous polling is genuinely required.', recurringWarningTitle: 'Periodic execution is not recommended for certificate updates', recurringWarning: 'Certificate replacement should normally be triggered after certificate issuance or scheduled once at a fixed time. Use periodic execution only for an explicit recurring-check requirement.', certificateVersionCreated: 'Certificate new-version event', runAt: 'Execution time', frequency: 'Frequency', daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', time: 'Time', weekday: 'Weekday', monthDay: 'Day of month', legacyCustom: 'Keep existing custom schedule', legacyCron: 'Existing cron (read-only)', weekdays: { 0: 'Sunday', 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday', 6: 'Saturday' } },
-    externalApi: { executionModeLabel: 'External execution mode', executionModeAria: 'External execution mode', direct: 'Execute directly (no approval)', approval: 'Use built-in approval flow', keyTitle: 'External API Key', keyDescription: 'This key remains visible on the current automation page and can be copied at any time.', keyNotice: 'Send it in the X-Automation-API-Key request header.', keyStatusPending: 'Generated after saving and enabling', keyStatusActive: 'Generated', keyStatusUnavailable: 'Generated (full key is not visible in this page)', keyEditorDescription: 'The full key remains visible on the current page and can be copied at any time. Refreshing immediately invalidates the old key.', keyValueLabel: 'API Key', keyValueAria: 'External API Key', keyUnavailableValue: 'Full key is not visible in this page', keyUnavailable: 'This page does not hold the full key. Click “Refresh Key” to generate a new one.', rotate: 'Refresh Key', rotating: 'Refreshing', rotateNotice: 'Refreshing immediately invalidates the old key.', mode: 'Execution mode: {mode}', copy: 'Copy Key', copied: 'Copied', copyAria: 'Copy API Key', copyCurlAria: 'Copy CURL command', rotateAria: 'Refresh API Key', apiManualButton: 'API guide', apiManualAutomationId: 'Current automation ID', apiManualAutomationIdUnavailable: 'Generated after saving', apiManualTitle: 'External API guide', apiManualDescription: 'Use the automation ID and API Key to call these endpoints. Certificate domains are predefined in the automation.', apiManualCertificateVersion: 'The run and compatibility endpoints require the exact certificateVersionId.', apiManualRunTitle: 'Start the automation', apiManualRunDescription: 'Submit a certificate version to start one run. The configured mode executes directly or enters the built-in approval flow.', apiManualRunCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/run' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -H Idempotency-Key:automation-run-$(date +%s) \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualPreviewTitle: 'View current application compatibility', apiManualPreviewDescription: 'Submit a certificate version to see target application matches, executability, and exclusion reasons.', apiManualPreviewCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/preview' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualVersionsTitle: 'List available certificate versions', apiManualVersionsDescription: 'Return selectable certificate versions for the certificate domains predefined in this automation.', apiManualVersionsCurl: "curl 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/certificate-versions' \\\n  -H 'X-Automation-API-Key: ak_xxx'" },
-    form: { existingAssetTitle: 'Update existing managed applications only', existingAssetDescription: 'The automation only processes managed applications with existing certificate bindings. It does not install certificates for the first time or add deployment targets.', certificateDomains: 'Certificate domains', certificateDomainsPlaceholder: 'Enter certificate domains separated by commas', certificateDomainsHelp: 'Only existing managed application bindings for these certificate domains are updated.', versionSelection: 'Certificate version to deploy', versionSelectionLatest: 'Automatically use the latest certificate version', versionSelectionSpecific: 'Use specific certificate versions', versionSelectionHelp: 'The version is resolved and frozen when the run starts, so later versions cannot change an active run.', certificateVersionIds: 'Specific certificate versions', certificateVersionIdsPlaceholder: 'Enter certificate version IDs separated by commas', certificateVersionIdsHelp: 'Each version must belong to a certificate selected by the domains above.', versionLoading: 'Loading available certificate versions.', versionLoadFailed: 'Failed to load certificate versions. Try again later.', versionEmpty: 'No selectable certificate versions were found for these domains.', schedule: 'When to update', scheduleHelp: 'Administrators can start it on demand or run it periodically with Cron and a time zone.', execution: 'What happens during a run', executionHelp: 'The system creates a separate update plan for each existing managed application binding and reuses DeploymentPlan, approval, and ExecutionRun.', snapshot: 'Freeze the domain, managed application, and certificate-version snapshot' },
-    fields: { name: 'Name', description: 'Description', trigger: 'Trigger', eventSources: 'Event sources', targetScope: 'Update scope', selectedAssets: 'Selected managed applications', selectedAssetsHelp: 'Select at least one managed application.', certificateTags: 'Certificate tags (comma separated)', certificateTagsHelp: 'Filter the event or polling scope by certificate tags.', targetEnvironments: 'Target environments (comma separated)', targetEnvironmentsHelp: 'Filter by target application environment.', targetOwners: 'Target owners (comma separated)', targetOwnersHelp: 'Filter by target owner.', cron: 'Cron expression', timeZone: 'Time zone', expiresWithinDays: 'Expiry window in days', environments: 'Target environments (comma separated)', certificateIds: 'Specific certificates (optional)', certificateIdsPlaceholder: 'Enter certificate IDs separated by commas', certificateIdsHelp: 'When filled, only these certificates are processed; otherwise expiry and environment rules are used.', expiresWithinDaysHelp: 'Only match certificates expiring within this window.', environmentsHelp: 'Only process certificates in these environments, such as production or staging.', planType: 'Deployment plan type', planTypeHelp: 'A separate DeploymentPlan is created at runtime for each matched certificate target.', planTypeUpdate: 'Update an existing certificate binding', planTypeInstall: 'Install a certificate on the target', planTypeVerifyOnly: 'Verify only, make no certificate change', planMode: 'Run mode', planModeHelp: 'The automation does not bind an existing plan; it creates a new plan at runtime for each target.', planModeCreateAndExecute: 'Create and execute the plan', planModeCreateOnly: 'Create plans only, do not execute yet', maxTargets: 'Maximum targets per run', concurrency: 'Concurrency', failureCount: 'Failure count threshold', requireDryRun: 'Historical dry-run setting (not an execution gate)', requireApproval: 'Require approval before execution', startedAt: 'Started at', finishedAt: 'Finished at', failureStage: 'Failure stage', parentRun: 'Parent run' },
+    externalApi: { executionModeLabel: 'External execution mode', executionModeAria: 'External execution mode', keyTitle: 'External API Key', keyDescription: 'This key remains visible on the current automation page and can be copied at any time.', keyNotice: 'Send it in the X-Automation-API-Key request header.', keyStatusPending: 'Generated after saving and enabling', keyStatusActive: 'Generated', keyStatusUnavailable: 'Generated (full key is not visible in this page)', keyEditorDescription: 'The full key remains visible on the current page and can be copied at any time. Refreshing immediately invalidates the old key.', keyValueLabel: 'API Key', keyValueAria: 'External API Key', keyUnavailableValue: 'Full key is not visible in this page', keyUnavailable: 'This page does not hold the full key. Click “Refresh Key” to generate a new one.', rotate: 'Refresh Key', rotating: 'Refreshing', rotateNotice: 'Refreshing immediately invalidates the old key.', mode: 'Execution mode: {mode}', copy: 'Copy Key', copied: 'Copied', copyAria: 'Copy API Key', copyCurlAria: 'Copy CURL command', rotateAria: 'Refresh API Key', apiManualButton: 'API guide', apiManualAutomationId: 'Current automation ID', apiManualAutomationIdUnavailable: 'Generated after saving', apiManualTitle: 'External API guide', apiManualDescription: 'Use the automation ID and API Key to call these endpoints. Certificate domains are predefined in the automation.', apiManualCertificateVersion: 'The run and compatibility endpoints require the exact certificateVersionId.', apiManualRunTitle: 'Start the automation', apiManualRunDescription: 'Submit a certificate version to start one run. The run enters the current execution queue.', apiManualRunCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/run' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -H Idempotency-Key:automation-run-$(date +%s) \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualPreviewTitle: 'View current application compatibility', apiManualPreviewDescription: 'Submit a certificate version to see target application matches, executability, and exclusion reasons.', apiManualPreviewCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/preview' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualVersionsTitle: 'List available certificate versions', apiManualVersionsDescription: 'Return selectable certificate versions for the certificate domains predefined in this automation.', apiManualVersionsCurl: "curl 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/certificate-versions' \\\n  -H 'X-Automation-API-Key: ak_xxx'" },
+    form: { existingAssetTitle: 'Update existing managed applications only', existingAssetDescription: 'The automation only processes managed applications with existing certificate bindings. It does not install certificates for the first time or add deployment targets.', certificateDomains: 'Certificate domains', certificateDomainsPlaceholder: 'Enter certificate domains separated by commas', certificateDomainsHelp: 'Only existing managed application bindings for these certificate domains are updated.', versionSelection: 'Certificate version to deploy', versionSelectionLatest: 'Automatically use the latest certificate version', versionSelectionSpecific: 'Use specific certificate versions', versionSelectionHelp: 'The version is resolved and frozen when the run starts, so later versions cannot change an active run.', certificateVersionIds: 'Specific certificate versions', certificateVersionIdsPlaceholder: 'Enter certificate version IDs separated by commas', certificateVersionIdsHelp: 'Each version must belong to a certificate selected by the domains above.', versionLoading: 'Loading available certificate versions.', versionLoadFailed: 'Failed to load certificate versions. Try again later.', versionEmpty: 'No selectable certificate versions were found for these domains.', schedule: 'When to update', scheduleHelp: 'Administrators can start it on demand or run it periodically with Cron and a time zone.', execution: 'What happens during a run', executionHelp: 'The system creates a separate update plan for each existing managed application binding and reuses DeploymentPlan and ExecutionRun.', snapshot: 'Freeze the domain, managed application, and certificate-version snapshot' },
+    fields: { name: 'Name', description: 'Description', trigger: 'Trigger', eventSources: 'Event sources', targetScope: 'Update scope', selectedAssets: 'Selected managed applications', selectedAssetsHelp: 'Select at least one managed application.', certificateTags: 'Certificate tags (comma separated)', certificateTagsHelp: 'Filter the event or polling scope by certificate tags.', targetEnvironments: 'Target environments (comma separated)', targetEnvironmentsHelp: 'Filter by target application environment.', targetOwners: 'Target owners (comma separated)', targetOwnersHelp: 'Filter by target owner.', cron: 'Cron expression', timeZone: 'Time zone', expiresWithinDays: 'Expiry window in days', environments: 'Target environments (comma separated)', certificateIds: 'Specific certificates (optional)', certificateIdsPlaceholder: 'Enter certificate IDs separated by commas', certificateIdsHelp: 'When filled, only these certificates are processed; otherwise expiry and environment rules are used.', expiresWithinDaysHelp: 'Only match certificates expiring within this window.', environmentsHelp: 'Only process certificates in these environments, such as production or staging.', planType: 'Deployment plan type', planTypeHelp: 'A separate DeploymentPlan is created at runtime for each matched certificate target.', planTypeUpdate: 'Update an existing certificate binding', planTypeInstall: 'Install a certificate on the target', planTypeVerifyOnly: 'Verify only, make no certificate change', planMode: 'Run mode', planModeHelp: 'The automation does not bind an existing plan; it creates a new plan at runtime for each target.', planModeCreateAndExecute: 'Create and execute the plan', planModeCreateOnly: 'Create plans only, do not execute yet', maxTargets: 'Maximum targets per run', concurrency: 'Concurrency', failureCount: 'Failure count threshold', requireDryRun: 'Historical dry-run setting (not an execution gate)', startedAt: 'Started at', finishedAt: 'Finished at', failureStage: 'Failure stage', parentRun: 'Parent run' },
     actions: { create: 'Create automation', detail: 'Details', edit: 'Edit', delete: 'Delete', cancel: 'Cancel', save: 'Save', copy: 'Copy', enable: 'Enable', disable: 'Disable', runNow: 'Run now', preview: 'Preview targets', history: 'Run history', confirmRun: 'Confirm run', stop: 'Stop run', retryFailed: 'Retry failed targets', openPlan: 'Open deployment plan', openExecution: 'Open execution run' },
     manualRun: { title: 'Manual run', description: 'Select a certificate version before running.', versionLabel: 'Certificate version', versionPlaceholder: 'Select a certificate version', help: 'The run will resolve related managed applications from the selected version.', empty: 'No certificate versions are available for manual run.', stopOnError: 'Stop on error', dryRun: 'Run optional dry-run preview', start: 'Start run', downgradeNotice: 'The target certificate expires sooner than the current certificate for {count} managed applications. The run will continue only after confirmation.', downgradeConfirmTitle: 'Confirm shorter certificate validity', downgradeConfirmDescription: 'This is a manual operation. After confirmation, {count} managed applications will be updated to a certificate with a shorter validity period.', downgradeConfirmAction: 'Confirm and run' },
     columns: { status: 'Status', trigger: 'Trigger', targets: 'Target limit', actions: 'Actions', nextRun: 'Next run', lastRun: 'Last run' },
@@ -762,9 +762,9 @@ export default {
     exclusions: { permission_denied: 'Target permission denied', missing_version: 'Certificate version missing', version_not_deployable: 'Certificate version is not deployable', binding_not_managed: 'Binding is unmanaged', environment_not_allowed: 'Environment is not allowed', binding_missing: 'Binding is missing', asset_missing_deployment_capability: 'Managed application cannot deploy certificates', certificate_version_downgrade: 'Target certificate version is older than the current managed application version', certificate_already_up_to_date: 'The target expiry already matches the current managed application certificate, so the update is skipped', filter_not_matched: 'Filter conditions did not match', runtime_context_required: 'Runtime context is required', unknown: 'Unknown exclusion reason' },
     failureStages: { selection: 'Target selection', plan_creation: 'Plan creation', dry_run: 'Dry run', approval: 'Approval', execution: 'Execution', verification: 'Verification', rollback: 'Rollback', notification: 'Notification' },
     progress: { total: 'Total', pending: 'Pending', running: 'Running', waitingApproval: 'Waiting approval', succeeded: 'Succeeded', failed: 'Failed', skipped: 'Skipped', cancelled: 'Cancelled' },
-    editor: { createTitle: 'Create automation', editTitle: 'Edit automation', description: 'Configure when it runs, which certificates it handles, how deployment plans are created, and what happens on failure.', exactVersionFromEvent: 'The certificate new-version event freezes the exact certificate version into the run snapshot, and approval recovery must keep using that exact version.', sections: { basic: 'Basic information', basicHelp: 'Give the automation a recognizable name and explain which certificate changes it handles.', trigger: 'Trigger', triggerHelp: 'Define which fact starts the automation before choosing the execution scope and matching conditions.', targets: 'Which certificates to process', targetsHelp: 'This selects certificate targets, not existing deployment plans; the target snapshot is frozen when the run starts.', execution: 'Execution', executionHelp: 'Decide how the automation updates managed applications first, then add matching conditions and safety guardrails.', conditions: 'Conditions and safety', conditionsHelp: 'Define matching conditions, target filters, approval, and concurrency guardrails together in this step.', plan: 'Certificate deployment plan', planRelationTitle: 'This does not bind an existing deployment plan', planRelationDescription: 'A deployment plan is created at runtime from the certificate filters above.', planRelationHelp: 'Each matched certificate target gets its own DeploymentPlan, and its plan ID appears in run details.', guardrails: 'Execution safety controls', guardrailsHelp: 'These limits control batch size, prechecks, approval, and when failures stop the run.' }, chain: { createPlan: 'Create a DeploymentPlan for each target', dryRun: 'Run the optional dry-run preview', approval: 'Wait for approval', executePlan: 'Execute that target DeploymentPlan' } },
+    editor: { createTitle: 'Create automation', editTitle: 'Edit automation', description: 'Configure when it runs, which certificates it handles, how deployment plans are created, and what happens on failure.', exactVersionFromEvent: 'The certificate new-version event freezes the exact certificate version into the run snapshot, and run recovery keeps using that exact version.', sections: { basic: 'Basic information', basicHelp: 'Give the automation a recognizable name and explain which certificate changes it handles.', trigger: 'Trigger', triggerHelp: 'Define which fact starts the automation before choosing the execution scope and matching conditions.', targets: 'Which certificates to process', targetsHelp: 'This selects certificate targets, not existing deployment plans; the target snapshot is frozen when the run starts.', execution: 'Execution', executionHelp: 'Decide how the automation updates managed applications first, then add matching conditions and safety guardrails.', conditions: 'Conditions and safety', conditionsHelp: 'Define matching conditions, target filters and concurrency guardrails together in this step.', plan: 'Certificate deployment plan', planRelationTitle: 'This does not bind an existing deployment plan', planRelationDescription: 'A deployment plan is created at runtime from the certificate filters above.', planRelationHelp: 'Each matched certificate target gets its own DeploymentPlan, and its plan ID appears in run details.', guardrails: 'Execution safety controls', guardrailsHelp: 'These limits control batch size, prechecks and when failures stop the run.' }, chain: { createPlan: 'Create a DeploymentPlan for each target', dryRun: 'Run the optional dry-run preview', executePlan: 'Execute that target DeploymentPlan' } },
     runs: { title: 'Automation run history', description: 'Review run-level status, immutable target snapshots, and failure stages.', progress: '{succeeded}/{total} succeeded' },
-    runDetail: { title: 'Automation run details', description: 'Configuration version {version}', noFailure: 'No failure', triggerContext: 'Trigger context', sourceType: 'Source type', certificateVersion: 'Exact certificate version', approvalId: 'Approval ID', deliveryId: 'Delivery ID', excludedReasons: 'Excluded reasons' },
+    runDetail: { title: 'Automation run details', description: 'Configuration version {version}', noFailure: 'No failure', triggerContext: 'Trigger context', sourceType: 'Source type', certificateVersion: 'Exact certificate version', deliveryId: 'Delivery ID', excludedReasons: 'Excluded reasons' },
     aria: { preview: 'Automation target preview', runs: 'Automation run list', progress: 'Automation run progress' },
     errors: { loadFailed: 'Failed to load automations', applicationAssetsLoadFailed: 'Failed to load managed applications. Try again later.' }
   },
@@ -880,7 +880,7 @@ export default {
       },
       tlsGrantRequired: {
         label: 'Dry-run completed, host authorization required',
-        detail: 'Structural and security checks completed. Dry-run does not issue a formal ExecutionGrant, so the TLS verification bypass was rejected. After approval, the host will issue a short-lived ExecutionGrant for the formal execution.'
+        detail: 'Structural and security checks completed. Dry-run does not issue a formal ExecutionGrant, so the TLS verification bypass was rejected. During formal execution, the host will issue a short-lived ExecutionGrant.'
       },
       warning: {
         label: 'Dry-run has risk warnings',
@@ -1180,7 +1180,7 @@ export default {
     userView: {
       stepLabel: 'Step 3 of 3 · Deploy',
       title: 'Deploy the certificate to an application',
-      description: 'Choose a certificate and a connected application. GCAC keeps the same preview, approval, and execution safeguards in the background.',
+      description: 'Choose a certificate and a connected application. GCAC keeps the same preview and execution safeguards in the background.',
       createAction: 'Start deployment',
       listTitle: 'Deployment tasks',
       listDescription: 'Only the next action and business status are shown here.',
@@ -1190,12 +1190,12 @@ export default {
       unnamedPlan: 'Unnamed deployment task',
       pendingCertificate: 'Certificate pending',
       pendingApplication: 'Application pending',
-      nextActionHint: 'The next action follows the current approval and preview status.',
+      nextActionHint: 'The next action follows the current preview and execution status.',
       prepareAction: 'Prepare deployment',
-      waiting: 'Waiting for approval or execution'
+      waiting: 'Waiting for execution'
     },
     title: 'Deployment plans',
-    description: 'Plan preview, impact scope, approval, execution batches, verification, and rollback entry points.',
+    description: 'Plan preview, impact scope, execution batches, verification, and rollback entry points.',
     resourceName: 'Deployment plan',
     apiActions: {
       submit: 'Submit deployment plan',
@@ -1209,13 +1209,8 @@ export default {
       edit: 'Edit plan',
       dryRun: 'Dry-run impact preview',
       dryRunRisk: 'Only generates an impact preview. It does not execute the real deployment.',
-      submit: 'Submit for approval',
-      submitRisk: 'After submission, the plan enters approval or pending execution status.',
-      review: 'Review approval',
-      approve: 'Approve request',
-      approveRisk: 'Approval makes the plan eligible for execution; the host-issued ExecutionGrant is still required at execution time.',
-      reject: 'Reject request',
-      rejectRisk: 'A rejected plan cannot execute and must be submitted for approval again.',
+      submit: 'Submit plan',
+      submitRisk: 'After submission, the plan enters pending execution status.',
       execute: 'Execute deployment',
       executeRisk: 'Execution modifies target certificate configuration. Completed or failed plans also use this entry for re-execution; execution performs the required synchronous checks, while an optional dry-run preview is available from the managed application detail deployment flow.',
       cancel: 'Cancel plan',
@@ -1236,7 +1231,7 @@ export default {
     metrics: {
       total: {
         title: 'Total plans',
-        description: 'Plans waiting for approval, pending execution, or running.'
+        description: 'Plans pending execution or running.'
       },
       risky: {
         title: 'High-risk pending',
@@ -1247,7 +1242,6 @@ export default {
       planId: 'Plan ID',
       name: 'Plan name',
       status: 'Plan status',
-      approvalStatus: 'Approval status',
       certificateVersionId: 'Certificate version ID',
       certificateFormatId: 'Certificate format configuration ID',
       workflowDslVersion: 'Workflow DSL version',
@@ -1255,7 +1249,6 @@ export default {
       updateNeeded: 'Update needed',
       targetSummary: 'Target binding summary',
       latestRun: 'Latest execution batch',
-      approvalId: 'Approval ID',
       snapshotHash: 'Snapshot hash',
       failureReason: 'Failure reason',
       createdAt: 'Created at',
@@ -1270,9 +1263,6 @@ export default {
       description: 'Start from a certificate or binding, create an impact preview in the deployment wizard, then submit the plan.'
     },
     disabled: {
-      missingApproval: 'Approval information is missing, so execution is not allowed.',
-      approvalPending: 'The approval request was submitted. An approver must approve it before execution.',
-      approvalRejected: 'The approval was rejected. Execution is unavailable.',
       needDryRun: 'Dry-run is an optional impact preview for reviewing certificate, domain, and target compatibility checks.',
       missingRunId: 'runId is missing, so rollback is not allowed.',
       missingSelection: 'Deployment plan selection is missing'
@@ -1282,16 +1272,6 @@ export default {
       close: 'Close',
       notConfigured: 'Not configured',
       notProvided: 'Not provided'
-    },
-    approval: {
-      title: 'Approval details',
-      description: 'Review the deployment plan scope, then approve or reject the request directly.',
-      requestedBy: 'Requested by',
-      riskLevel: 'Risk level',
-      decisionHint: 'Approval makes the plan eligible for real execution. A rejected plan must be submitted again.',
-      processing: 'Processing...',
-      missingApprovalId: 'Approval ID is missing, so this request cannot be reviewed.',
-      decisionFailed: 'Approval action failed.'
     },
     detail: {
       certificateVersionLabel: 'Certificate version',
@@ -1366,17 +1346,12 @@ export default {
       executionTaskStarted: 'Task started. Track progress from the task list in the top-right corner.',
       executionTaskSucceeded: 'Task completed successfully. View the result from the task list in the top-right corner.',
       executeTaskStarted: 'Certificate deployment started. Track progress from the task list in the top-right corner.',
-      executeTaskPendingApproval: 'Certificate deployment submitted and awaiting approval. Track it from the task list in the top-right corner.',
       rollbackTaskStarted: 'Certificate rollback started. Track progress from the task list in the top-right corner.',
       loadedDraft: 'Draft plan loaded.',
       loadedDraftWithPlanId: 'Draft plan loaded. planId: {planId}',
       savedWithPlanId: 'Deployment plan saved. planId: {planId}',
       submitted: 'Deployment plan submitted.',
       submittedWithPlanId: 'Deployment plan submitted. planId: {planId}',
-      approvalApproved: 'Approval approved. The plan can now be executed.',
-      approvalApprovedWithPlanId: 'Approval approved. Plan {planId} can now be executed.',
-      approvalRejected: 'Approval rejected. The plan cannot be executed.',
-      approvalRejectedWithPlanId: 'Approval rejected. Plan {planId} cannot be executed.'
     },
     target: {
       controlPlane: 'Control plane',
@@ -2272,7 +2247,7 @@ export default {
   },
   notifications: {
     title: 'Notification management',
-    description: 'Manage notification channels, routes, templates, silences, and delivery records.',
+    description: 'Manage certificate events, templates, channel sending, and reliable delivery records.',
     tabs: { channels: 'Channels', deliveries: 'Deliveries', rules: 'Rules and templates' },
     sections: { channels: 'Channel records', deliveries: 'Delivery records' },
     channels: { createTitle: 'Create notification channel' },
@@ -2317,11 +2292,10 @@ export default {
     deploymentTasks: {
       eyebrow: 'Deployment tasks',
       title: 'Deployment task parameters',
-      description: 'Control the tenant-wide dry-run setting and whether applications without an explicit approval requirement need approval before certificate deployment.',
+      description: 'Control whether certificate deployments run a tenant-wide dry-run before execution.',
       readonly: 'This account has read-only access.',
       fields: {
-        dryRun: { title: 'Enable dry-run', description: 'Run a read-only precheck before deployment; results are advisory and do not block execution.', aria: 'Enable certificate deployment dry-run' },
-        approval: { title: 'Enable approval flow', description: 'For applications without an explicit approval requirement, this tenant-wide setting controls whether certificate deployments require approval.', aria: 'Enable certificate deployment approval flow' }
+        dryRun: { title: 'Enable dry-run', description: 'Run a read-only precheck before deployment; results are advisory and do not block execution.', aria: 'Enable certificate deployment dry-run' }
       },
       actions: { save: 'Save settings', saving: 'Saving...' },
       messages: { saved: 'Deployment task parameters saved.' },
@@ -2685,7 +2659,7 @@ export default {
         },
         deployment: {
           name: 'Deployment plan logs',
-          description: 'Deployment plans, execution, rollback, and approval'
+          description: 'Deployment plans, execution, and rollback'
         },
         workflow: {
           name: 'Workflow logs',
@@ -3050,7 +3024,7 @@ export default {
     allowInsecureTls: {
       label: 'Allow skipping TLS certificate verification',
       description: 'Explicitly authorize this deployment to skip TLS certificate verification when the device uses a self-signed or untrusted certificate.',
-      help: 'This records deployment intent only; it does not grant execution permission. Approval and a host-issued execution grant are still required.'
+      help: 'This records deployment intent only; it does not grant execution permission. A host-issued execution grant is still required.'
     },
     runtimeValue: 'Provided by {source} at runtime',
     source: 'Source: {source}',
@@ -3222,8 +3196,7 @@ export default {
       publishedVersion: 'Published version',
       runner: 'Runner',
       artifactFormat: 'Artifact format',
-      updatePlugin: 'Certificate update plugin',
-      approvalRequired: 'Require approval for certificate deployment'
+      updatePlugin: 'Certificate update plugin'
     },
     capability: { source: 'Capability source', plugin: 'Plugin version', runtime: 'Runtime', executionLocation: 'Execution location', pendingAssignment: 'Saving will create a managed application deployment capability assignment.' },
     links: {
@@ -3273,9 +3246,9 @@ export default {
     },
     deployment: {
       title: 'Certificate deployment',
-      description: 'Choose a certificate version for this managed application. The system creates a deployment snapshot, runs preflight, submits approval, and executes when authorized.',
+      description: 'Choose a certificate version for this managed application. The system creates a deployment snapshot, runs the required preflight, then starts deployment.',
       dialogTitle: 'Certificate deployment',
-      dialogDescription: 'This applies only to the current managed application. The deployment plan remains the backend snapshot, approval, and execution boundary.',
+      dialogDescription: 'This applies only to the current managed application. The deployment plan remains the backend snapshot and execution boundary.',
       noCertificateAsset: 'No deployable certificate',
       targetLocked: 'Update target locked',
       latestVersionPointer: 'Automatically apply the latest version of the current certificate',
@@ -3285,8 +3258,8 @@ export default {
       preflightAvailable: '{count} preflight checks returned',
       preflightUnavailable: 'No preflight run yet',
       rollbackUnavailable: 'No rollback requested',
-      fields: { status: 'Deployment status', approval: 'Approval', latestRun: 'Latest run', preflight: 'Preflight', rollback: 'Rollback', updatedAt: 'Updated at' },
-      feedback: { preflightRunning: 'Waiting for the preflight run to finish.', pendingApproval: 'Preflight completed. The deployment is awaiting approval.', executionStarted: 'Preflight and approval passed. The deployment run has started.' },
+      fields: { status: 'Deployment status', latestRun: 'Latest run', preflight: 'Preflight', rollback: 'Rollback', updatedAt: 'Updated at' },
+      feedback: { preflightRunning: 'Waiting for the preflight run to finish.', executionStarted: 'Preflight completed. The deployment run has started.' },
       errors: { missingApplicationAssetId: 'Managed application ID is required to create a certificate deployment.', loadOptionsFailed: 'Failed to load deployable certificate versions.', createPlanMissingId: 'The deployment snapshot was created without a plan ID.', deployFailed: 'Certificate deployment failed.', preflightFailed: 'The certificate deployment preflight did not pass.', preflightTimeout: 'The certificate deployment preflight timed out.', loadRecordsFailed: 'Failed to load managed application deployment records.' }
     },
     compatibilityModes: {
@@ -3383,7 +3356,6 @@ export default {
       createRequestCompleted: 'Create request completed.',
       editRequestCompleted: 'Save request completed.',
       agentCertificateFormatHint: 'Agent mode uses this certificate delivery format to generate deployment materials.',
-      approvalRequiredHint: 'When checked, deployments for this application always require approval; otherwise the tenant-wide deployment setting is used.',
       placeholders: {
         displayName: 'For example: production site entry',
         verifyUrl: 'For example: https://example.com/health',
@@ -4884,7 +4856,7 @@ export default {
     },
     incidentWindow: {
       title: 'Certificate incident window report',
-      description: 'Find certificates entering the incident window and identify missing replacements, plans, approvals, or execution channels.'
+      description: 'Find certificates entering the incident window and identify missing replacements, deployment plans, or execution channels.'
     },
     riskResponse: {
       title: 'Risk response report',
@@ -4945,7 +4917,7 @@ export default {
         unknown: 'Unknown',
         missing_replacement: 'Missing replacement',
         plan_missing: 'Plan not created',
-        waiting_approval: 'Waiting approval',
+        waiting_approval: 'Execution pending',
         blocked: 'Execution channel blocked',
         ready: 'Ready',
         critical: 'Critical',
@@ -4958,7 +4930,7 @@ export default {
         selection: 'Selection',
         plan_creation: 'Plan creation',
         dry_run: 'Dry run',
-        approval: 'Approval',
+        approval: 'Execution gate',
         execution: 'Execution',
         verification: 'Verification',
         rollback: 'Rollback',
@@ -5018,7 +4990,7 @@ export default {
         },
         missing_replacement: 'Missing replacement',
         missing_deployment_plan: 'Missing deployment plan',
-        waiting_approval: 'Waiting for approval',
+        waiting_approval: 'Execution pending',
         execution_channel_blocked: 'Execution channel blocked'
       },
       risks: {
@@ -5050,7 +5022,7 @@ export default {
           rollback_succeeded: 'Rollback succeeded',
           rollback_failed: 'Rollback failed',
           manual_intervention: 'Manual intervention',
-          waiting_approval: 'Targets waiting for approval'
+          waiting_approval: 'Targets pending execution'
         }
       }
     }

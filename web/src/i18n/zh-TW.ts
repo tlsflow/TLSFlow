@@ -668,7 +668,7 @@ export default {
     deployments: "憑證部署",
     deploymentsDesc: "部署計畫、工作流、自動化和執行記錄",
     deploymentPlans: "部署計畫",
-    deploymentPlansDesc: "憑證部署計畫和審核入口",
+    deploymentPlansDesc: "憑證部署計畫",
     executions: "執行記錄",
     executionsDesc: "執行步驟、記錄、失敗和復原",
     workflows: "工作流",
@@ -721,11 +721,11 @@ export default {
     empty: "暫無自動化設定。",
     emptyDescription: "未填寫說明",
     common: { notAvailable: "暫無", allRelated: "全部關聯目標" },
-    externalApi: { executionModeLabel: "外部執行方式", executionModeAria: "外部執行方式", direct: "直接執行（不經審批）", approval: "進入內建審批流程", keyTitle: "外部 API Key", keyDescription: "此 Key 會持續顯示在目前自動化頁面，可隨時複製。", keyNotice: "請在 X-Automation-API-Key 請求標頭中傳送。", keyStatusPending: "儲存並啟用後產生", keyStatusActive: "已產生", keyStatusUnavailable: "已產生（目前頁面未顯示完整 Key）", keyEditorDescription: "完整 Key 會持續顯示在目前頁面，可隨時複製；重新整理後舊 Key 會立即失效。", keyValueLabel: "API Key", keyValueAria: "外部 API Key", keyUnavailableValue: "目前頁面未顯示完整 Key", keyUnavailable: "目前頁面沒有完整 Key，請點擊「重新整理 Key」產生新的 Key。", rotate: "重新整理 Key", rotating: "重新整理中", rotateNotice: "重新整理後舊 Key 會立即失效。", mode: "執行方式：{mode}", copy: "複製 Key", copied: "已複製", copyAria: "複製 API Key", copyCurlAria: "複製 CURL 指令", rotateAria: "重新整理 API Key", apiManualButton: "API 介面手冊", apiManualAutomationId: "目前自動化 ID", apiManualAutomationIdUnavailable: "儲存後產生", apiManualTitle: "外部 API 介面手冊", apiManualDescription: "使用自動化 ID 和 API Key 呼叫介面；憑證網域已在自動化中預先設定。", apiManualCertificateVersion: "啟動和相容性查詢都必須傳入精確的 certificateVersionId。", apiManualRunTitle: "啟動自動化", apiManualRunDescription: "提交指定憑證版本，啟動一次自動化；依設定直接執行或進入內建審批流程。", apiManualRunCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/run' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -H Idempotency-Key:automation-run-$(date +%s) \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualPreviewTitle: "查看目前應用程式相容性", apiManualPreviewDescription: "提交憑證版本，返回目標應用程式匹配、可執行性及排除原因。", apiManualPreviewCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/preview' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualVersionsTitle: "查看可用憑證版本列表", apiManualVersionsDescription: "返回此自動化預設憑證網域下可供選擇的憑證版本。", apiManualVersionsCurl: "curl 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/certificate-versions' \\\n  -H 'X-Automation-API-Key: ak_xxx'" },
+    externalApi: { executionModeLabel: "外部執行方式", executionModeAria: "外部執行方式", keyTitle: "外部 API Key", keyDescription: "此 Key 會持續顯示在目前自動化頁面，可隨時複製。", keyNotice: "請在 X-Automation-API-Key 請求標頭中傳送。", keyStatusPending: "儲存並啟用後產生", keyStatusActive: "已產生", keyStatusUnavailable: "已產生（目前頁面未顯示完整 Key）", keyEditorDescription: "完整 Key 會持續顯示在目前頁面，可隨時複製；重新整理後舊 Key 會立即失效。", keyValueLabel: "API Key", keyValueAria: "外部 API Key", keyUnavailableValue: "目前頁面未顯示完整 Key", keyUnavailable: "目前頁面沒有完整 Key，請點擊「重新整理 Key」產生新的 Key。", rotate: "重新整理 Key", rotating: "重新整理中", rotateNotice: "重新整理後舊 Key 會立即失效。", mode: "執行方式：{mode}", copy: "複製 Key", copied: "已複製", copyAria: "複製 API Key", copyCurlAria: "複製 CURL 指令", rotateAria: "重新整理 API Key", apiManualButton: "API 介面手冊", apiManualAutomationId: "目前自動化 ID", apiManualAutomationIdUnavailable: "儲存後產生", apiManualTitle: "外部 API 介面手冊", apiManualDescription: "使用自動化 ID 和 API Key 呼叫介面；憑證網域已在自動化中預先設定。", apiManualCertificateVersion: "啟動和相容性查詢都必須傳入精確的 certificateVersionId。", apiManualRunTitle: "啟動自動化", apiManualRunDescription: "提交指定憑證版本，啟動一次自動化；執行會進入目前的執行佇列。", apiManualRunCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/run' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -H Idempotency-Key:automation-run-$(date +%s) \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualPreviewTitle: "查看目前應用程式相容性", apiManualPreviewDescription: "提交憑證版本，返回目標應用程式匹配、可執行性及排除原因。", apiManualPreviewCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/preview' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualVersionsTitle: "查看可用憑證版本列表", apiManualVersionsDescription: "返回此自動化預設憑證網域下可供選擇的憑證版本。", apiManualVersionsCurl: "curl 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/certificate-versions' \\\n  -H 'X-Automation-API-Key: ak_xxx'" },
     formStep: { stepProgress: "第 {current} 步，共 {total} 步", previous: "上一步", next: "下一步", reviewTitle: "設定摘要", reviewText: "觸發器：{trigger}；執行範圍：{scope}；憑證網域：{domains}。執行開始後會凍結目標快照。" },
     scheduleBuilder: { api: "透過外部 API 觸發", once: "在固定時間執行一次", onceHelp: "選擇瀏覽器本地時間。任務執行一次後不會再次排程。", recurring: "定期執行", scheduleHelp: "依計畫週期執行。僅建議用於確實需要持續輪詢的情境。", recurringHelp: "依計畫週期執行。僅建議用於確實需要持續輪詢的情境。", recurringWarningTitle: "憑證更新不建議使用定期執行", recurringWarning: "憑證更新通常應由外部系統在憑證簽發後觸發，或安排一次固定時間執行。只有明確需要週期檢查時才使用此選項。", certificateVersionCreated: "憑證新版本事件", runAt: "執行時間", frequency: "執行週期", daily: "每天", weekly: "每週", monthly: "每月", time: "執行時刻", weekday: "星期", monthDay: "每月日期", legacyCustom: "保留原有自訂計畫", legacyCron: "原有 Cron（唯讀）", weekdays: { 0: "星期日", 1: "星期一", 2: "星期二", 3: "星期三", 4: "星期四", 5: "星期五", 6: "星期六" } },
-    form: { existingAssetTitle: "只更新現有應用資產", existingAssetDescription: "自動化只處理已建立憑證繫結的應用資產，不負責首次安裝憑證或新增部署目標。", certificateDomains: "憑證網域", certificateDomainsPlaceholder: "輸入憑證網域，多個以逗號分隔", certificateDomainsHelp: "只更新這些網域對應憑證的現有應用資產繫結。", versionSelection: "要更新到哪個憑證版本", versionSelectionLatest: "自動使用最新憑證版本", versionSelectionSpecific: "使用指定憑證版本", versionSelectionHelp: "執行開始時解析並凍結版本，執行期間不會因新增版本而改變。", certificateVersionIds: "指定憑證版本", certificateVersionIdsPlaceholder: "輸入憑證版本 ID，多個以逗號分隔", certificateVersionIdsHelp: "每個版本都必須屬於上方選取網域對應的憑證。", versionLoading: "正在載入可選憑證版本。", versionLoadFailed: "憑證版本載入失敗，請稍後再試。", versionEmpty: "找不到這些網域對應的可選憑證版本。", schedule: "何時更新", scheduleHelp: "管理員可按需啟動，也可以依 Cron 和時區定期檢查並更新。", execution: "執行時會做什麼", executionHelp: "系統為每個現有資產繫結建立獨立更新計畫，並重用 DeploymentPlan、審批和 ExecutionRun。", snapshot: "凍結網域、資產和憑證版本快照" },
-    fields: { name: "名稱", description: "說明", trigger: "觸發方式", eventSources: "事件來源", targetScope: "更新範圍", selectedAssets: "指定應用資產", selectedAssetsHelp: "請至少選擇一個已納管的應用資產。", certificateTags: "憑證標籤（逗號分隔）", certificateTagsHelp: "依憑證標籤過濾事件或輪詢範圍。", targetEnvironments: "目標環境（逗號分隔）", targetEnvironmentsHelp: "依目標應用環境過濾。", targetOwners: "目標負責人（逗號分隔）", targetOwnersHelp: "依目標負責人過濾。", cron: "Cron 運算式", timeZone: "時區", expiresWithinDays: "到期天數範圍", environments: "目標環境（逗號分隔）", certificateIds: "指定憑證（可選）", certificateIdsPlaceholder: "輸入憑證 ID，多個以逗號分隔", certificateIdsHelp: "填寫後只處理指定憑證；留空則按到期範圍和環境自動匹配。", expiresWithinDaysHelp: "只匹配在此天數內到期的憑證。", environmentsHelp: "只處理這些環境中的憑證，例如 production、staging。", planType: "部署計畫類型", planTypeHelp: "每個命中的憑證目標都會在執行時建立獨立的 DeploymentPlan。", planTypeUpdate: "更新現有憑證繫結", planTypeInstall: "在目標安裝憑證", planTypeVerifyOnly: "只驗證，不變更憑證", planMode: "執行方式", planModeHelp: "自動化不繫結既有計畫；執行時會為每個目標建立新計畫。", planModeCreateAndExecute: "建立計畫並執行", planModeCreateOnly: "只建立計畫，暫不執行", maxTargets: "單次最大目標數", concurrency: "並行數", failureCount: "失敗數量閾值", requireDryRun: '歷史 Dry Run 設定（目前不作為執行門檻）', requireApproval: "執行前必須審批", startedAt: "開始時間", finishedAt: "結束時間", failureStage: "失敗階段", parentRun: "父執行" },
+    form: { existingAssetTitle: "只更新現有應用資產", existingAssetDescription: "自動化只處理已建立憑證繫結的應用資產，不負責首次安裝憑證或新增部署目標。", certificateDomains: "憑證網域", certificateDomainsPlaceholder: "輸入憑證網域，多個以逗號分隔", certificateDomainsHelp: "只更新這些網域對應憑證的現有應用資產繫結。", versionSelection: "要更新到哪個憑證版本", versionSelectionLatest: "自動使用最新憑證版本", versionSelectionSpecific: "使用指定憑證版本", versionSelectionHelp: "執行開始時解析並凍結版本，執行期間不會因新增版本而改變。", certificateVersionIds: "指定憑證版本", certificateVersionIdsPlaceholder: "輸入憑證版本 ID，多個以逗號分隔", certificateVersionIdsHelp: "每個版本都必須屬於上方選取網域對應的憑證。", versionLoading: "正在載入可選憑證版本。", versionLoadFailed: "憑證版本載入失敗，請稍後再試。", versionEmpty: "找不到這些網域對應的可選憑證版本。", schedule: "何時更新", scheduleHelp: "管理員可按需啟動，也可以依 Cron 和時區定期檢查並更新。", execution: "執行時會做什麼", executionHelp: "系統為每個現有資產繫結建立獨立更新計畫，並重用 DeploymentPlan 和 ExecutionRun。", snapshot: "凍結網域、資產和憑證版本快照" },
+    fields: { name: "名稱", description: "說明", trigger: "觸發方式", eventSources: "事件來源", targetScope: "更新範圍", selectedAssets: "指定應用資產", selectedAssetsHelp: "請至少選擇一個已納管的應用資產。", certificateTags: "憑證標籤（逗號分隔）", certificateTagsHelp: "依憑證標籤過濾事件或輪詢範圍。", targetEnvironments: "目標環境（逗號分隔）", targetEnvironmentsHelp: "依目標應用環境過濾。", targetOwners: "目標負責人（逗號分隔）", targetOwnersHelp: "依目標負責人過濾。", cron: "Cron 運算式", timeZone: "時區", expiresWithinDays: "到期天數範圍", environments: "目標環境（逗號分隔）", certificateIds: "指定憑證（可選）", certificateIdsPlaceholder: "輸入憑證 ID，多個以逗號分隔", certificateIdsHelp: "填寫後只處理指定憑證；留空則按到期範圍和環境自動匹配。", expiresWithinDaysHelp: "只匹配在此天數內到期的憑證。", environmentsHelp: "只處理這些環境中的憑證，例如 production、staging。", planType: "部署計畫類型", planTypeHelp: "每個命中的憑證目標都會在執行時建立獨立的 DeploymentPlan。", planTypeUpdate: "更新現有憑證繫結", planTypeInstall: "在目標安裝憑證", planTypeVerifyOnly: "只驗證，不變更憑證", planMode: "執行方式", planModeHelp: "自動化不繫結既有計畫；執行時會為每個目標建立新計畫。", planModeCreateAndExecute: "建立計畫並執行", planModeCreateOnly: "只建立計畫，暫不執行", maxTargets: "單次最大目標數", concurrency: "並行數", failureCount: "失敗數量閾值", requireDryRun: '歷史 Dry Run 設定（目前不作為執行門檻）', startedAt: "開始時間", finishedAt: "結束時間", failureStage: "失敗階段", parentRun: "父執行" },
     actions: { create: "新增自動化", detail: "詳情", edit: "編輯", delete: "刪除", cancel: "取消", save: "儲存", copy: "複製", enable: "啟用", disable: "停用", runNow: "立即執行", preview: "預覽目標", history: "執行歷史", confirmRun: "確認執行", stop: "停止執行", retryFailed: "重試失敗目標", openPlan: "查看部署計畫", openExecution: "查看執行記錄" },
     manualRun: { title: "手動執行", description: "請先選擇一個憑證版本再執行。", versionLabel: "憑證版本", versionPlaceholder: "請選擇憑證版本", help: "執行時會依所選版本所屬的憑證資產解析關聯的應用資產。", empty: "沒有可供手動執行的憑證版本。", stopOnError: "錯誤中斷工作流", dryRun: "執行可選 Dry-run 預檢", start: "開始執行", downgradeNotice: "以下 {count} 個應用資產的目標憑證有效期短於目前憑證，確認後才會繼續執行。", downgradeConfirmTitle: "確認縮短憑證有效期", downgradeConfirmDescription: "這是手動操作，確認後會將 {count} 個應用資產更新為有效期較短的憑證。", downgradeConfirmAction: "確認並執行" },
     columns: { status: "狀態", trigger: "觸發方式", targets: "目標上限", actions: "執行動作", nextRun: "下次執行", lastRun: "最近執行" },
@@ -743,9 +743,9 @@ export default {
     exclusions: { permission_denied: "無目標權限", missing_version: "缺少憑證版本", version_not_deployable: "憑證版本不可部署", binding_not_managed: "綁定未納管", environment_not_allowed: "環境不在允許範圍", binding_missing: "缺少綁定", asset_missing_deployment_capability: "目標資產不支援部署", certificate_version_downgrade: "目標憑證版本低於資產目前版本", certificate_already_up_to_date: "目標有效期已與目前資產憑證一致，因此跳過更新", filter_not_matched: "不符合過濾條件", runtime_context_required: "缺少執行期上下文", unknown: "未知排除原因" },
     failureStages: { selection: "目標選擇", plan_creation: "計畫建立", dry_run: "Dry Run", approval: "審批", execution: "執行", verification: "驗證", rollback: "回滾", notification: "通知" },
     progress: { total: "總數", pending: "等待中", running: "執行中", waitingApproval: "等待審批", succeeded: "成功", failed: "失敗", skipped: "已跳過", cancelled: "已取消" },
-    editor: { createTitle: "新增自動化", editTitle: "編輯自動化", description: "設定何時執行、處理哪些憑證、如何建立部署計畫，以及失敗時的安全邊界。", exactVersionFromEvent: "憑證新版本事件會把這次產生的精確憑證版本固定到執行快照中，審批恢復後也不會漂移到後續版本。", sections: { basic: "基本資料", basicHelp: "為自動化命名，說明它負責哪類憑證變更。", trigger: "觸發器", triggerHelp: "先定義由什麼事實啟動自動化，再決定後續的執行和條件。", targets: "處理哪些憑證", targetsHelp: "這裡選擇的是憑證目標，不是既有部署計畫；執行開始時會固定目標快照。", execution: "執行器", executionHelp: "先決定自動化如何更新資產，再追加條件與安全護欄。", conditions: "條件與安全", conditionsHelp: "這一步同時定義命中條件、範圍過濾、審批與並行等護欄。", plan: "憑證部署計畫", planRelationTitle: "不會繫結既有部署計畫", planRelationDescription: "自動化會根據上面的憑證篩選條件，在每次執行時建立部署計畫。", planRelationHelp: "每個命中的憑證目標都有自己的 DeploymentPlan，計畫 ID 會顯示在執行詳情中。", guardrails: "執行安全控制", guardrailsHelp: "這些限制決定單次最多處理多少目標、是否預檢/審批，以及失敗何時停止。" }, chain: { createPlan: "按目標建立 DeploymentPlan", dryRun: '可選 Dry Run 預檢', approval: "等待審批通過", executePlan: "執行該目標的 DeploymentPlan" } },
+    editor: { createTitle: "新增自動化", editTitle: "編輯自動化", description: "設定何時執行、處理哪些憑證、如何建立部署計畫，以及失敗時的安全邊界。", exactVersionFromEvent: "憑證新版本事件會把這次產生的精確憑證版本固定到執行快照中，執行恢復後也不會漂移到後續版本。", sections: { basic: "基本資料", basicHelp: "為自動化命名，說明它負責哪類憑證變更。", trigger: "觸發器", triggerHelp: "先定義由什麼事實啟動自動化，再決定後續的執行和條件。", targets: "處理哪些憑證", targetsHelp: "這裡選擇的是憑證目標，不是既有部署計畫；執行開始時會固定目標快照。", execution: "執行器", executionHelp: "先決定自動化如何更新資產，再追加條件與安全護欄。", conditions: "條件與安全", conditionsHelp: "這一步同時定義命中條件、範圍過濾與並行等護欄。", plan: "憑證部署計畫", planRelationTitle: "不會繫結既有部署計畫", planRelationDescription: "自動化會根據上面的憑證篩選條件，在每次執行時建立部署計畫。", planRelationHelp: "每個命中的憑證目標都有自己的 DeploymentPlan，計畫 ID 會顯示在執行詳情中。", guardrails: "執行安全控制", guardrailsHelp: "這些限制決定單次最多處理多少目標、是否預檢，以及失敗何時停止。" }, chain: { createPlan: "按目標建立 DeploymentPlan", dryRun: '可選 Dry Run 預檢', executePlan: "執行該目標的 DeploymentPlan" } },
     runs: { title: "自動化執行歷史", description: "查看執行級狀態、不可變目標快照和失敗階段。", progress: "{succeeded}/{total} 成功" },
-    runDetail: { title: "自動化執行詳情", description: "設定版本 {version}", noFailure: "未發生失敗", triggerContext: "觸發上下文", sourceType: "來源類型", certificateVersion: "精確憑證版本", approvalId: "審批 ID", deliveryId: "投遞 ID", excludedReasons: "排除原因" },
+    runDetail: { title: "自動化執行詳情", description: "設定版本 {version}", noFailure: "未發生失敗", triggerContext: "觸發上下文", sourceType: "來源類型", certificateVersion: "精確憑證版本", deliveryId: "投遞 ID", excludedReasons: "排除原因" },
     aria: { preview: "自動化目標預覽", runs: "自動化執行列表", progress: "自動化執行進度" },
     errors: { loadFailed: "自動化列表載入失敗", applicationAssetsLoadFailed: "應用資產列表載入失敗，請稍後再試。" }
   },
@@ -861,7 +861,7 @@ export default {
       },
       tlsGrantRequired: {
         label: "Dry-run 已完成，但需要宿主授權",
-        detail: "結構與安全校驗已完成；dry-run 不簽發正式 ExecutionGrant，因此 TLS 跳過校驗步驟被拒絕。審批通過後，正式執行會由宿主簽發短期 ExecutionGrant。"
+        detail: "結構與安全校驗已完成；dry-run 不簽發正式 ExecutionGrant，因此 TLS 跳過校驗步驟被拒絕。正式執行時會由宿主簽發短期 ExecutionGrant。"
       },
       warning: {
         label: "Dry-run 有風險提示",
@@ -1127,7 +1127,7 @@ export default {
     userView: {
       stepLabel: 'Step 3 of 3 · Deploy',
       title: 'Deploy the certificate to an application',
-      description: 'Choose a certificate and a connected application. GCAC keeps the same preview, approval, and execution safeguards in the background.',
+      description: 'Choose a certificate and a connected application. GCAC keeps preview and execution safeguards in the background.',
       createAction: 'Start deployment',
       listTitle: 'Deployment tasks',
       listDescription: 'Only the next action and business status are shown here.',
@@ -1137,12 +1137,12 @@ export default {
       unnamedPlan: 'Unnamed deployment task',
       pendingCertificate: 'Certificate pending',
       pendingApplication: 'Application pending',
-      nextActionHint: 'The next action follows the current approval and preview status.',
+      nextActionHint: 'The next action follows the current preview and execution status.',
       prepareAction: 'Prepare deployment',
-      waiting: 'Waiting for approval or execution'
+      waiting: 'Waiting for execution'
     },
     title: "部署計畫",
-    description: "計畫預覽、影響範圍、審核、執行批次、驗證和復原入口。",
+    description: "計畫預覽、影響範圍、執行批次、驗證和復原入口。",
     resourceName: "部署計畫",
     apiActions: {
       submit: "提交部署計畫",
@@ -1156,13 +1156,8 @@ export default {
       edit: "編輯計畫",
       dryRun: "Dry-run 影響預覽",
       dryRunRisk: "只產生影響預覽，不會執行正式部署。",
-      submit: "提交審核",
-      submitRisk: "提交後計畫會進入審核或待執行狀態。",
-      review: "進行審核",
-      approve: "核准審核",
-      approveRisk: "核准後計畫才具備正式執行資格，執行時仍需要主機簽發的 ExecutionGrant。",
-      reject: "駁回審核",
-      rejectRisk: "駁回後計畫不能正式執行，需要重新提交審核。",
+      submit: "提交計畫",
+      submitRisk: "提交後計畫進入待執行狀態。",
       execute: "執行部署",
       executeRisk: "執行會修改目標憑證設定。已完成或失敗的計畫再次執行也使用這個入口；正式執行會同步完成必要預檢，也可在資產詳情的憑證部署中執行可選 Dry-run 預檢 影響預覽。",
       cancel: "取消計畫",
@@ -1183,7 +1178,7 @@ export default {
     metrics: {
       total: {
         title: "計畫總數",
-        description: "等待審核、待執行和執行中的計畫。"
+        description: "待執行和執行中的計畫。"
       },
       risky: {
         title: "高危待處理",
@@ -1194,7 +1189,6 @@ export default {
       planId: "計畫 ID",
       name: "計畫名稱",
       status: "計畫狀態",
-      approvalStatus: "審核狀態",
       certificateVersionId: "憑證版本 ID",
       certificateFormatId: "憑證格式設定 ID",
       workflowDslVersion: "工作流 DSL 版本",
@@ -1202,7 +1196,6 @@ export default {
       updateNeeded: "需要更新",
       targetSummary: "目標繫結摘要",
       latestRun: "最新執行批次",
-      approvalId: "審核 ID",
       snapshotHash: "快照 Hash",
       failureReason: "失敗原因",
       createdAt: "建立時間",
@@ -1217,9 +1210,6 @@ export default {
       description: "先從憑證或繫結進入部署精靈，產生影響預覽後再提交計畫。"
     },
     disabled: {
-      missingApproval: "缺少審核通過資訊，不能執行。",
-      approvalPending: "審核申請已提交，等待審核人核准後才能執行。",
-      approvalRejected: "審核未通過，不能執行。",
       needDryRun: "Dry-run 是用於檢視憑證、網域與目標相容性檢查結果的選用影響預覽。",
       missingRunId: "缺少 runId，不能復原。",
       missingSelection: "缺少部署計畫選擇"
@@ -1229,16 +1219,6 @@ export default {
       close: "關閉",
       notConfigured: "未設定",
       notProvided: "未提供"
-    },
-    approval: {
-      title: "審核詳情",
-      description: "確認部署計畫的審核範圍後，直接核准或駁回申請。",
-      requestedBy: "申請人",
-      riskLevel: "風險等級",
-      decisionHint: "核准後計畫才能進入正式執行；駁回後需要重新提交審核。",
-      processing: "處理中...",
-      missingApprovalId: "缺少審核 ID，無法進行審核。",
-      decisionFailed: "審核操作失敗。"
     },
     detail: {
       certificateVersionLabel: "憑證版本",
@@ -1313,17 +1293,12 @@ export default {
       executionTaskStarted: "任務已開始，後續進度可在右上角任務列表檢視。",
       executionTaskSucceeded: "任務已成功完成，可在右上角任務列表檢視結果。",
       executeTaskStarted: "憑證部署已開始，後續進度可在右上角任務列表檢視。",
-      executeTaskPendingApproval: "憑證部署已提交，正在等待審核，後續進度可在右上角任務列表檢視。",
       rollbackTaskStarted: "憑證回滾已開始，後續進度可在右上角任務列表檢視。",
       loadedDraft: "已載入草稿計畫。",
       loadedDraftWithPlanId: "已載入草稿（計畫 {planId}）。",
       savedWithPlanId: "計畫已儲存（{planId}）。",
       submitted: "部署計畫已提交。",
       submittedWithPlanId: "部署計畫已提交（計畫 {planId}）。",
-      approvalApproved: "審核已通過，計畫現在可以執行。",
-      approvalApprovedWithPlanId: "審核已通過，計畫 {planId} 現在可以執行。",
-      approvalRejected: "審核已駁回，計畫不能執行。",
-      approvalRejectedWithPlanId: "審核已駁回，計畫 {planId} 不能執行。"
     },
     target: {
       controlPlane: "平台",
@@ -2196,11 +2171,10 @@ export default {
     deploymentTasks: {
       eyebrow: "部署任務",
       title: "部署任務參數",
-      description: "按目前租戶控制憑證部署是否先執行 Dry-run，以及未個別指定審批的應用程式是否需要審批。",
+      description: "按目前租戶控制憑證部署是否先執行 Dry-run。",
       readonly: "目前帳號只有檢視權限。",
       fields: {
-        dryRun: { title: "啟用 Dry-run", description: "部署憑證前執行唯讀預檢；檢查結果僅供參考，不會阻止正式部署。", aria: "啟用憑證部署 Dry-run" },
-        approval: { title: "啟用審批流程", description: "應用程式未個別勾選「需要審批」時，使用此全域參數決定憑證部署是否先審批。", aria: "啟用憑證部署審批流程" }
+        dryRun: { title: "啟用 Dry-run", description: "部署憑證前執行唯讀預檢；檢查結果僅供參考，不會阻止正式部署。", aria: "啟用憑證部署 Dry-run" }
       },
       actions: { save: "儲存設定", saving: "儲存中..." },
       messages: { saved: "部署任務參數已儲存。" },
@@ -2552,7 +2526,7 @@ export default {
         },
         deployment: {
           name: "更新計畫記錄",
-          description: "部署計畫、執行、復原與審核"
+          description: "部署計畫、執行與復原"
         },
         workflow: {
           name: "工作流記錄",
@@ -2917,7 +2891,7 @@ export default {
     allowInsecureTls: {
       label: '允許略過 TLS 憑證驗證',
       description: '明確授權本次部署在裝置使用自簽或不受信任憑證時略過 TLS 憑證驗證。',
-      help: '這只表示你的部署意圖，不會自動取得執行權限；仍需通過核准並由主機簽發執行授權。'
+      help: '這只表示你的部署意圖，不會自動取得執行權限；仍需由主機簽發執行授權。'
     },
     runtimeValue: '執行階段由 {source} 提供',
     source: '來源：{source}',
@@ -3081,8 +3055,7 @@ export default {
       publishedVersion: "已釋出版本",
       runner: "執行位置",
       artifactFormat: "產物格式設定",
-      updatePlugin: "憑證更新外掛",
-      approvalRequired: "憑證部署需要審批"
+      updatePlugin: "憑證更新外掛"
     },
     capability: { source: "能力來源", plugin: "外掛版本", runtime: "執行階段", executionLocation: "執行位置", pendingAssignment: "儲存後將建立應用資產層級的部署能力指派。" },
     links: {
@@ -3133,7 +3106,7 @@ export default {
     deployment: {
       targetLocked: "已鎖定更新目標",
       noCertificateAsset: "沒有可部署的憑證資產",
-      title: "憑證部署", description: "為此應用資產選擇一個憑證版本。系統會建立部署快照、執行預檢、提交審核並在獲准後執行。", dialogTitle: "憑證部署", dialogDescription: "此操作只套用到目前應用資產。部署計畫仍保留作為後端快照、審核和執行邊界。", latestVersionPointer: "自動套用目前憑證的最新版本", deployThisVersion: "部署此憑證版本", loadingRecords: "正在載入部署記錄...", emptyRecords: "此應用資產尚無部署記錄。", preflightAvailable: "已返回 {count} 項預檢", preflightUnavailable: "尚未執行預檢", rollbackUnavailable: "尚未發起回滾", fields: { status: "部署狀態", approval: "審核狀態", latestRun: "最新執行", preflight: "預檢", rollback: "回滾", updatedAt: "更新時間" }, feedback: { preflightRunning: "正在等待預檢執行完成。", pendingApproval: "預檢已完成，部署正在等待審核。", executionStarted: "預檢和審核已通過，部署執行已開始。" }, errors: { missingApplicationAssetId: "缺少應用資產 ID，無法建立憑證部署。", loadOptionsFailed: "載入可部署憑證版本失敗。", createPlanMissingId: "建立部署快照後未返回計畫 ID。", deployFailed: "憑證部署操作失敗。", preflightFailed: "憑證部署預檢未通過。", preflightTimeout: "憑證部署預檢等待逾時。", loadRecordsFailed: "載入應用資產部署記錄失敗。" }
+      title: "憑證部署", description: "為此應用資產選擇一個憑證版本。系統會建立部署快照並執行必要預檢，然後開始部署。", dialogTitle: "憑證部署", dialogDescription: "此操作只套用到目前應用資產。部署計畫仍保留作為後端快照和執行邊界。", latestVersionPointer: "自動套用目前憑證的最新版本", deployThisVersion: "部署此憑證版本", loadingRecords: "正在載入部署記錄...", emptyRecords: "此應用資產尚無部署記錄。", preflightAvailable: "已返回 {count} 項預檢", preflightUnavailable: "尚未執行預檢", rollbackUnavailable: "尚未發起回滾", fields: { status: "部署狀態", latestRun: "最新執行", preflight: "預檢", rollback: "回滾", updatedAt: "更新時間" }, feedback: { preflightRunning: "正在等待預檢執行完成。", executionStarted: "預檢完成，部署執行已開始。" }, errors: { missingApplicationAssetId: "缺少應用資產 ID，無法建立憑證部署。", loadOptionsFailed: "載入可部署憑證版本失敗。", createPlanMissingId: "建立部署快照後未返回計畫 ID。", deployFailed: "憑證部署操作失敗。", preflightFailed: "憑證部署預檢未通過。", preflightTimeout: "憑證部署預檢等待逾時。", loadRecordsFailed: "載入應用資產部署記錄失敗。" }
     },
     compatibilityModes: {
       unified: "統一外掛繫結",
@@ -3233,7 +3206,6 @@ export default {
       createRequestCompleted: "建立請求已完成。",
       editRequestCompleted: "儲存請求已完成。",
       agentCertificateFormatHint: "Agent 模式下會使用該憑證產物設定產生部署材料。",
-      approvalRequiredHint: "勾選後，該應用程式發起的憑證部署一律需要審批；未勾選時使用租戶全域部署參數。",
       placeholders: {
         displayName: "例如：生產站點入口",
         verifyUrl: "例如：https://example.com/health",

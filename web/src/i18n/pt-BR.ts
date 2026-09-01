@@ -669,7 +669,7 @@ export default {
     deployments: 'Implantação de certificados',
     deploymentsDesc: 'Planos de implantação, workflows, automações e registros de execução',
     deploymentPlans: 'Planos de implantação',
-    deploymentPlansDesc: 'Planos de implantação de certificados e entradas de aprovação',
+    deploymentPlansDesc: 'Planos de implantação de certificados',
     executions: 'Registros de execução',
     executionsDesc: 'Etapas de execução, logs, falhas e rollback',
     reports: 'Relatórios',
@@ -722,11 +722,11 @@ export default {
     empty: 'Nenhuma automação.',
     emptyDescription: 'Sem descrição',
     common: { notAvailable: 'Indisponível', allRelated: 'All related targets' },
-    externalApi: { executionModeLabel: 'Modo de execução externa', executionModeAria: 'Modo de execução externa', direct: 'Executar diretamente (sem aprovação)', approval: 'Usar fluxo de aprovação integrado', keyTitle: 'Chave de API externa', keyDescription: 'Esta chave permanece visível na página da automação e pode ser copiada a qualquer momento.', keyNotice: 'Envie-a no cabeçalho X-Automation-API-Key.', keyStatusPending: 'Gerada após salvar e ativar', keyStatusActive: 'Gerada', keyStatusUnavailable: 'Gerada (a chave completa não aparece nesta página)', keyEditorDescription: 'A chave completa permanece visível na página atual e pode ser copiada a qualquer momento. A atualização invalida imediatamente a chave antiga.', keyValueLabel: 'Chave de API', keyValueAria: 'Chave de API externa', keyUnavailableValue: 'A chave completa não aparece nesta página', keyUnavailable: 'A página não contém a chave completa. Clique em “Atualizar chave” para gerar uma nova.', rotate: 'Atualizar chave', rotating: 'Atualizando', rotateNotice: 'A atualização invalida imediatamente a chave antiga.', mode: 'Modo de execução: {mode}', copy: 'Copiar chave', copied: 'Copiada', copyAria: 'Copiar chave de API', copyCurlAria: 'Copiar comando CURL', rotateAria: 'Atualizar chave de API', apiManualButton: 'Guia da API', apiManualAutomationId: 'ID da automação atual', apiManualAutomationIdUnavailable: 'Gerado após salvar', apiManualTitle: 'Guia da API externa', apiManualDescription: 'Use o ID da automação e a chave de API para chamar estas interfaces. Os domínios do certificado já estão configurados na automação.', apiManualCertificateVersion: 'As interfaces de execução e compatibilidade exigem o certificateVersionId exato.', apiManualRunTitle: 'Iniciar automação', apiManualRunDescription: 'Envie uma versão do certificado para iniciar uma execução. O modo configurado executa diretamente ou entra no fluxo de aprovação.', apiManualRunCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/run' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -H Idempotency-Key:automation-run-$(date +%s) \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualPreviewTitle: 'Ver compatibilidade da aplicação atual', apiManualPreviewDescription: 'Envie uma versão do certificado para ver os alvos correspondentes, a possibilidade de execução e os motivos de exclusão.', apiManualPreviewCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/preview' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualVersionsTitle: 'Listar versões de certificado disponíveis', apiManualVersionsDescription: 'Retorna as versões selecionáveis para os domínios de certificado configurados nesta automação.', apiManualVersionsCurl: "curl 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/certificate-versions' \\\n  -H 'X-Automation-API-Key: ak_xxx'" },
+    externalApi: { executionModeLabel: 'Modo de execução externa', executionModeAria: 'Modo de execução externa', keyTitle: 'Chave de API externa', keyDescription: 'Esta chave permanece visível na página da automação e pode ser copiada a qualquer momento.', keyNotice: 'Envie-a no cabeçalho X-Automation-API-Key.', keyStatusPending: 'Gerada após salvar e ativar', keyStatusActive: 'Gerada', keyStatusUnavailable: 'Gerada (a chave completa não aparece nesta página)', keyEditorDescription: 'A chave completa permanece visível na página atual e pode ser copiada a qualquer momento. A atualização invalida imediatamente a chave antiga.', keyValueLabel: 'Chave de API', keyValueAria: 'Chave de API externa', keyUnavailableValue: 'A chave completa não aparece nesta página', keyUnavailable: 'A página não contém a chave completa. Clique em “Atualizar chave” para gerar uma nova.', rotate: 'Atualizar chave', rotating: 'Atualizando', rotateNotice: 'A atualização invalida imediatamente a chave antiga.', mode: 'Modo de execução: {mode}', copy: 'Copiar chave', copied: 'Copiada', copyAria: 'Copiar chave de API', copyCurlAria: 'Copiar comando CURL', rotateAria: 'Atualizar chave de API', apiManualButton: 'Guia da API', apiManualAutomationId: 'ID da automação atual', apiManualAutomationIdUnavailable: 'Gerado após salvar', apiManualTitle: 'Guia da API externa', apiManualDescription: 'Use o ID da automação e a chave de API para chamar estas interfaces. Os domínios do certificado já estão configurados na automação.', apiManualCertificateVersion: 'As interfaces de execução e compatibilidade exigem o certificateVersionId exato.', apiManualRunTitle: 'Iniciar automação', apiManualRunDescription: 'Envie uma versão do certificado para iniciar uma execução. A execução entra na fila atual.', apiManualRunCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/run' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -H Idempotency-Key:automation-run-$(date +%s) \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualPreviewTitle: 'Ver compatibilidade da aplicação atual', apiManualPreviewDescription: 'Envie uma versão do certificado para ver os alvos correspondentes, a possibilidade de execução e os motivos de exclusão.', apiManualPreviewCurl: "curl -X POST 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/preview' \\\n  -H 'X-Automation-API-Key: ak_xxx' \\\n  -H 'Content-Type: application/json' \\\n  -d '{'{'}\"certificateVersionId\":\"CERTIFICATE_VERSION_ID\"{'}'}'", apiManualVersionsTitle: 'Listar versões de certificado disponíveis', apiManualVersionsDescription: 'Retorna as versões selecionáveis para os domínios de certificado configurados nesta automação.', apiManualVersionsCurl: "curl 'https://gcac.example.com/api/v1/automation-external/AUTOMATION_ID/certificate-versions' \\\n  -H 'X-Automation-API-Key: ak_xxx'" },
     formStep: { stepProgress: 'Step {current} of {total}', previous: 'Back', next: 'Next', reviewTitle: 'Configuration summary', reviewText: 'Trigger: {trigger}; execution scope: {scope}; certificate domains: {domains}. The target snapshot is frozen when the run starts.' },
     scheduleBuilder: { api: 'Acionar por API externa', once: 'Executar uma vez em horário fixo', onceHelp: 'Escolha o horário local do navegador. A tarefa não será agendada novamente após a execução.', recurring: 'Executar periodicamente', scheduleHelp: 'Use uma agenda recorrente apenas quando a verificação contínua for realmente necessária.', recurringHelp: 'Use uma agenda recorrente apenas quando a verificação contínua for realmente necessária.', recurringWarningTitle: 'Execução periódica não é recomendada para certificados', recurringWarning: 'Normalmente a troca deve ser acionada após a emissão do certificado ou agendada uma única vez.', certificateVersionCreated: 'Certificate new-version event', runAt: 'Horário de execução', frequency: 'Frequência', daily: 'Diariamente', weekly: 'Semanalmente', monthly: 'Mensalmente', time: 'Horário', weekday: 'Dia da semana', monthDay: 'Dia do mês', legacyCustom: 'Manter agenda personalizada existente', legacyCron: 'Cron existente (somente leitura)', weekdays: { 0: 'Domingo', 1: 'Segunda-feira', 2: 'Terça-feira', 3: 'Quarta-feira', 4: 'Quinta-feira', 5: 'Sexta-feira', 6: 'Sábado' } },
-    form: { existingAssetTitle: 'Atualizar apenas ativos de aplicativos existentes', existingAssetDescription: 'A automação processa apenas ativos com vínculos de certificado existentes. Ela não instala certificados pela primeira vez nem adiciona destinos.', certificateDomains: 'Domínios do certificado', certificateDomainsPlaceholder: 'Informe os domínios separados por vírgulas', certificateDomainsHelp: 'Atualiza apenas os vínculos existentes dos ativos para estes domínios.', versionSelection: 'Versão do certificado para implantar', versionSelectionLatest: 'Usar automaticamente a versão mais recente', versionSelectionSpecific: 'Usar versões específicas', versionSelectionHelp: 'A versão é resolvida e congelada quando a execução começa.', certificateVersionIds: 'Versões específicas do certificado', certificateVersionIdsPlaceholder: 'Informe os IDs das versões separados por vírgulas', certificateVersionIdsHelp: 'Cada versão deve pertencer a um certificado selecionado pelos domínios.', versionLoading: 'Carregando versões de certificado disponíveis.', versionLoadFailed: 'Falha ao carregar versões. Tente novamente mais tarde.', versionEmpty: 'Nenhuma versão selecionável foi encontrada para estes domínios.', schedule: 'Quando atualizar', scheduleHelp: 'Inicie sob demanda ou execute periodicamente usando Cron e fuso horário.', execution: 'O que acontece na execução', executionHelp: 'O sistema cria um plano separado para cada vínculo existente e reutiliza DeploymentPlan, aprovação e ExecutionRun.', snapshot: 'Congelar o domínio, o ativo e a versão do certificado' },
-    fields: { name: 'Nome', description: 'Descrição', trigger: 'Acionador', eventSources: 'Event sources', targetScope: 'Update scope', selectedAssets: 'Selected managed applications', selectedAssetsHelp: 'Select at least one managed application.', certificateTags: 'Certificate tags (comma separated)', certificateTagsHelp: 'Filter the event or polling scope by certificate tags.', targetEnvironments: 'Target environments (comma separated)', targetEnvironmentsHelp: 'Filter by target application environment.', targetOwners: 'Target owners (comma separated)', targetOwnersHelp: 'Filter by target owner.', cron: 'Expressão Cron', timeZone: 'Fuso horário', expiresWithinDays: 'Janela de expiração em dias', environments: 'Ambientes de destino (separados por vírgula)', certificateIds: 'Certificados específicos (opcional)', certificateIdsPlaceholder: 'Informe os IDs separados por vírgulas', certificateIdsHelp: 'Quando preenchido, apenas esses certificados serão processados; caso contrário, usam-se validade e ambiente.', expiresWithinDaysHelp: 'Correspondem apenas certificados que expiram nesta janela.', environmentsHelp: 'Processar apenas certificados desses ambientes.', planType: 'Tipo de plano de implantação', planTypeHelp: 'Um DeploymentPlan separado é criado em tempo de execução para cada destino.', planTypeUpdate: 'Atualizar um vínculo de certificado existente', planTypeInstall: 'Instalar certificado no destino', planTypeVerifyOnly: 'Apenas verificar, sem alterar o certificado', planMode: 'Modo de execução', planModeHelp: 'A automação não vincula um plano existente; cria um novo plano para cada destino.', planModeCreateAndExecute: 'Criar e executar o plano', planModeCreateOnly: 'Criar apenas os planos, sem executar', maxTargets: 'Máximo de destinos por execução', concurrency: 'Concorrência', failureCount: 'Limite de quantidade de falhas', requireDryRun: 'Configuração histórica de Dry run (não bloqueia a execução)', requireApproval: 'Exigir aprovação antes da execução', startedAt: 'Início', finishedAt: 'Término', failureStage: 'Etapa da falha', parentRun: 'Execução pai' },
+    form: { existingAssetTitle: 'Atualizar apenas ativos de aplicativos existentes', existingAssetDescription: 'A automação processa apenas ativos com vínculos de certificado existentes. Ela não instala certificados pela primeira vez nem adiciona destinos.', certificateDomains: 'Domínios do certificado', certificateDomainsPlaceholder: 'Informe os domínios separados por vírgulas', certificateDomainsHelp: 'Atualiza apenas os vínculos existentes dos ativos para estes domínios.', versionSelection: 'Versão do certificado para implantar', versionSelectionLatest: 'Usar automaticamente a versão mais recente', versionSelectionSpecific: 'Usar versões específicas', versionSelectionHelp: 'A versão é resolvida e congelada quando a execução começa.', certificateVersionIds: 'Versões específicas do certificado', certificateVersionIdsPlaceholder: 'Informe os IDs das versões separados por vírgulas', certificateVersionIdsHelp: 'Cada versão deve pertencer a um certificado selecionado pelos domínios.', versionLoading: 'Carregando versões de certificado disponíveis.', versionLoadFailed: 'Falha ao carregar versões. Tente novamente mais tarde.', versionEmpty: 'Nenhuma versão selecionável foi encontrada para estes domínios.', schedule: 'Quando atualizar', scheduleHelp: 'Inicie sob demanda ou execute periodicamente usando Cron e fuso horário.', execution: 'O que acontece na execução', executionHelp: 'O sistema cria um plano separado para cada vínculo existente e reutiliza DeploymentPlan e ExecutionRun.', snapshot: 'Congelar o domínio, o ativo e a versão do certificado' },
+    fields: { name: 'Nome', description: 'Descrição', trigger: 'Acionador', eventSources: 'Event sources', targetScope: 'Update scope', selectedAssets: 'Selected managed applications', selectedAssetsHelp: 'Select at least one managed application.', certificateTags: 'Certificate tags (comma separated)', certificateTagsHelp: 'Filter the event or polling scope by certificate tags.', targetEnvironments: 'Target environments (comma separated)', targetEnvironmentsHelp: 'Filter by target application environment.', targetOwners: 'Target owners (comma separated)', targetOwnersHelp: 'Filter by target owner.', cron: 'Expressão Cron', timeZone: 'Fuso horário', expiresWithinDays: 'Janela de expiração em dias', environments: 'Ambientes de destino (separados por vírgula)', certificateIds: 'Certificados específicos (opcional)', certificateIdsPlaceholder: 'Informe os IDs separados por vírgulas', certificateIdsHelp: 'Quando preenchido, apenas esses certificados serão processados; caso contrário, usam-se validade e ambiente.', expiresWithinDaysHelp: 'Correspondem apenas certificados que expiram nesta janela.', environmentsHelp: 'Processar apenas certificados desses ambientes.', planType: 'Tipo de plano de implantação', planTypeHelp: 'Um DeploymentPlan separado é criado em tempo de execução para cada destino.', planTypeUpdate: 'Atualizar um vínculo de certificado existente', planTypeInstall: 'Instalar certificado no destino', planTypeVerifyOnly: 'Apenas verificar, sem alterar o certificado', planMode: 'Modo de execução', planModeHelp: 'A automação não vincula um plano existente; cria um novo plano para cada destino.', planModeCreateAndExecute: 'Criar e executar o plano', planModeCreateOnly: 'Criar apenas os planos, sem executar', maxTargets: 'Máximo de destinos por execução', concurrency: 'Concorrência', failureCount: 'Limite de quantidade de falhas', requireDryRun: 'Configuração histórica de Dry run (não bloqueia a execução)', startedAt: 'Início', finishedAt: 'Término', failureStage: 'Etapa da falha', parentRun: 'Execução pai' },
     actions: { create: 'Criar automação', detail: 'Details', edit: 'Editar', delete: 'Excluir', cancel: 'Cancelar', save: 'Salvar', copy: 'Copiar', enable: 'Ativar', disable: 'Desativar', runNow: 'Run now', preview: 'Visualizar destinos', history: 'Histórico de execuções', confirmRun: 'Confirmar execução', stop: 'Parar execução', retryFailed: 'Repetir destinos com falha', openPlan: 'Abrir plano de implantação', openExecution: 'Abrir execução' },
     manualRun: { title: 'Execução manual', description: 'Selecione uma versão do certificado antes de executar.', versionLabel: 'Versão do certificado', versionPlaceholder: 'Selecione uma versão do certificado', help: 'A execução vai resolver os ativos de aplicação relacionados a partir da versão selecionada.', empty: 'Não há versões de certificado disponíveis para execução manual.', stopOnError: 'Parar em erro', dryRun: 'Executar prévia Dry-run opcional', start: 'Iniciar execução', downgradeNotice: 'O certificado de destino tem validade menor para {count} ativos de aplicação. A execução continuará após a confirmação.', downgradeConfirmTitle: 'Confirmar validade menor do certificado', downgradeConfirmDescription: 'Esta é uma operação manual. Após a confirmação, {count} ativos de aplicação serão atualizados para um certificado com validade menor.', downgradeConfirmAction: 'Confirmar e executar' },
     columns: { status: 'Status', trigger: 'Acionador', targets: 'Limite de destinos', actions: 'Ações', nextRun: 'Próxima execução', lastRun: 'Última execução' },
@@ -744,9 +744,9 @@ export default {
     exclusions: { permission_denied: 'Permissão negada para o destino', missing_version: 'Versão do certificado ausente', version_not_deployable: 'Versão do certificado não pode ser implantada', binding_not_managed: 'Vínculo não gerenciado', environment_not_allowed: 'Ambiente não permitido', binding_missing: 'Vínculo ausente', asset_missing_deployment_capability: 'O destino não pode implantar certificados', certificate_version_downgrade: 'A versão alvo é anterior à versão atual do ativo', certificate_already_up_to_date: 'A expiração alvo já corresponde ao certificado atual; a atualização foi ignorada', filter_not_matched: 'As condições do filtro não coincidiram', runtime_context_required: 'O contexto de execução é obrigatório', unknown: 'Motivo de exclusão desconhecido' },
     failureStages: { selection: 'Seleção de destinos', plan_creation: 'Criação do plano', dry_run: 'Dry run', approval: 'Aprovação', execution: 'Execução', verification: 'Verificação', rollback: 'Reversão', notification: 'Notificação' },
     progress: { total: 'Total', pending: 'Pendente', running: 'Em execução', waitingApproval: 'Aguardando aprovação', succeeded: 'Sucesso', failed: 'Falha', skipped: 'Ignorado', cancelled: 'Cancelado' },
-    editor: { createTitle: 'Criar automação', editTitle: 'Editar automação', description: 'Configure quando executar, quais certificados tratar, como criar os planos e o que fazer em caso de falha.', exactVersionFromEvent: 'The certificate new-version event freezes the exact certificate version into the run snapshot.', sections: { basic: 'Informações básicas', basicHelp: 'Dê um nome claro à automação e descreva as alterações de certificados que ela trata.', trigger: 'Trigger', triggerHelp: 'Define what fact starts the automation before choosing execution and conditions.', targets: 'Certificados a processar', targetsHelp: 'Aqui são selecionados certificados, não planos existentes; o snapshot dos destinos é congelado no início.', execution: 'Execution', executionHelp: 'Decide how the automation updates assets first, then add matching conditions and safety guardrails.', conditions: 'Conditions and safety', conditionsHelp: 'Define matching conditions, target filters, approval, and concurrency guardrails together in this step.', plan: 'Plano de implantação do certificado', planRelationTitle: 'Não vincula um plano de implantação existente', planRelationDescription: 'Um plano é criado em tempo de execução a partir dos filtros de certificados.', planRelationHelp: 'Cada destino recebe seu próprio DeploymentPlan, cujo ID aparece nos detalhes da execução.', guardrails: 'Controles de segurança', guardrailsHelp: 'Esses limites controlam lote, pré-verificação, aprovação e parada por falha.' }, chain: { createPlan: 'Criar um DeploymentPlan por destino', dryRun: 'Executar a prévia Dry run opcional', approval: 'Aguardar aprovação', executePlan: 'Executar o DeploymentPlan do destino' } },
+    editor: { createTitle: 'Criar automação', editTitle: 'Editar automação', description: 'Configure quando executar, quais certificados tratar, como criar os planos e o que fazer em caso de falha.', exactVersionFromEvent: 'The certificate new-version event freezes the exact certificate version into the run snapshot.', sections: { basic: 'Informações básicas', basicHelp: 'Dê um nome claro à automação e descreva as alterações de certificados que ela trata.', trigger: 'Trigger', triggerHelp: 'Define what fact starts the automation before choosing execution and conditions.', targets: 'Certificados a processar', targetsHelp: 'Aqui são selecionados certificados, não planos existentes; o snapshot dos destinos é congelado no início.', execution: 'Execution', executionHelp: 'Decide how the automation updates assets first, then add matching conditions and safety guardrails.', conditions: 'Conditions and safety', conditionsHelp: 'Define matching conditions, target filters and concurrency guardrails together in this step.', plan: 'Plano de implantação do certificado', planRelationTitle: 'Não vincula um plano de implantação existente', planRelationDescription: 'Um plano é criado em tempo de execução a partir dos filtros de certificados.', planRelationHelp: 'Cada destino recebe seu próprio DeploymentPlan, cujo ID aparece nos detalhes da execução.', guardrails: 'Controles de segurança', guardrailsHelp: 'Esses limites controlam lote, pré-verificação e parada por falha.' }, chain: { createPlan: 'Criar um DeploymentPlan por destino', dryRun: 'Executar a prévia Dry run opcional', executePlan: 'Executar o DeploymentPlan do destino' } },
     runs: { title: 'Histórico de automações', description: 'Veja o status da execução, snapshots imutáveis dos destinos e etapas de falha.', progress: '{succeeded}/{total} com sucesso' },
-    runDetail: { title: 'Detalhes da execução automatizada', description: 'Versão da configuração {version}', noFailure: 'Sem falhas', triggerContext: 'Trigger context', sourceType: 'Source type', certificateVersion: 'Exact certificate version', approvalId: 'Approval ID', deliveryId: 'Delivery ID', excludedReasons: 'Excluded reasons' },
+    runDetail: { title: 'Detalhes da execução automatizada', description: 'Versão da configuração {version}', noFailure: 'Sem falhas', triggerContext: 'Trigger context', sourceType: 'Source type', certificateVersion: 'Exact certificate version', deliveryId: 'Delivery ID', excludedReasons: 'Excluded reasons' },
     aria: { preview: 'Visualização de destinos da automação', runs: 'Lista de execuções automatizadas', progress: 'Progresso da execução automatizada' },
     errors: { loadFailed: 'Falha ao carregar automações', applicationAssetsLoadFailed: 'Failed to load managed applications. Try again later.' }
   },
@@ -862,7 +862,7 @@ export default {
       },
       tlsGrantRequired: {
         label: 'Dry-run concluído, autorização do host necessária',
-        detail: 'As verificações estruturais e de segurança foram concluídas. O dry-run não emite um ExecutionGrant formal, portanto o bypass da verificação TLS foi rejeitado. Após a aprovação, o host emitirá um ExecutionGrant de curta duração para a execução formal.'
+        detail: 'As verificações estruturais e de segurança foram concluídas. O dry-run não emite um ExecutionGrant formal, portanto o bypass da verificação TLS foi rejeitado. Na execução formal, o host emitirá um ExecutionGrant de curta duração.'
       },
       warning: {
         label: 'Dry-run com alertas de risco',
@@ -1102,7 +1102,7 @@ export default {
     userView: {
       stepLabel: 'Step 3 of 3 · Deploy',
       title: 'Deploy the certificate to an application',
-      description: 'Choose a certificate and a connected application. GCAC keeps the same preview, approval, and execution safeguards in the background.',
+      description: 'Choose a certificate and a connected application. GCAC keeps preview and execution safeguards in the background.',
       createAction: 'Start deployment',
       listTitle: 'Deployment tasks',
       listDescription: 'Only the next action and business status are shown here.',
@@ -1112,12 +1112,12 @@ export default {
       unnamedPlan: 'Unnamed deployment task',
       pendingCertificate: 'Certificate pending',
       pendingApplication: 'Application pending',
-      nextActionHint: 'The next action follows the current approval and preview status.',
+      nextActionHint: 'The next action follows the current preview and execution status.',
       prepareAction: 'Prepare deployment',
-      waiting: 'Waiting for approval or execution'
+      waiting: 'Waiting for execution'
     },
     title: 'Planos de implantação',
-    description: 'Prévia do plano, escopo de impacto, aprovação, lotes de execução, verificação e entradas de rollback.',
+    description: 'Prévia do plano, escopo de impacto, lotes de execução, verificação e entradas de rollback.',
     resourceName: 'Plano de implantação',
     apiActions: {
       submit: 'Enviar plano de implantação',
@@ -1131,13 +1131,8 @@ export default {
       edit: 'Editar plano',
       dryRun: 'Prévia de impacto Dry-run',
       dryRunRisk: 'Gera apenas a prévia de impacto, sem executar a implantação real.',
-      submit: 'Enviar para aprovação',
-      submitRisk: 'Após o envio, o plano entra em aprovação ou fica pendente de execução.',
-      review: 'Revisar aprovação',
-      approve: 'Aprovar solicitação',
-      approveRisk: 'A aprovação torna o plano elegível para execução; o ExecutionGrant emitido pelo host continua obrigatório no momento da execução.',
-      reject: 'Rejeitar solicitação',
-      rejectRisk: 'Um plano rejeitado não pode ser executado e precisa ser enviado para aprovação novamente.',
+      submit: 'Enviar plano',
+      submitRisk: 'Após o envio, o plano fica pendente de execução.',
       execute: 'Executar implantação',
       executeRisk: 'A execução altera a configuração de certificados do alvo. Planos concluídos ou com falha também usam esta entrada para nova execução; a execução faz as verificações síncronas necessárias, e a prévia Dry-run opcional está disponível no fluxo de implantação dos detalhes do ativo.',
       cancel: 'Cancelar plano',
@@ -1158,7 +1153,7 @@ export default {
     metrics: {
       total: {
         title: 'Total de planos',
-        description: 'Planos aguardando aprovação, pendentes de execução ou em execução.'
+        description: 'Planos pendentes de execução ou em execução.'
       },
       risky: {
         title: 'Alto risco pendente',
@@ -1169,7 +1164,6 @@ export default {
       planId: 'ID do plano',
       name: 'Nome do plano',
       status: 'Status do plano',
-      approvalStatus: 'Status da aprovação',
       certificateVersionId: 'ID da versão do certificado',
       certificateFormatId: 'ID da configuração de formato do certificado',
       workflowDslVersion: 'Versão do DSL do workflow',
@@ -1177,7 +1171,6 @@ export default {
       updateNeeded: 'Precisa atualizar',
       targetSummary: 'Resumo de vínculos do alvo',
       latestRun: 'Lote de execução mais recente',
-      approvalId: 'ID da aprovação',
       snapshotHash: 'Hash do snapshot',
       failureReason: 'Motivo da falha',
       createdAt: 'Criado em',
@@ -1192,9 +1185,6 @@ export default {
       description: 'Comece por um certificado ou vínculo, gere a prévia de impacto no assistente de implantação e então envie o plano.'
     },
     disabled: {
-      missingApproval: 'Faltam informações de aprovação, portanto a execução não é permitida.',
-      approvalPending: 'A solicitação de aprovação foi enviada. Um aprovador precisa aprová-la antes da execução.',
-      approvalRejected: 'A aprovação foi rejeitada. A execução está indisponível.',
       needDryRun: 'Dry-run é uma prévia de impacto opcional para revisar as verificações de certificado, domínio e compatibilidade do alvo.',
       missingRunId: 'Falta runId, portanto o rollback não é permitido.',
       missingSelection: 'Falta selecionar um plano de implantação'
@@ -1204,16 +1194,6 @@ export default {
       close: 'Fechar',
       notConfigured: 'Não configurado',
       notProvided: 'Não informado'
-    },
-    approval: {
-      title: 'Detalhes da aprovação',
-      description: 'Revise o escopo do plano de implantação e aprove ou rejeite a solicitação diretamente.',
-      requestedBy: 'Solicitado por',
-      riskLevel: 'Nível de risco',
-      decisionHint: 'A aprovação permite a execução real. Um plano rejeitado precisa ser enviado novamente.',
-      processing: 'Processando...',
-      missingApprovalId: 'O ID da aprovação está ausente; não é possível revisar esta solicitação.',
-      decisionFailed: 'Falha na operação de aprovação.'
     },
     detail: {
       certificateVersionLabel: 'Versão do certificado',
@@ -1288,17 +1268,12 @@ export default {
       executionTaskStarted: 'Tarefa iniciada. Acompanhe o progresso pela lista de tarefas no canto superior direito.',
       executionTaskSucceeded: 'Tarefa concluída com sucesso. Consulte o resultado na lista de tarefas no canto superior direito.',
       executeTaskStarted: 'Implantação do certificado iniciada. Acompanhe o progresso pela lista de tarefas no canto superior direito.',
-      executeTaskPendingApproval: 'Implantação do certificado enviada e aguardando aprovação. Acompanhe pela lista de tarefas no canto superior direito.',
       rollbackTaskStarted: 'Rollback do certificado iniciado. Acompanhe o progresso pela lista de tarefas no canto superior direito.',
       loadedDraft: 'Rascunho do plano carregado.',
       loadedDraftWithPlanId: 'Rascunho carregado (plano {planId}).',
       savedWithPlanId: 'Plano salvo ({planId}).',
       submitted: 'Plano de implantação enviado.',
       submittedWithPlanId: 'Plano de implantação enviado (plano {planId}).',
-      approvalApproved: 'Aprovação concluída. O plano pode ser executado.',
-      approvalApprovedWithPlanId: 'Aprovação concluída. O plano {planId} pode ser executado.',
-      approvalRejected: 'Aprovação rejeitada. O plano não pode ser executado.',
-      approvalRejectedWithPlanId: 'Aprovação rejeitada. O plano {planId} não pode ser executado.'
     },
     target: {
       controlPlane: 'Plataforma',
@@ -2171,11 +2146,10 @@ export default {
     deploymentTasks: {
       eyebrow: 'Tarefas de implantação',
       title: 'Parâmetros das tarefas de implantação',
-      description: 'Controle por tenant o Dry-run e se aplicações sem uma exigência própria precisam de aprovação antes da implantação do certificado.',
+      description: 'Controle por tenant se as implantações de certificados executam um Dry-run antes da execução.',
       readonly: 'Esta conta tem acesso somente leitura.',
       fields: {
-        dryRun: { title: 'Ativar Dry-run', description: 'Execute uma pré-verificação somente leitura antes da implantação; os resultados são informativos e não bloqueiam a execução.', aria: 'Ativar Dry-run de implantação de certificado' },
-        approval: { title: 'Ativar fluxo de aprovação', description: 'Para aplicações sem uma exigência explícita, esta configuração do tenant define se a implantação do certificado precisa de aprovação.', aria: 'Ativar fluxo de aprovação de implantação de certificado' }
+        dryRun: { title: 'Ativar Dry-run', description: 'Execute uma pré-verificação somente leitura antes da implantação; os resultados são informativos e não bloqueiam a execução.', aria: 'Ativar Dry-run de implantação de certificado' }
       },
       actions: { save: 'Salvar configurações', saving: 'Salvando...' },
       messages: { saved: 'Parâmetros das tarefas de implantação salvos.' },
@@ -2892,7 +2866,7 @@ export default {
     allowInsecureTls: {
       label: 'Permitir ignorar a verificação do certificado TLS',
       description: 'Autoriza explicitamente esta implantação a ignorar a verificação do certificado TLS quando o dispositivo usa um certificado autoassinado ou não confiável.',
-      help: 'Isso registra apenas a intenção da implantação e não concede permissão de execução. A aprovação e uma autorização de execução emitida pelo host continuam sendo necessárias.'
+      help: 'Isso registra apenas a intenção da implantação e não concede permissão de execução. Uma autorização de execução emitida pelo host continua sendo necessária.'
     },
     runtimeValue: 'Fornecido por {source} durante a execução',
     source: 'Origem: {source}',
@@ -3056,8 +3030,7 @@ export default {
       publishedVersion: 'Versão publicada',
       runner: 'Local de execução',
       artifactFormat: 'Configuração de formato do artefato',
-      updatePlugin: 'Plugin de atualização de certificado',
-      approvalRequired: 'Exigir aprovação para implantação do certificado'
+      updatePlugin: 'Plugin de atualização de certificado'
     },
     capability: { source: 'Origem da capacidade', plugin: 'Versão do plugin', runtime: 'Runtime', executionLocation: 'Local de execução', pendingAssignment: 'Ao salvar, será criada uma atribuição de capacidade de implantação no nível do ativo de aplicativo.' },
     links: {
@@ -3109,9 +3082,9 @@ export default {
       targetLocked: 'Alvo de atualização bloqueado',
       noCertificateAsset: 'Nenhum ativo de certificado implantável',
       title: 'Implantação de certificado',
-      description: 'Escolha uma versão de certificado para este ativo de aplicação. O sistema cria um snapshot, executa a pré-verificação, solicita aprovação e executa quando autorizado.',
+      description: 'Escolha uma versão de certificado para este ativo de aplicação. O sistema cria um snapshot, executa a pré-verificação necessária e inicia a implantação.',
       dialogTitle: 'Implantação de certificado',
-      dialogDescription: 'A ação vale somente para o ativo de aplicação atual. O plano continua sendo o limite de snapshot, aprovação e execução no servidor.',
+      dialogDescription: 'A ação vale somente para o ativo de aplicação atual. O plano continua sendo o limite de snapshot e execução no servidor.',
       latestVersionPointer: 'Aplicar automaticamente a versão mais recente do certificado atual',
       deployThisVersion: 'Implantar esta versão do certificado',
       loadingRecords: 'Carregando registros de implantação...',
@@ -3119,8 +3092,8 @@ export default {
       preflightAvailable: '{count} verificações preliminares retornadas',
       preflightUnavailable: 'Nenhuma pré-verificação executada',
       rollbackUnavailable: 'Nenhuma reversão solicitada',
-      fields: { status: 'Status da implantação', approval: 'Aprovação', latestRun: 'Última execução', preflight: 'Pré-verificação', rollback: 'Reversão', updatedAt: 'Atualizado em' },
-      feedback: { preflightRunning: 'Aguardando a conclusão da pré-verificação.', pendingApproval: 'Pré-verificação concluída; a implantação aguarda aprovação.', executionStarted: 'Pré-verificação e aprovação concluídas; a execução foi iniciada.' },
+      fields: { status: 'Status da implantação', latestRun: 'Última execução', preflight: 'Pré-verificação', rollback: 'Reversão', updatedAt: 'Atualizado em' },
+      feedback: { preflightRunning: 'Aguardando a conclusão da pré-verificação.', executionStarted: 'Pré-verificação concluída; a execução foi iniciada.' },
       errors: { missingApplicationAssetId: 'O ID do ativo de aplicação é obrigatório.', loadOptionsFailed: 'Não foi possível carregar versões implantáveis.', createPlanMissingId: 'O snapshot criado não retornou um ID de plano.', deployFailed: 'Falha na implantação do certificado.', preflightFailed: 'A pré-verificação da implantação falhou.', preflightTimeout: 'A pré-verificação da implantação expirou.', loadRecordsFailed: 'Não foi possível carregar os registros de implantação.' }
     },
     compatibilityModes: {
@@ -3221,7 +3194,6 @@ export default {
       createRequestCompleted: 'Solicitação de criação concluída.',
       editRequestCompleted: 'Solicitação de salvamento concluída.',
       agentCertificateFormatHint: 'No modo Agent, esta configuração de artefato de certificado será usada para gerar materiais de implantação.',
-      approvalRequiredHint: 'Quando marcado, os deployments desta aplicação sempre exigem aprovação; caso contrário, é usada a configuração de implantação do tenant.',
       placeholders: {
         displayName: 'Exemplo: entrada do site de produção',
         verifyUrl: 'Exemplo: https://example.com/health',
