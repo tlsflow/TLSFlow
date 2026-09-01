@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import type { ApiPage, ApiRecord } from '@/api/modules/common'
@@ -17,7 +17,7 @@ import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue
 import { usePermissionStore } from '@/stores/permission.store'
 import { readNumber, readPath, readString, useBusinessPage, type ViewRow } from '@/composables/useBusinessPage'
 import { formatMaybeLocalTimeByCandidates } from '@/utils/browser-local-time'
-import type { BusinessAction, BusinessMetricCard, BusinessPageConfig } from './business-page.types'
+import type { BusinessAction, BusinessMetricCard, BusinessPageConfig, BusinessRowAction } from './business-page.types'
 
 const props = defineProps<{ config: BusinessPageConfig }>()
 
@@ -27,6 +27,8 @@ const state = useBusinessPage(props.config, { t })
 const selectedId = ref<string | null>(null)
 const primaryActionError = ref('')
 const primaryActionPending = ref(false)
+const openRowMenuKey = ref<string | null>(null)
+const rowMenuPosition = ref({ top: 0, left: 0 })
 
 const tableColumns = computed<DataTableColumn<ViewRow>[]>(() =>
   props.config.columns.map((column) => ({
@@ -101,12 +103,80 @@ async function runAction(action: BusinessAction) {
 
 async function runRowAction(row: ViewRow, actionIndex: number) {
   const action = props.config.rowActions?.[actionIndex]
-  if (!action?.run) return
+  if (!action) return
+  await runRowActionDefinition(row, action)
+}
+
+async function runRowActionDefinition(row: ViewRow, action: BusinessRowAction) {
+  if (!action.run) return
+  closeRowMenu()
   await action.run(row)
-  if (action.reloadAfterRun !== false) {
-    await state.reload()
+  if (action.reloadAfterRun !== false) await state.reload()
+}
+
+async function runRowMenuAction(row: ViewRow, actionIndex: number, menuIndex: number) {
+  const action = props.config.rowActions?.[actionIndex]
+  const menuAction = action?.menu?.[menuIndex]
+  if (!menuAction || isMenuActionHidden(row, menuAction)) return
+  await runRowActionDefinition(row, menuAction)
+}
+
+function rowMenuKey(row: ViewRow, actionIndex: number): string {
+  return `${row.id}-${actionIndex}`
+}
+
+function isRowMenuOpen(row: ViewRow, actionIndex: number): boolean {
+  return openRowMenuKey.value === rowMenuKey(row, actionIndex)
+}
+
+function toggleRowMenu(row: ViewRow, actionIndex: number, event: MouseEvent) {
+  const key = rowMenuKey(row, actionIndex)
+  if (openRowMenuKey.value === key) {
+    closeRowMenu()
+    return
+  }
+  const trigger = event.currentTarget
+  if (!(trigger instanceof HTMLElement)) return
+  const rect = trigger.getBoundingClientRect()
+  rowMenuPosition.value = { top: rect.bottom + 4, left: rect.left }
+  openRowMenuKey.value = key
+}
+
+function closeRowMenu() {
+  openRowMenuKey.value = null
+}
+
+function isMenuActionHidden(row: ViewRow, action: BusinessRowAction): boolean {
+  return !permissionStore.hasPermission(action.permission) || (action.hidden?.(row) ?? false)
+}
+
+function hasVisibleMenuAction(row: ViewRow, actionIndex: number): boolean {
+  const menu = props.config.rowActions?.[actionIndex]?.menu
+  return Boolean(menu?.some((action) => !isMenuActionHidden(row, action)))
+}
+
+function onDocumentClick(event: MouseEvent) {
+  const target = event.target
+  if (!(target instanceof Element) || !target.closest('.business-page__row-menu-panel, .business-page__row-menu-trigger')) {
+    closeRowMenu()
   }
 }
+
+function onDocumentKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') closeRowMenu()
+}
+
+onMounted(() => {
+  document.addEventListener('click', onDocumentClick)
+  document.addEventListener('keydown', onDocumentKeydown)
+  window.addEventListener('scroll', closeRowMenu, true)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocumentClick)
+  document.removeEventListener('keydown', onDocumentKeydown)
+  window.removeEventListener('scroll', closeRowMenu, true)
+})
 
 async function runPrimaryAction() {
   if (!props.config.primaryAction || primaryActionPending.value) return
@@ -379,8 +449,59 @@ defineExpose({
       <template #cell-actions="{ row }">
         <div class="business-page__row-actions">
           <template v-for="(action, index) in config.rowActions ?? []" :key="`${row.id}-${action.label}`">
+            <div
+              v-if="action.menu && permissionStore.hasPermission(action.permission) && !isRowActionHidden(row, index) && hasVisibleMenuAction(row, index)"
+              class="business-page__row-menu"
+            >
+              <GcPermissionButton
+                class="business-page__row-menu-trigger"
+                :permission="action.permission"
+                :danger="action.danger"
+                aria-haspopup="menu"
+                :aria-expanded="isRowMenuOpen(row, index)"
+                @click="toggleRowMenu(row, index, $event)"
+              >
+                {{ action.label }}
+              </GcPermissionButton>
+              <Teleport to="body">
+                <div
+                  v-if="isRowMenuOpen(row, index)"
+                  class="business-page__row-menu-panel"
+                  role="menu"
+                  :style="{ top: `${rowMenuPosition.top}px`, left: `${rowMenuPosition.left}px` }"
+                >
+                  <template v-for="(menuAction, menuIndex) in action.menu" :key="`${row.id}-${index}-${menuAction.label}`">
+                    <GcConfirmAction
+                      v-if="menuAction.danger && !isMenuActionHidden(row, menuAction)"
+                      class="business-page__row-menu-item"
+                      :action-name="menuAction.label"
+                      :impact-count="1"
+                      :risk-text="menuAction.riskText"
+                      :confirm-text="menuAction.confirmText"
+                      :danger="menuAction.danger"
+                      :disabled="Boolean(menuAction.disabledReason?.(row))"
+                      :disabled-reason="menuAction.disabledReason?.(row)"
+                      role="menuitem"
+                      @click="closeRowMenu"
+                      @confirm="runRowMenuAction(row, index, menuIndex)"
+                    />
+                    <GcPermissionButton
+                      v-else-if="!menuAction.danger && !isMenuActionHidden(row, menuAction)"
+                      class="business-page__row-menu-item"
+                      :permission="menuAction.permission"
+                      :danger="menuAction.danger"
+                      :disabled="Boolean(menuAction.disabledReason?.(row))"
+                      role="menuitem"
+                      @click="runRowMenuAction(row, index, menuIndex)"
+                    >
+                      {{ menuAction.label }}
+                    </GcPermissionButton>
+                  </template>
+                </div>
+              </Teleport>
+            </div>
             <GcConfirmAction
-              v-if="action.danger && permissionStore.hasPermission(action.permission) && !isRowActionHidden(row, index)"
+              v-else-if="!action.menu && action.danger && permissionStore.hasPermission(action.permission) && !isRowActionHidden(row, index)"
               :action-name="action.label"
               :impact-count="1"
               :risk-text="action.riskText"
@@ -391,7 +512,7 @@ defineExpose({
               @confirm="runRowAction(row, index)"
             />
             <GcPermissionButton
-              v-else-if="!action.danger && !isRowActionHidden(row, index)"
+              v-else-if="!action.menu && !action.danger && !isRowActionHidden(row, index)"
               :permission="action.permission"
               :danger="action.danger"
               @click="runRowAction(row, index)"
@@ -542,6 +663,28 @@ defineExpose({
 .business-page__row-link { border: 0; background: transparent; color: var(--gc-color-primary); font: inherit; font-weight: 900; padding: 0; cursor: pointer; }
 .business-page__row-link[aria-pressed="true"] { color: var(--gc-color-primary-hover); text-decoration: underline; text-underline-offset: var(--gc-space-1); }
 .business-page__row-actions { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); }
+.business-page__row-menu { display: inline-flex; position: relative; }
+.business-page__row-menu-panel {
+  position: fixed;
+  z-index: var(--gc-z-tooltip);
+  display: grid;
+  min-width: max-content;
+  gap: var(--gc-space-1);
+  padding: var(--gc-space-2) var(--gc-space-1);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-sm);
+  background: var(--gc-color-surface-solid);
+  box-shadow: var(--gc-shadow-md);
+}
+.business-page__row-menu-panel :deep(.gc-button),
+.business-page__row-menu-panel :deep(.gc-permission-button) {
+  width: 100%;
+  min-height: var(--gc-control-height-xs);
+  padding: var(--gc-space-1) var(--gc-space-2);
+  justify-content: flex-start;
+  white-space: nowrap;
+}
+.business-page__row-menu-item { display: flex; }
 .business-page__table-empty { display: grid; justify-items: center; gap: var(--gc-space-2); }
 .business-page__table-empty strong { color: var(--gc-color-text-strong); font-size: var(--gc-font-size-heading-xs); line-height: var(--gc-line-height-tight); }
 .business-page__table-empty p { max-width: var(--gc-size-content-readable); margin: 0; color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); line-height: var(--gc-line-height-relaxed); }

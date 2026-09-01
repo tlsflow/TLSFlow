@@ -5,9 +5,10 @@ import { useRoute } from 'vue-router'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import { deleteManagedDeviceAsset, getManagedDevice, listManagedDevices } from '@/api/modules/devices.api'
-import { checkAgentUpgrade, deleteAgent, dispatchAgentUpgrade } from '@/api/modules/assets.api'
+import { checkAgentUpgrade, deleteAgent, dispatchAgentUpgrade, listCloudServiceAssets } from '@/api/modules/assets.api'
 import { GcButton, GcModal, GcStatusTag } from '@/design-system/components'
 import DeviceOnboardingWizard from './DeviceOnboardingWizard.vue'
+import DeviceAssetEditModal from './DeviceAssetEditModal.vue'
 import ManagedDeviceDetailModal from './details/ManagedDeviceDetailModal.vue'
 import { readString, type ViewRow } from '@/composables/useBusinessPage'
 
@@ -32,6 +33,8 @@ const filters = ref<Record<string, string>>({
   health: readQueryString('health'),
 })
 const onboardingOpen = ref(false)
+const editOpen = ref(false)
+const editDeviceId = ref('')
 const reloadKey = ref(0)
 const deviceDetailModal = ref<{ open: (deviceId: string) => Promise<void> } | null>(null)
 const upgradingAgentId = ref('')
@@ -55,12 +58,73 @@ function readQueryString(key: string): string {
   return typeof value === 'string' ? value : ''
 }
 
-async function loadDevices(query: { page: number; pageSize: number }) {
-  return listManagedDevices({ ...query, sort: 'displayName:asc', filters: filters.value })
+async function loadUnifiedAssets() {
+  const devicesQuery = { page: 1, pageSize: 200, sort: 'displayName:asc' as const }
+  const cloudAssetsQuery = { page: 1, pageSize: 200, sort: 'updatedAt:desc' as const }
+  const [devicesResult, cloudAssetsResult] = await Promise.all([
+    listManagedDevices({ ...devicesQuery, filters: filters.value }),
+    listCloudServiceAssets(cloudAssetsQuery),
+  ])
+  const devicesPage = devicesResult.data ?? { items: [], page: 1, pageSize: 200, total: 0 }
+  const cloudAssetsPage = cloudAssetsResult.data ?? { items: [], page: 1, pageSize: 200, total: 0 }
+  const cloudAssets = cloudAssetsPage.items
+    .map(normalizeCloudServiceAsset)
+    .filter((asset) => matchesCloudServiceFilters(asset, filters.value))
+  const items = [...devicesPage.items, ...cloudAssets]
+  items.sort((left, right) => String(left.displayName ?? left.name ?? '').localeCompare(String(right.displayName ?? right.name ?? '')))
+  return {
+    ...devicesResult,
+    data: {
+      items,
+      page: 1,
+      pageSize: items.length || 1,
+      total: items.length,
+    },
+  }
+}
+
+function matchesCloudServiceFilters(asset: Record<string, unknown>, activeFilters: Record<string, string>): boolean {
+  const category = activeFilters.category?.trim().toUpperCase()
+  if (category && category !== 'CLOUD') return false
+  const managementMethod = activeFilters.managementMethod?.trim().toUpperCase()
+  if (managementMethod && managementMethod !== 'PLUGIN') return false
+  const health = activeFilters.health?.trim().toUpperCase()
+  if (health && health !== String(asset.health ?? '').toUpperCase()) return false
+  return true
+}
+
+function isCloudServiceRow(row: ViewRow): boolean {
+  return String(row.raw.assetKind ?? '').toUpperCase() === 'CLOUD_SERVICE'
+}
+
+function normalizeCloudServiceAsset(asset: Record<string, unknown>): Record<string, unknown> {
+  const metadata = asRecord(asset.metadata)
+  const pluginVersion = String(metadata.pluginVersion ?? asset.pluginVersion ?? '').trim()
+  const status = String(asset.status ?? '').toUpperCase()
+  return {
+    ...asset,
+    displayName: asset.displayName ?? asset.name ?? asset.id,
+    category: 'CLOUD',
+    productFamily: metadata.productFamily ?? metadata.pluginId ?? 'cloud.service',
+    managementMethod: 'PLUGIN',
+    managementAddress: asset.address,
+    livenessStatus: status === 'ACTIVE' ? 'ONLINE' : status === 'DELETED' ? 'OFFLINE' : 'UNKNOWN',
+    health: status === 'ACTIVE' ? 'HEALTHY' : 'UNKNOWN',
+    sourceStatus: status,
+    softwareVersion: '-',
+    controlVersion: pluginVersion || '-',
+    applicationAssetCount: 0,
+  }
 }
 
 async function openDetail(row: ViewRow) {
+  if (isCloudServiceRow(row)) return
   await deviceDetailModal.value?.open(row.id)
+}
+
+function openEdit(row: ViewRow): void {
+  editDeviceId.value = row.id
+  editOpen.value = true
 }
 
 onMounted(() => {
@@ -71,6 +135,7 @@ onMounted(() => {
 })
 
 async function deleteDevice(row: ViewRow) {
+  if (isCloudServiceRow(row)) return
   const response = await getManagedDevice(row.id)
   const extension = (response.data?.extension ?? {}) as Record<string, unknown>
   const extensionSummary = (response.data?.extensionSummary ?? {}) as Record<string, unknown>
@@ -86,6 +151,7 @@ async function deleteDevice(row: ViewRow) {
 }
 
 async function upgradeAgent(row: ViewRow) {
+  if (isCloudServiceRow(row)) return
   if (upgradingAgentId.value || upgradeConfirmationOpen.value) return
   const agentId = String(row.raw.agentId ?? '').trim()
   if (!agentId) throw new Error(t('devices.errors.upgradeTargetMissing'))
@@ -156,6 +222,7 @@ const config = computed<BusinessPageConfig>(() => ({
   showDetailPanel: false,
   showActionPanel: false,
   tableFixed: true,
+  clientSidePagination: true,
   showTotalInPagination: true,
   columns: [
     { key: 'name', title: t('devices.columns.name'), candidates: ['displayName', 'id'], width: '12%' },
@@ -236,20 +303,25 @@ const config = computed<BusinessPageConfig>(() => ({
   onFiltersChange: (next) => { filters.value = next },
   emptyTitle: t('devices.empty.title'),
   emptyDescription: t('devices.empty.description'),
-  load: (query) => {
+  load: () => {
     void reloadKey.value
-    return loadDevices(query)
+    return loadUnifiedAssets()
   },
   actions: [],
   rowActions: [{
-    label: t('devices.actions.detail'), permission: 'host.read', reloadAfterRun: false, run: openDetail,
+    label: t('devices.actions.detail'), permission: 'host.read', reloadAfterRun: false, hidden: isCloudServiceRow, run: openDetail,
   }, {
-    label: t('devices.actions.delete'), permission: 'host.delete', danger: true, confirmText: 'DELETE',
-    riskText: t('devices.detail.deleteImpact'), run: deleteDevice,
-  }, {
-    label: t('devices.actions.upgrade'), permission: 'host.update', reloadAfterRun: true,
-    hidden: (row) => row.raw.upgradeAvailable !== true || !String(row.raw.agentId ?? '').trim(),
-    run: upgradeAgent,
+    label: t('devices.actions.operation'), permission: 'host.read', reloadAfterRun: false, hidden: isCloudServiceRow,
+    menu: [{
+      label: t('devices.actions.edit'), permission: 'application.device.update', reloadAfterRun: false, run: async (row) => { openEdit(row) },
+    }, {
+      label: t('devices.actions.delete'), permission: 'host.delete', danger: true, confirmText: 'DELETE',
+      riskText: t('devices.detail.deleteImpact'), run: deleteDevice,
+    }, {
+      label: t('devices.actions.upgrade'), permission: 'host.update', reloadAfterRun: true,
+      hidden: (row) => row.raw.upgradeAvailable !== true || !String(row.raw.agentId ?? '').trim(),
+      run: upgradeAgent,
+    }],
   }],
 }))
 </script>
@@ -258,16 +330,10 @@ const config = computed<BusinessPageConfig>(() => ({
   <section class="gc-page devices-page">
     <BusinessResourcePage :key="reloadKey" :config="config">
       <template #cell-status="{ row }">
-        <span v-if="String(row.raw.category ?? '').toUpperCase() === 'CLOUD'">
-          {{ t('devices.unifiedDetail.values.empty') }}
-        </span>
-        <GcStatusTag v-else :status="String(row.status)" />
+        <GcStatusTag :status="String(row.status)" />
       </template>
       <template #cell-deviceVersion="{ row }">
-        <span v-if="String(row.raw.category ?? '').toUpperCase() === 'CLOUD'">
-          {{ t('devices.unifiedDetail.values.empty') }}
-        </span>
-        <span v-else>{{ row.deviceVersion }}</span>
+        <span>{{ row.deviceVersion }}</span>
       </template>
       <template #cell-controlVersion="{ row }">
         <span class="devices-page__control-version">
@@ -282,6 +348,7 @@ const config = computed<BusinessPageConfig>(() => ({
       </template>
     </BusinessResourcePage>
     <DeviceOnboardingWizard v-model:open="onboardingOpen" @completed="reloadKey += 1" />
+    <DeviceAssetEditModal v-model:open="editOpen" :device-id="editDeviceId" @completed="reloadKey += 1" />
     <ManagedDeviceDetailModal ref="deviceDetailModal" />
     <GcModal
       v-model:open="upgradeConfirmationOpen"
@@ -328,17 +395,18 @@ const config = computed<BusinessPageConfig>(() => ({
 }
 
 .devices-page :deep(.business-page__row-actions) {
+  display: flex;
   align-items: center;
-  max-width: 100%;
-  min-width: 0;
+  flex-wrap: nowrap;
+  min-width: max-content;
+  white-space: nowrap;
 }
 
 .devices-page :deep(.business-page__row-actions > *) {
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 100%;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  flex: 0 0 auto;
+  min-width: max-content;
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
 
 .devices-page__control-version {

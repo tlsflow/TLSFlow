@@ -13,6 +13,18 @@ export function listManagedDevices(query: BusinessListQuery = {}): Promise<ApiPa
   return apiClient.get<ApiPage>(buildListPath(DEVICES_PATH, query))
 }
 
+export function getDeviceAsset(deviceAssetId: string): Promise<ApiRecordResult> {
+  return apiClient.get<ApiRecord>(`${toClientPath('/api/v1/device-assets/detail')}?deviceAssetId=${encodeURIComponent(deviceAssetId)}`)
+}
+
+export function updateDeviceAsset(deviceAssetId: string, payload: ApiBody): Promise<ApiRecordResult> {
+  return apiClient.request<ApiRecord>(toClientPath('/api/v1/device-assets'), {
+    method: 'PATCH',
+    body: { ...payload, deviceAssetId },
+    idempotencyKey: createIdempotencyKey('device_asset_update'),
+  })
+}
+
 export function getManagedDevice(deviceId: string, locale?: string, includes?: readonly string[], frameworkId?: string): Promise<ApiRecordResult> {
   const params = new URLSearchParams()
   if (locale) params.set('locale', locale)

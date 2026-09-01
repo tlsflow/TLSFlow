@@ -41,6 +41,8 @@ export interface BusinessRowAction {
   readonly hidden?: (row: import('@/composables/useBusinessPage').ViewRow) => boolean
   readonly disabledReason?: (row: import('@/composables/useBusinessPage').ViewRow) => string
   readonly run?: (row: import('@/composables/useBusinessPage').ViewRow) => Promise<unknown>
+  /** 将相关行操作收纳到弹出菜单中。 */
+  readonly menu?: readonly BusinessRowAction[]
 }
 
 export interface BusinessDetailField {

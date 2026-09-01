@@ -19,6 +19,14 @@ export function listAssets(query?: BusinessListQuery) {
   return listRecords(APPLICATIONS_PATH, query)
 }
 
+/** 查询统一资产列表中的云服务资产；设备资产仍由设备模块查询。 */
+export function listCloudServiceAssets(query: BusinessListQuery = {}) {
+  return listRecords('/api/v1/assets', {
+    ...query,
+    filters: { ...(query.filters ?? {}), assetKind: 'CLOUD_SERVICE' },
+  })
+}
+
 export function listApplications(query?: BusinessListQuery) {
   return listRecords(APPLICATIONS_PATH, query)
 }

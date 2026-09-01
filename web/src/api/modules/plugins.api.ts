@@ -1,4 +1,4 @@
-import { apiClient } from '@/api/client'
+import { apiClient, createIdempotencyKey } from '@/api/client'
 import type { PageResult } from '@/api/generated/client-types'
 import type { PluginCatalogItem, PluginRuntimeMetric, PluginVersionRecord } from '@/api/generated/schemas'
 import { buildListPath, postAction, toClientPath, type ApiBody, type ApiRecord, type BusinessListQuery } from './common'
@@ -55,7 +55,11 @@ export function getPluginBinding(bindingId: string) {
 }
 
 export function updatePluginBinding(payload: ApiBody) {
-  return apiClient.request<ApiRecord>(toClientPath(PLUGIN_BINDINGS_PATH), { method: 'PATCH', body: payload })
+  return apiClient.request<ApiRecord>(toClientPath(PLUGIN_BINDINGS_PATH), {
+    method: 'PATCH',
+    body: payload,
+    idempotencyKey: createIdempotencyKey('plugin_binding_update'),
+  })
 }
 
 export function assignPluginCapability(payload: ApiBody) {

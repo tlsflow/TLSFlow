@@ -14,6 +14,7 @@ export const skeletonPermissions = [
   'host.read',
   'service_asset.read',
   'service_asset.manage',
+  'application.device.update',
   'provider.read',
   'cloud_account_asset.read',
   'cloud_account_asset.create',
