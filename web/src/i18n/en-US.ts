@@ -2248,9 +2248,11 @@ export default {
   notifications: {
     title: 'Notification management',
     description: 'Manage certificate events, templates, channel sending, and reliable delivery records.',
-    tabs: { channels: 'Channels', deliveries: 'Deliveries', rules: 'Rules and templates' },
-    sections: { channels: 'Channel records', deliveries: 'Delivery records' },
-    channels: { createTitle: 'Create notification channel' },
+    tabs: { events: 'Event definitions', templates: 'Notification templates', channels: 'Channel management', deliveries: 'Delivery records', rules: 'Rules and templates' },
+    sections: { events: 'Event definitions', templates: 'Notification templates', channels: 'Channel management', deliveries: 'Delivery records' },
+    channels: { createTitle: 'Create notification channel', editTitle: 'Edit notification channel' },
+    events: { createTitle: 'Configure event definition', editTitle: 'Configure event definition', description: 'Common certificate scenarios are provided by the system. Choose a template and channel for each one.', renewalResultDescription: 'Notify when certificate renewal, issuance, or update finishes.', statusDescription: 'Notify when a certificate status changes.', reportDescription: 'Notify when a scheduled certificate report is generated.', expiryWarningDescription: 'Notify when a certificate enters the configured expiry warning window.', expiredDescription: 'Notify when a certificate has expired.', revokedDescription: 'Notify when a certificate is revoked.', bindingDriftDescription: 'Notify when a binding uses a certificate different from the expected version.', reportFailedDescription: 'Notify when a scheduled certificate report fails permanently.' },
+    templates: { createTitle: 'Create notification template', editTitle: 'Edit notification template', previewTitle: 'Preview template: {key}', missingVariables: 'Preview is missing variables: {variables}' },
     settings: { privateOriginsTitle: 'Private deployment endpoints', privateOriginsDescription: 'Configure private HTTPS origins that notification management may access for WeCom, Feishu, and DingTalk.' },
     channelTypes: { email: 'Email', wecom: 'WeCom', slack: 'Slack', feishu: 'Feishu', dingtalk: 'DingTalk', telegram: 'Telegram', webhook: 'Generic webhook' },
     deploymentModes: { public: 'Public cloud', private: 'Private deployment' },
@@ -2263,19 +2265,21 @@ export default {
       webhookUrl: 'Webhook URL', webhookUrlPlaceholder: 'Enter the complete webhook URL', webhookMethod: 'HTTP method', webhookHeaders: 'Fixed headers (JSON)',
       webhookHeadersPlaceholder: 'Example: x-source = gcac', signingSecret: 'HMAC-SHA256 signing secret', testTarget: 'Test recipient',
       testTargetPlaceholder: 'Email recipients can be comma-separated', lastSuccess: 'Last success', latency: 'Latency (ms)',
-      createdAt: 'Created at', updatedAt: 'Updated at', failureCategory: 'Failure category', channel: 'Notification channel', selectChannel: 'Select a notification channel',
-      source: 'Event source', priority: 'Route priority', dedupeWindow: 'Dedupe window (seconds)', templateKey: 'Template key', locale: 'Locale',
+      createdAt: 'Created at', updatedAt: 'Updated at', failureCategory: 'Failure category', channel: 'Notification channel', selectChannel: 'Select a notification channel', selectTemplate: 'Select a notification template',
+      source: 'Event source', eventType: 'Event type', priority: 'Route priority', dedupeWindow: 'Dedupe window (seconds)', templateKey: 'Template key', locale: 'Locale', nextAttemptAt: 'Next retry', variables: 'Template variables', deliveryStatus: 'Delivery status', attempts: 'Attempts',
       titleTemplate: 'Title template', bodyTemplate: 'Body template', reason: 'Silence reason', startsAt: 'Starts at', endsAt: 'Ends at',
-      wecomPrivateOrigins: 'WeCom private Origins', feishuPrivateOrigins: 'Feishu private Origins', dingtalkPrivateOrigins: 'DingTalk private Origins', privateOriginsPlaceholder: 'One per line, for example https://notify.example.internal'
+      privateOrigin: 'Private deployment origin', privateOriginPlaceholder: 'For example https://notify.example.internal', wecomPrivateOrigins: 'WeCom private Origins', feishuPrivateOrigins: 'Feishu private Origins', dingtalkPrivateOrigins: 'DingTalk private Origins', privateOriginsPlaceholder: 'One per line, for example https://notify.example.internal'
     },
     actions: {
       createChannel: 'New channel', createRoute: 'New route', createTemplate: 'New template', createSilence: 'New silence',
-      confirmCreate: 'Create', cancel: 'Cancel', saveSettings: 'Save settings', test: 'Send test', testChannel: 'Test channel: {name}', retry: 'Retry delivery', enable: 'Enable', disable: 'Disable'
+      confirmCreate: 'Create', cancel: 'Cancel', saveSettings: 'Save settings', test: 'Send test', testChannel: 'Test channel: {name}', retry: 'Retry delivery', detail: 'Details', preview: 'Preview', enable: 'Enable', disable: 'Disable'
     },
     rules: { createRoute: 'Create notification route', createTemplate: 'Create notification template', createSilence: 'Create silence rule' },
-    summary: { routes: 'Notification routes', templates: 'Notification templates', silences: 'Silence rules', recordCount: '{count} records' },
-    empty: { channels: 'No notification channels', deliveries: 'No delivery records', routes: 'No notification routes', templates: 'No notification templates', silences: 'No silence rules' },
-    values: { notAvailable: '—' },
+    summary: { routes: 'Event mappings', templates: 'Notification templates', silences: 'Silence rules', attempts: 'Attempts', outbox: 'Dispatch queue', attemptProgress: 'Attempt {current} of {total}', attemptNumber: 'Attempt {number}', dispatchGeneration: 'Dispatch {generation}', recordCount: '{count} records' },
+    empty: { channels: 'No notification channels', deliveries: 'No delivery records', routes: 'No notification routes', events: 'No event definitions', eventDefinitions: 'No system event definitions', templates: 'No notification templates', silences: 'No silence rules', attempts: 'No attempts', outbox: 'No dispatch records' },
+    values: { notAvailable: '—', notConfigured: 'Not configured', certificateSource: 'Certificate' },
+    eventTypes: { renewalResult: 'Certificate renewal result', status: 'Certificate status changed', report: 'Certificate scheduled report', expiryWarning: 'Certificate expiry warning', expired: 'Certificate expired', revoked: 'Certificate revoked', bindingDrift: 'Certificate binding drift', reportFailed: 'Certificate report failed' },
+    deliveryFilters: { all: 'All statuses', failed: 'Failed', retrying: 'Retrying', queued: 'Queued', delivered: 'Delivered' },
     secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'SMTP username', smtpPassword: 'SMTP password', webhookUrl: 'Webhook URL', signingSecret: 'Signing secret', botToken: 'Bot token' } },
     messages: {
       loadFailed: 'Failed to load notification management data', operationFailed: 'Notification management operation failed', testUsesChannelTarget: 'This channel will send the test notification to its configured target.',
@@ -2283,7 +2287,7 @@ export default {
       smtpCredentialsPairRequired: 'SMTP username and password must be provided together', webhookUrlRequired: 'Webhook URL is required', botTokenRequired: 'Telegram bot token is required',
       chatIdRequired: 'Telegram chat ID is required', feishuWebhookUrlInvalid: 'Enter an official Feishu custom bot webhook URL', dingtalkWebhookUrlInvalid: 'Enter an official DingTalk custom bot webhook URL',
       wecomWebhookUrlInvalid: 'Enter a valid WeCom bot HTTPS webhook URL', telegramBotTokenInvalid: 'The Telegram bot token format is invalid', telegramMessageThreadIdInvalid: 'The Telegram topic ID must be a positive integer',
-      privateDeploymentAllowlistHint: 'Private endpoints must first be added to the trusted HTTPS origin list above, otherwise testing and delivery are rejected.', privateOriginInvalid: 'A private endpoint must be an exact HTTPS origin without a path, query, user information, or fragment.', privateOriginsSecurityHint: 'Enter only the scheme, host, and optional port. Full webhook URLs, tokens, and signing secrets remain encrypted in the secret service.', telegramUsesBotApi: 'Telegram notifications use the official Bot API sendMessage method, not the event-receiving webhook.'
+      privateDeploymentAllowlistHint: 'Private endpoints must first be added to the trusted HTTPS origin list above, otherwise testing and delivery are rejected.', privateOriginInvalid: 'A private endpoint must be an exact HTTPS origin without a path, query, user information, or fragment.', privateOriginMismatch: 'The webhook URL must use the configured private deployment origin.', privateOriginHint: 'Optional. Set this only for this channel when its webhook is hosted in a private deployment. Enter the scheme, host, and optional port; keep the full webhook URL in the encrypted field below.', privateOriginsSecurityHint: 'Enter only the scheme, host, and optional port. Full webhook URLs, tokens, and signing secrets remain encrypted in the secret service.', telegramUsesBotApi: 'Telegram notifications use the official Bot API sendMessage method, not the event-receiving webhook.'
     }
   },
   settings: {

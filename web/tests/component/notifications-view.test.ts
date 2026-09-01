@@ -6,18 +6,22 @@ import NotificationsView from '@/views/settings/NotificationsView.vue'
 const apiMocks = vi.hoisted(() => ({
   listNotificationChannels: vi.fn(),
   listNotificationDeliveries: vi.fn(),
+  listNotificationEventDefinitions: vi.fn(),
+  listNotificationRequests: vi.fn(),
   listNotificationRoutes: vi.fn(),
   listNotificationTemplates: vi.fn(),
   listNotificationSilences: vi.fn(),
-  getNotificationSettings: vi.fn(),
   createNotificationChannel: vi.fn(),
   createNotificationRoute: vi.fn(),
   createNotificationSilence: vi.fn(),
   saveNotificationTemplate: vi.fn(),
   updateNotificationChannel: vi.fn(),
+  updateNotificationRoute: vi.fn(),
+  updateNotificationTemplate: vi.fn(),
   testNotificationChannel: vi.fn(),
   retryNotificationDelivery: vi.fn(),
-  updateNotificationSettings: vi.fn()
+  getNotificationDelivery: vi.fn(),
+  previewNotificationTemplate: vi.fn()
 }))
 const securityApiMocks = vi.hoisted(() => ({ createSecret: vi.fn() }))
 
@@ -30,18 +34,31 @@ vi.mock('@/stores/permission.store', () => ({
 describe('NotificationsView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    apiMocks.getNotificationSettings.mockResolvedValue({ data: { tenantId: 'tenant-1', privateOrigins: { wecom: [], feishu: [], dingtalk: [] }, version: 0 } })
-    apiMocks.updateNotificationSettings.mockResolvedValue({ data: { tenantId: 'tenant-1', privateOrigins: { wecom: [], feishu: [], dingtalk: [] }, version: 1 } })
+    apiMocks.listNotificationChannels.mockResolvedValue({ data: [] })
+    apiMocks.listNotificationDeliveries.mockResolvedValue({ data: { items: [], page: 1, pageSize: 100, total: 0 } })
+    apiMocks.listNotificationEventDefinitions.mockResolvedValue({ data: [
+      { eventType: 'certificate.renewal.result', templateKey: 'certificate.renewal.result', source: 'certificate' },
+      { eventType: 'certificate.status', templateKey: 'certificate.status', source: 'certificate' },
+      { eventType: 'certificate.report', templateKey: 'certificate.report', source: 'certificate' },
+      { eventType: 'certificate.expiry.warning', templateKey: 'certificate.expiry.warning', source: 'certificate' },
+      { eventType: 'certificate.expired', templateKey: 'certificate.expired', source: 'certificate' },
+      { eventType: 'certificate.revoked', templateKey: 'certificate.revoked', source: 'certificate' },
+      { eventType: 'certificate.binding.drift', templateKey: 'certificate.binding.drift', source: 'certificate' },
+      { eventType: 'certificate.report.failed', templateKey: 'certificate.report.failed', source: 'certificate' }
+    ] })
+    apiMocks.listNotificationRequests.mockResolvedValue({ data: { items: [], page: 1, pageSize: 100, total: 0 } })
+    apiMocks.listNotificationRoutes.mockResolvedValue({ data: [] })
+    apiMocks.listNotificationTemplates.mockResolvedValue({ data: [] })
   })
 
   it('加载期间显示统一工作台状态反馈', async () => {
     const pending = () => new Promise(() => {})
     apiMocks.listNotificationChannels.mockImplementation(pending)
     apiMocks.listNotificationDeliveries.mockImplementation(pending)
+    apiMocks.listNotificationRequests.mockImplementation(pending)
     apiMocks.listNotificationRoutes.mockImplementation(pending)
     apiMocks.listNotificationTemplates.mockImplementation(pending)
     apiMocks.listNotificationSilences.mockImplementation(pending)
-    apiMocks.getNotificationSettings.mockImplementation(pending)
 
     const wrapper = mount(NotificationsView, {
       global: {
@@ -53,6 +70,23 @@ describe('NotificationsView', () => {
 
     expect(wrapper.find('.gc-page.notifications-page').exists()).toBe(true)
     expect(wrapper.get('.notifications-page__loading').text()).toContain('加载中')
+  })
+
+  it('事件定义以紧凑列表展示八类预置场景并默认禁用', async () => {
+    const wrapper = mount(NotificationsView, {
+      global: {
+        plugins: [i18n],
+        stubs: {
+          GcTabs: { props: ['modelValue'], template: '<nav />' },
+          GcStatusTag: { props: ['status'], template: '<span class="status">{{ status }}</span>' }
+        }
+      }
+    })
+    await flushPromises()
+
+    expect(wrapper.findAll('.notifications-page__event-row')).toHaveLength(8)
+    expect(wrapper.findAll('.notifications-page__event-row .status').every((item) => item.text() === 'disabled')).toBe(true)
+    expect(wrapper.findAll('.notifications-page__event-row').every((item) => item.find('dl').exists() === false)).toBe(true)
   })
 
   it('加载渠道与投递，并且不显示 Secret 明文', async () => {
@@ -85,6 +119,7 @@ describe('NotificationsView', () => {
       }
     })
     await flushPromises()
+    await wrapper.get('nav button').trigger('click')
 
     expect(wrapper.text()).toContain('企业 Slack')
     expect(wrapper.text()).toContain('healthy')
@@ -101,40 +136,16 @@ describe('NotificationsView', () => {
     expect(wrapper.find('input[type="password"][autocomplete="new-password"]').exists()).toBe(true)
   })
 
-  it('系统管理员可以保存三种私有化平台 Origin', async () => {
+  it('私有化平台地址不再显示为全局通知设置', async () => {
     apiMocks.listNotificationChannels.mockResolvedValue({ data: [] })
     apiMocks.listNotificationDeliveries.mockResolvedValue({ data: { items: [], page: 1, pageSize: 100, total: 0 } })
     apiMocks.listNotificationRoutes.mockResolvedValue({ data: [] })
     apiMocks.listNotificationTemplates.mockResolvedValue({ data: [] })
     apiMocks.listNotificationSilences.mockResolvedValue({ data: [] })
-    apiMocks.getNotificationSettings.mockResolvedValue({
-      data: { tenantId: 'tenant-1', privateOrigins: { wecom: ['https://wecom.old.internal'], feishu: [], dingtalk: [] }, version: 3 }
-    })
-    apiMocks.updateNotificationSettings.mockResolvedValue({
-      data: { tenantId: 'tenant-1', privateOrigins: { wecom: ['https://wecom.internal'], feishu: ['https://feishu.internal:8443'], dingtalk: ['https://dingtalk.internal'] }, version: 4 }
-    })
-
     const wrapper = mount(NotificationsView, { global: { plugins: [i18n], stubs: { GcTabs: { props: ['modelValue'], template: '<nav />' } } } })
     await flushPromises()
-    const settingsForm = wrapper.get('form.notifications-page__settings')
-    const fields = settingsForm.findAll('textarea')
-    await fields[0]!.setValue('https://wecom.internal/path?token=secret')
-    await settingsForm.trigger('submit')
-    await flushPromises()
-    expect(apiMocks.updateNotificationSettings).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('精确 HTTPS Origin')
-
-    await fields[0]!.setValue('https://wecom.internal')
-    await fields[1]!.setValue('https://feishu.internal:8443')
-    await fields[2]!.setValue('https://dingtalk.internal')
-    await settingsForm.trigger('submit')
-    await flushPromises()
-    expect(apiMocks.updateNotificationSettings).toHaveBeenCalledWith({
-      version: 3,
-      wecomPrivateOrigins: ['https://wecom.internal'],
-      feishuPrivateOrigins: ['https://feishu.internal:8443'],
-      dingtalkPrivateOrigins: ['https://dingtalk.internal']
-    })
+    expect(wrapper.find('form.notifications-page__settings').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('保存设置')
   })
 
   it('Slack Webhook 明文只写入 Secret 服务，渠道请求只保存 SecretRef', async () => {
@@ -150,7 +161,7 @@ describe('NotificationsView', () => {
       global: {
         plugins: [i18n],
         stubs: {
-          GcTabs: { props: ['modelValue'], template: '<nav />' },
+          GcTabs: { props: ['modelValue'], template: '<nav><button @click="$emit(\'update:modelValue\', \'channels\')">channels</button></nav>' },
           GcModal: {
             props: ['open', 'title'],
             template: '<section v-if="open" role="dialog"><h2>{{ title }}</h2><slot /><slot name="actions" /></section>'
@@ -160,6 +171,7 @@ describe('NotificationsView', () => {
       }
     })
     await flushPromises()
+    await wrapper.get('nav button').trigger('click')
 
     expect(wrapper.text()).toContain('暂无通知渠道')
     const createButton = wrapper.findAll('button').find((button) => button.text() === '新建通知渠道')
@@ -195,7 +207,7 @@ describe('NotificationsView', () => {
       global: {
         plugins: [i18n],
         stubs: {
-          GcTabs: { props: ['modelValue'], template: '<nav />' },
+          GcTabs: { props: ['modelValue'], template: '<nav><button @click="$emit(\'update:modelValue\', \'channels\')">channels</button></nav>' },
           GcModal: {
             props: ['open', 'title'],
             template: '<section v-if="open" role="dialog"><h2>{{ title }}</h2><slot /><slot name="actions" /></section>'
@@ -205,6 +217,7 @@ describe('NotificationsView', () => {
       }
     })
     await flushPromises()
+    await wrapper.get('nav button').trigger('click')
 
     const createButton = wrapper.findAll('button').find((button) => button.text() === '新建通知渠道')
     await createButton?.trigger('click')
@@ -213,9 +226,7 @@ describe('NotificationsView', () => {
 
     await typeSelect.setValue('wecom')
     expect(form.text()).toContain('企业微信群机器人 Webhook URL')
-    expect(form.text()).toContain('部署模式')
-    expect(form.text()).toContain('公有云')
-    expect(form.text()).toContain('私有化部署')
+    expect(form.text()).toContain('私有化平台地址')
 
     await typeSelect.setValue('slack')
     expect(form.text()).toContain('Slack Incoming Webhook URL')
@@ -241,7 +252,7 @@ describe('NotificationsView', () => {
     expect(form.findAll('input[type="password"]').length).toBe(2)
   })
 
-  it('企业微信私有化模式允许企业 HTTPS 地址且渠道记录不保存白名单配置', async () => {
+  it('企业微信私有化地址保存到当前渠道配置而非全局设置', async () => {
     apiMocks.listNotificationChannels.mockResolvedValue({ data: [] })
     apiMocks.listNotificationDeliveries.mockResolvedValue({ data: { items: [], page: 1, pageSize: 100, total: 0 } })
     apiMocks.listNotificationRoutes.mockResolvedValue({ data: [] })
@@ -254,7 +265,7 @@ describe('NotificationsView', () => {
       global: {
         plugins: [i18n],
         stubs: {
-          GcTabs: { props: ['modelValue'], template: '<nav />' },
+          GcTabs: { props: ['modelValue'], template: '<nav><button @click="$emit(\'update:modelValue\', \'channels\')">channels</button></nav>' },
           GcModal: {
             props: ['open', 'title'],
             template: '<section v-if="open" role="dialog"><h2>{{ title }}</h2><slot /><slot name="actions" /></section>'
@@ -264,15 +275,15 @@ describe('NotificationsView', () => {
       }
     })
     await flushPromises()
+    await wrapper.get('nav button').trigger('click')
 
     const createButton = wrapper.findAll('button').find((button) => button.text() === '新建通知渠道')
     await createButton?.trigger('click')
     const form = wrapper.get('#notification-channel-form')
     await form.get('input:not([type="password"])').setValue('私有企业微信')
     await form.get('select').setValue('wecom')
-    const deploymentField = form.findAll('label').find((label) => label.text().includes('部署模式'))
-    await deploymentField!.get('select').setValue('private')
-    expect(form.text()).toContain('受信任 HTTPS Origin 白名单')
+    const privateOriginField = form.findAll('label').find((label) => label.text().includes('私有化平台地址'))
+    await privateOriginField!.get('input').setValue('https://wecom.example.internal')
     await form.get('input[type="password"]').setValue('https://wecom.example.internal/custom/webhook?key=plaintext-token')
     await form.trigger('submit')
     await flushPromises()
@@ -280,13 +291,52 @@ describe('NotificationsView', () => {
     expect(apiMocks.createNotificationChannel).toHaveBeenCalledWith(expect.objectContaining({
       name: '私有企业微信',
       type: 'wecom',
-      config: {},
+      config: { privateOrigin: 'https://wecom.example.internal' },
       secretRefs: { webhookUrl: 'secret://api_token/sec-wecom-private#current' }
     }))
     const request = JSON.stringify(apiMocks.createNotificationChannel.mock.calls)
-    expect(request).not.toContain('deploymentMode')
     expect(request).not.toContain('privateOrigins')
     expect(request).not.toContain('plaintext-token')
+  })
+
+  it('编辑私有化渠道时只更新当前渠道的 Origin，不要求重填密文', async () => {
+    apiMocks.listNotificationChannels.mockResolvedValue({
+      data: [{
+        id: 'channel-wecom-private', name: '私有企业微信', type: 'wecom', status: 'disabled',
+        config: { privateOrigin: 'https://wecom.old.internal' }, secretRefs: { webhookUrl: 'secret://api_token/wecom#current' },
+        healthStatus: 'unknown', version: 7
+      }]
+    })
+    apiMocks.listNotificationDeliveries.mockResolvedValue({ data: { items: [], page: 1, pageSize: 100, total: 0 } })
+    apiMocks.listNotificationRoutes.mockResolvedValue({ data: [] })
+    apiMocks.listNotificationTemplates.mockResolvedValue({ data: [] })
+    apiMocks.listNotificationSilences.mockResolvedValue({ data: [] })
+    apiMocks.updateNotificationChannel.mockResolvedValue({ data: { id: 'channel-wecom-private' } })
+
+    const wrapper = mount(NotificationsView, {
+      global: {
+        plugins: [i18n],
+        stubs: {
+          GcTabs: { props: ['modelValue'], template: '<nav><button @click="$emit(\'update:modelValue\', \'channels\')">channels</button></nav>' },
+          GcModal: { props: ['open', 'title'], template: '<section v-if="open" role="dialog"><h2>{{ title }}</h2><slot /><slot name="actions" /></section>' },
+          GcStatusTag: { props: ['status'], template: '<span>{{ status }}</span>' }
+        }
+      }
+    })
+    await flushPromises()
+    await wrapper.get('nav button').trigger('click')
+    const editButton = wrapper.findAll('button').find((button) => button.text() === '编辑')
+    await editButton?.trigger('click')
+    const form = wrapper.get('#notification-channel-form')
+    const privateOriginField = form.findAll('label').find((label) => label.text().includes('私有化平台地址'))
+    await privateOriginField!.get('input').setValue('https://wecom.new.internal')
+    await form.trigger('submit')
+    await flushPromises()
+    expect(apiMocks.updateNotificationChannel).toHaveBeenCalledWith('channel-wecom-private', {
+      version: 7,
+      name: '私有企业微信',
+      config: { privateOrigin: 'https://wecom.new.internal' }
+    })
   })
 
   it('Telegram Bot Token 只写入 Secret 服务，渠道请求使用固定 Bot API 配置', async () => {
@@ -302,7 +352,7 @@ describe('NotificationsView', () => {
       global: {
         plugins: [i18n],
         stubs: {
-          GcTabs: { props: ['modelValue'], template: '<nav />' },
+          GcTabs: { props: ['modelValue'], template: '<nav><button @click="$emit(\'update:modelValue\', \'channels\')">channels</button></nav>' },
           GcModal: {
             props: ['open', 'title'],
             template: '<section v-if="open" role="dialog"><h2>{{ title }}</h2><slot /><slot name="actions" /></section>'
@@ -312,6 +362,7 @@ describe('NotificationsView', () => {
       }
     })
     await flushPromises()
+    await wrapper.get('nav button').trigger('click')
 
     const createButton = wrapper.findAll('button').find((button) => button.text() === '新建通知渠道')
     await createButton?.trigger('click')
@@ -337,5 +388,107 @@ describe('NotificationsView', () => {
       secretRefs: { botToken: 'secret://api_token/sec-telegram#current' }
     }))
     expect(JSON.stringify(apiMocks.createNotificationChannel.mock.calls)).not.toContain('plaintext-token')
+  })
+
+  it('事件定义固定证书来源并使用事件类型匹配', async () => {
+    apiMocks.listNotificationChannels.mockResolvedValue({ data: [{ id: 'channel-1', name: '运维邮件', type: 'email', status: 'active', config: {}, secretRefs: {}, healthStatus: 'healthy', version: 1 }] })
+    apiMocks.listNotificationTemplates.mockResolvedValue({ data: [{ id: 'template-1', templateKey: 'certificate.status', locale: 'zh-CN', titleTemplate: '状态 {{status}}', bodyTemplate: '正文', requiredVariables: ['status'], status: 'active', updatedAt: '2026-08-28T00:00:00.000Z', version: 2 }] })
+    apiMocks.createNotificationRoute.mockResolvedValue({ data: { id: 'route-1' } })
+
+    const wrapper = mount(NotificationsView, {
+      global: {
+        plugins: [i18n],
+        stubs: {
+          GcTabs: { props: ['modelValue'], template: '<nav><button @click="$emit(\'update:modelValue\', \'events\')">events</button></nav>' },
+          GcModal: { props: ['open', 'title'], template: '<section v-if="open" role="dialog"><h2>{{ title }}</h2><slot /><slot name="actions" /></section>' },
+          GcStatusTag: { props: ['status'], template: '<span>{{ status }}</span>' }
+        }
+      }
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('事件定义')
+    const configureButtons = wrapper.findAll('button').filter((button) => button.text() === '配置')
+    await configureButtons[1]?.trigger('click')
+    const form = wrapper.get('#notification-route-form')
+    const selects = form.findAll('select')
+    await selects[0].setValue('channel-1')
+    await selects[1].setValue('certificate.status')
+    await form.trigger('submit')
+    await flushPromises()
+
+    expect(apiMocks.createNotificationRoute).toHaveBeenCalledWith(expect.objectContaining({
+      matcher: { sources: ['certificate'], eventTypes: ['certificate.status'] },
+      templateKey: 'certificate.status',
+      channelTargets: [{ channelId: 'channel-1' }]
+    }))
+  })
+
+  it('事件页展示全部预置证书场景且不提供新增事件入口', async () => {
+    const wrapper = mount(NotificationsView, {
+      global: {
+        plugins: [i18n],
+        stubs: {
+          GcTabs: { props: ['modelValue'], template: '<nav />' },
+          GcStatusTag: { props: ['status'], template: '<span>{{ status }}</span>' }
+        }
+      }
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('证书续期结果')
+    expect(wrapper.text()).toContain('证书状态变更')
+    expect(wrapper.text()).toContain('证书定期报表')
+    expect(wrapper.findAll('button').some((button) => button.text() === '新建事件定义')).toBe(false)
+  })
+
+  it('投递记录按失败状态筛选，并显示关联事件和重试进度', async () => {
+    apiMocks.listNotificationDeliveries.mockResolvedValue({
+      data: { items: [{ id: 'delivery-1', requestId: 'request-1', channelNameSnapshot: '运维邮件', channelType: 'email', status: 'failed', attemptCount: 2, maxAttempts: 3, failureCategory: 'network', createdAt: '2026-08-28T00:00:00.000Z' }], page: 1, pageSize: 100, total: 1 }
+    })
+    apiMocks.listNotificationRequests.mockResolvedValue({
+      data: { items: [{ id: 'request-1', source: 'certificate', eventType: 'certificate.status', templateKey: 'certificate.status', status: 'failed', createdAt: '2026-08-28T00:00:00.000Z' }], page: 1, pageSize: 100, total: 1 }
+    })
+
+    const wrapper = mount(NotificationsView, {
+      global: {
+        plugins: [i18n],
+        stubs: {
+          GcTabs: { props: ['modelValue'], template: '<nav><button @click="$emit(\'update:modelValue\', \'deliveries\')">deliveries</button></nav>' },
+          GcStatusTag: { props: ['status'], template: '<span>{{ status }}</span>' }
+        }
+      }
+    })
+    await flushPromises()
+    await wrapper.get('nav button').trigger('click')
+
+    expect(wrapper.text()).toContain('certificate.status')
+    expect(wrapper.text()).toContain('第 2 / 3 次')
+    await wrapper.get('.notifications-page__filter select').setValue('failed')
+    expect(wrapper.text()).toContain('重新投递')
+  })
+
+  it('模板预览在模态框内显示，不复用错误提示区域', async () => {
+    apiMocks.listNotificationTemplates.mockResolvedValue({ data: [{ id: 'template-1', templateKey: 'certificate.status', locale: 'zh-CN', titleTemplate: '证书 {{domain}}', bodyTemplate: '状态 {{status}}', requiredVariables: ['domain', 'status'], status: 'active', updatedAt: '2026-08-28T00:00:00.000Z', version: 1 }] })
+    apiMocks.previewNotificationTemplate.mockResolvedValue({ data: { title: '证书 example.com', body: '状态 active', missingVariables: [], templateVersion: 1 } })
+
+    const wrapper = mount(NotificationsView, {
+      global: {
+        plugins: [i18n],
+        stubs: {
+          GcTabs: { props: ['modelValue'], template: '<nav><button @click="$emit(\'update:modelValue\', \'templates\')">templates</button></nav>' },
+          GcModal: { props: ['open', 'title'], template: '<section v-if="open" role="dialog"><h2>{{ title }}</h2><slot /><slot name="actions" /></section>' },
+          GcStatusTag: { props: ['status'], template: '<span>{{ status }}</span>' }
+        }
+      }
+    })
+    await flushPromises()
+    await wrapper.get('nav button').trigger('click')
+    const previewButton = wrapper.findAll('button').find((button) => button.text() === '预览')
+    await previewButton?.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[role="dialog"]').text()).toContain('证书 example.com')
+    expect(wrapper.find('.notifications-page__error').exists()).toBe(false)
   })
 })

@@ -2165,9 +2165,11 @@ export default {
   notifications: {
     title: 'Gestion des notifications',
     description: 'Gérez les canaux, routes, modèles, silences et historiques de livraison fiables.',
-    tabs: { channels: 'Canaux', deliveries: 'Livraisons', rules: 'Règles et modèles' },
-    sections: { channels: 'Canaux enregistrés', deliveries: 'Historique des livraisons' },
-    channels: { createTitle: 'Créer un canal de notification' },
+    tabs: { events: 'Définitions d’événements', templates: 'Modèles de notification', channels: 'Gestion des canaux', deliveries: 'Historique des livraisons', rules: 'Règles et modèles' },
+    sections: { events: 'Définitions d’événements', templates: 'Modèles de notification', channels: 'Gestion des canaux', deliveries: 'Historique des livraisons' },
+    channels: { createTitle: 'Créer un canal de notification', editTitle: 'Modifier le canal de notification' },
+    events: { createTitle: 'Configurer la définition d’événement', editTitle: 'Configurer la définition d’événement', description: 'Les scénarios courants de certificats sont fournis par le système. Choisissez un modèle et un canal pour chacun.', renewalResultDescription: 'Notifier lorsque le renouvellement, l’émission ou la mise à jour du certificat est terminée.', statusDescription: 'Notifier lorsqu’un état de certificat change.', reportDescription: 'Notifier lorsqu’un rapport périodique de certificats est généré.', expiryWarningDescription: 'Notifier lorsqu’un certificat entre dans la fenêtre d’expiration configurée.', expiredDescription: 'Notifier lorsqu’un certificat est expiré.', revokedDescription: 'Notifier lorsqu’un certificat est révoqué.', bindingDriftDescription: 'Notifier lorsqu’une liaison utilise un certificat différent de la version attendue.', reportFailedDescription: 'Notifier lorsqu’un rapport périodique de certificats échoue définitivement.' },
+    templates: { createTitle: 'Créer un modèle de notification', editTitle: 'Modifier le modèle de notification', previewTitle: 'Aperçu du modèle : {key}', missingVariables: 'Variables manquantes dans l’aperçu : {variables}' },
     settings: { privateOriginsTitle: 'Adresses de déploiement privé', privateOriginsDescription: 'Configurez les Origins HTTPS privées autorisées pour WeCom, Feishu et DingTalk.' },
     channelTypes: { email: 'Email', wecom: 'WeCom', slack: 'Slack', feishu: 'Feishu', dingtalk: 'DingTalk', telegram: 'Telegram', webhook: 'Webhook générique' },
     deploymentModes: { public: 'Cloud public', private: 'Déploiement privé' },
@@ -2180,19 +2182,21 @@ export default {
       webhookUrl: 'URL Webhook', webhookUrlPlaceholder: 'Saisissez l’URL Webhook complète', webhookMethod: 'Méthode HTTP', webhookHeaders: 'Headers fixes (JSON)',
       webhookHeadersPlaceholder: 'Exemple : x-source = gcac', signingSecret: 'Secret de signature HMAC-SHA256', testTarget: 'Destinataire de test',
       testTargetPlaceholder: 'Séparez les adresses Email par des virgules', lastSuccess: 'Dernier succès', latency: 'Latence (ms)',
-      createdAt: 'Créé le', updatedAt: 'Mis à jour le', failureCategory: 'Catégorie d’échec', channel: 'Canal de notification', selectChannel: 'Sélectionnez un canal',
-      source: 'Source de l’événement', priority: 'Priorité de route', dedupeWindow: 'Fenêtre de déduplication (secondes)', templateKey: 'Clé du modèle', locale: 'Langue',
+      createdAt: 'Créé le', updatedAt: 'Mis à jour le', failureCategory: 'Catégorie d’échec', channel: 'Canal de notification', selectChannel: 'Sélectionnez un canal', selectTemplate: 'Sélectionnez un modèle',
+      source: 'Source de l’événement', eventType: 'Type d’événement', priority: 'Priorité de route', dedupeWindow: 'Fenêtre de déduplication (secondes)', templateKey: 'Clé du modèle', locale: 'Langue', nextAttemptAt: 'Prochaine relance', variables: 'Variables du modèle', deliveryStatus: 'État de livraison', attempts: 'Tentatives',
       titleTemplate: 'Modèle de titre', bodyTemplate: 'Modèle de corps', reason: 'Motif du silence', startsAt: 'Début', endsAt: 'Fin',
-      wecomPrivateOrigins: 'Origins privées WeCom', feishuPrivateOrigins: 'Origins privées Feishu', dingtalkPrivateOrigins: 'Origins privées DingTalk', privateOriginsPlaceholder: 'Une par ligne, par exemple https://notify.example.internal'
+      privateOrigin: 'Origin de déploiement privé', privateOriginPlaceholder: 'Par exemple https://notify.example.internal', wecomPrivateOrigins: 'Origins privées WeCom', feishuPrivateOrigins: 'Origins privées Feishu', dingtalkPrivateOrigins: 'Origins privées DingTalk', privateOriginsPlaceholder: 'Une par ligne, par exemple https://notify.example.internal'
     },
     actions: {
-      createChannel: 'Nouveau canal', createRoute: 'Nouvelle route', createTemplate: 'Nouveau modèle', createSilence: 'Nouveau silence',
-      confirmCreate: 'Créer', cancel: 'Annuler', saveSettings: 'Enregistrer', test: 'Envoyer un test', testChannel: 'Tester le canal : {name}', retry: 'Relancer la livraison', enable: 'Activer', disable: 'Désactiver'
+      createChannel: 'Nouveau canal', createRoute: 'Nouvelle route', createTemplate: 'Nouveau modèle', createSilence: 'Nouveau silence', configure: 'Configurer',
+      confirmCreate: 'Créer', cancel: 'Annuler', saveSettings: 'Enregistrer', test: 'Envoyer un test', testChannel: 'Tester le canal : {name}', retry: 'Relancer la livraison', detail: 'Détails', preview: 'Aperçu', enable: 'Activer', disable: 'Désactiver'
     },
     rules: { createRoute: 'Créer une route de notification', createTemplate: 'Créer un modèle de notification', createSilence: 'Créer une règle de silence' },
-    summary: { routes: 'Routes de notification', templates: 'Modèles de notification', silences: 'Règles de silence', recordCount: '{count} enregistrements' },
-    empty: { channels: 'Aucun canal de notification', deliveries: 'Aucun historique de livraison', routes: 'Aucune route de notification', templates: 'Aucun modèle de notification', silences: 'Aucune règle de silence' },
-    values: { notAvailable: '—' },
+    summary: { routes: 'Mappages d’événements', templates: 'Modèles de notification', silences: 'Règles de silence', attempts: 'Tentatives', outbox: 'File de dispatch', attemptProgress: 'Tentative {current} sur {total}', attemptNumber: 'Tentative {number}', dispatchGeneration: 'Envoi {generation}', recordCount: '{count} enregistrements' },
+    empty: { channels: 'Aucun canal de notification', deliveries: 'Aucun historique de livraison', routes: 'Aucune route de notification', events: 'Aucune définition d’événement', eventDefinitions: 'Aucune définition d’événement système', templates: 'Aucun modèle de notification', silences: 'Aucune règle de silence', attempts: 'Aucune tentative', outbox: 'Aucun envoi enregistré' },
+    values: { notAvailable: '—', notConfigured: 'Non configuré', certificateSource: 'Certificat' },
+    eventTypes: { renewalResult: 'Résultat du renouvellement de certificat', status: 'Changement d’état du certificat', report: 'Rapport périodique de certificat', expiryWarning: 'Alerte d’expiration du certificat', expired: 'Certificat expiré', revoked: 'Certificat révoqué', bindingDrift: 'Dérive de liaison du certificat', reportFailed: 'Échec du rapport de certificats' },
+    deliveryFilters: { all: 'Tous les états', failed: 'Échec', retrying: 'Nouvelle tentative', queued: 'En attente', delivered: 'Livré' },
     secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'Nom d’utilisateur SMTP', smtpPassword: 'Mot de passe SMTP', webhookUrl: 'URL Webhook', signingSecret: 'Secret de signature', botToken: 'Bot token' } },
     messages: {
       loadFailed: 'Échec du chargement des données de gestion des notifications', operationFailed: 'Échec de l’opération de gestion des notifications', testUsesChannelTarget: 'Ce canal enverra la notification de test à sa destination configurée.',
@@ -2200,7 +2204,7 @@ export default {
       smtpCredentialsPairRequired: 'Le nom d’utilisateur et le mot de passe SMTP doivent être fournis ensemble', webhookUrlRequired: 'L’URL Webhook est obligatoire', botTokenRequired: 'Le Telegram bot token est obligatoire',
       chatIdRequired: 'Le Telegram chat ID est obligatoire', feishuWebhookUrlInvalid: 'Saisissez une URL Webhook officielle de robot personnalisé Feishu', dingtalkWebhookUrlInvalid: 'Saisissez une URL Webhook officielle de robot personnalisé DingTalk',
       wecomWebhookUrlInvalid: 'Saisissez une URL Webhook HTTPS valide de robot WeCom', telegramBotTokenInvalid: 'Le format du Telegram bot token est invalide', telegramMessageThreadIdInvalid: 'Le Telegram topic ID doit être un entier positif',
-      privateDeploymentAllowlistHint: 'Les adresses privées doivent d’abord être ajoutées à la liste des Origins HTTPS approuvées ci-dessus.', privateOriginInvalid: 'Une adresse privée doit être une Origin HTTPS exacte, sans chemin, requête, informations utilisateur ni fragment.', privateOriginsSecurityHint: 'Saisissez uniquement le schéma, l’hôte et le port facultatif. Les URL Webhook complètes, tokens et secrets de signature restent chiffrés dans le service Secret.', telegramUsesBotApi: 'Les notifications Telegram utilisent la méthode sendMessage de la Bot API officielle, et non le Webhook de réception des événements.'
+      privateDeploymentAllowlistHint: 'Les adresses privées doivent d’abord être ajoutées à la liste des Origins HTTPS approuvées ci-dessus.', privateOriginInvalid: 'Une adresse privée doit être une Origin HTTPS exacte, sans chemin, requête, informations utilisateur ni fragment.', privateOriginMismatch: 'L’URL Webhook doit utiliser l’Origin de déploiement privé configurée.', privateOriginHint: 'Facultatif. Configurez cette valeur uniquement pour ce canal lorsque son Webhook est hébergé dans un déploiement privé. Saisissez le schéma, l’hôte et le port facultatif ; conservez l’URL Webhook complète dans le champ chiffré ci-dessous.', privateOriginsSecurityHint: 'Saisissez uniquement le schéma, l’hôte et le port facultatif. Les URL Webhook complètes, tokens et secrets de signature restent chiffrés dans le service Secret.', telegramUsesBotApi: 'Les notifications Telegram utilisent la méthode sendMessage de la Bot API officielle, et non le Webhook de réception des événements.'
     }
   },
   settings: {
