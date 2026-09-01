@@ -2,6 +2,7 @@ import type { PluginCatalogItem, PluginRuntimeMetric, PluginVersionRecord } from
 
 export type PluginSource = 'builtin' | 'user'
 export type ProductCategory = 'WEB_SITE' | 'APPLICATION_MIDDLEWARE' | 'NETWORK_GATEWAY' | 'CLOUD_PLATFORM' | 'CA_ISSUANCE'
+export const PRODUCT_CATEGORIES: readonly ProductCategory[] = ['WEB_SITE', 'APPLICATION_MIDDLEWARE', 'NETWORK_GATEWAY', 'CLOUD_PLATFORM', 'CA_ISSUANCE']
 export type PluginCatalogType = 'UNIFIED_PLUGIN'
 export type RunnerStatus = 'ready' | 'busy' | 'unavailable' | 'notObserved'
 

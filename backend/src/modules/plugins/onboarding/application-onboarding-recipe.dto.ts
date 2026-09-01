@@ -111,6 +111,8 @@ export interface ApplicationOnboardingRecipeBundle {
   pluginVersion: string;
   resourcePath: string;
   recipeHash: string;
+  /** 来源插件 Manifest 的统一产品分类，用于创建应用资产时守恒传递。 */
+  productCategory?: UnifiedPluginManifestV1['productCategory'];
 }
 
 /** Loader 的兼容名称，方便 application-onboarding 宿主模块按领域命名引用。 */

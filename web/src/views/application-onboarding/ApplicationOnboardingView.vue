@@ -36,9 +36,10 @@ import { localizeCertificateFormatName } from '@/utils/certificate-format-locali
 import { cloneReactiveValue } from '@/utils/clone-reactive-value'
 import type { DeviceOnboardingInitialSelection } from '@/views/devices/device-onboarding.model'
 import { createInputBindingsV1, readInputBindingsV1 } from '@/views/assets/asset-input-bindings.model'
+import { PRODUCT_CATEGORIES, type ProductCategory } from '@/views/plugins/plugin-record'
 
 interface PlatformBusinessMetadata { capabilityVersion: string; compatibleVersions: string[]; requiredInformation: string[] }
-interface Platform { platformKey: string; source: 'PLUGIN' | 'CUSTOM_MANUAL'; pluginVersionId?: string; displayNameKey: string; displayName?: string; description?: string; logoUrl?: string; logoSquareUrl?: string; businessMetadata?: PlatformBusinessMetadata; deploymentMode?: string; deviceSelection?: 'EXISTING_OR_NEW' | 'EXISTING_ONLY' | 'NONE'; newDeviceOnboarding?: DeviceOnboardingInitialSelection; supportStatus?: string; acceptedCertificateFormats?: string[]; deploymentDefaults?: ApplicationAssetDeploymentDefaults }
+interface Platform { platformKey: string; source: 'PLUGIN' | 'CUSTOM_MANUAL'; pluginVersionId?: string; displayNameKey: string; displayName?: string; description?: string; logoUrl?: string; logoSquareUrl?: string; productCategory?: ProductCategory; businessMetadata?: PlatformBusinessMetadata; deploymentMode?: string; deviceSelection?: 'EXISTING_OR_NEW' | 'EXISTING_ONLY' | 'NONE'; newDeviceOnboarding?: DeviceOnboardingInitialSelection; supportStatus?: string; acceptedCertificateFormats?: string[]; deploymentDefaults?: ApplicationAssetDeploymentDefaults }
 interface Session { id: string; platformKey: string; state: string; stateVersion: number; deploymentMode?: string; deviceId?: string | null; assetId?: string | null; targetId?: string | null; certificateId?: string | null; certificateVersionId?: string | null; targets?: Target[]; inputSnapshot?: Record<string, unknown>; lastErrorCode?: string }
 interface TargetEndpoint { host?: string; port?: number; protocol?: string }
 interface Target { managedTargetId: string; displayName: string; targetType: string; endpoint?: TargetEndpoint; configFingerprint: string; selectable: boolean; reasonCode?: string }
@@ -78,6 +79,7 @@ const router = useRouter()
 const route = useRoute()
 const platforms = ref<Platform[]>([])
 const standalonePlatformKeyword = ref('')
+const categoryFilter = ref<'all' | ProductCategory>('all')
 const selectedPlatform = ref<Platform | null>(null)
 const session = ref<Session | null>(null)
 const targets = ref<Target[]>([])
@@ -181,8 +183,9 @@ const hasPlatformKeyword = computed(() => platformSearchKeyword.value.trim().len
 const sortedPlatforms = computed(() => [...platforms.value].sort(comparePlatformsByName))
 const filteredPlatforms = computed(() => {
   const keyword = platformSearchKeyword.value.trim().toLocaleLowerCase(locale.value)
-  if (!keyword) return sortedPlatforms.value
   return sortedPlatforms.value.filter((platform) => {
+    if (categoryFilter.value !== 'all' && platform.productCategory !== categoryFilter.value) return false
+    if (!keyword) return true
     const metadata = platform.businessMetadata
     const searchableValues = [
       platformLabel(platform),
@@ -194,6 +197,10 @@ const filteredPlatforms = computed(() => {
     return searchableValues.some((value) => String(value ?? '').toLocaleLowerCase(locale.value).includes(keyword))
   })
 })
+const categoryOptions = computed(() => [
+  { value: 'all' as const, label: t('plugins.categories.all') },
+  ...PRODUCT_CATEGORIES.map((value) => ({ value, label: t(`plugins.categories.${value}`) })),
+])
 // 站点选择步骤只展示实际可用的受管目标；停用或不满足选择条件的目标不显示。
 const selectableTargets = computed(() => targets.value.filter((target) => target.selectable))
 // 证书版本列表按到期时间倒序，第一项即最新可部署版本。
@@ -285,7 +292,7 @@ watch(footerActions, (actions) => {
 }, { immediate: true })
 
 async function loadPlatforms(): Promise<void> {
-  loading.value = true; error.value = ''
+  loading.value = true; error.value = ''; categoryFilter.value = 'all'
   try {
     platforms.value = readArray<Platform>((await listOnboardingPlatforms(locale.value)).data)
   } catch (cause) { error.value = messageFor(cause) } finally { loading.value = false }
@@ -1025,6 +1032,20 @@ defineExpose({ goPrevious, runFooterPrimary, cancel })
           >
         </label>
       </div>
+      <nav class="platform-category-tabs" :aria-label="t('plugins.categories.label')" role="tablist">
+        <button
+          v-for="option in categoryOptions"
+          :key="option.value"
+          type="button"
+          class="platform-category-tab"
+          :class="{ 'platform-category-tab--active': categoryFilter === option.value }"
+          role="tab"
+          :aria-selected="categoryFilter === option.value"
+          @click="categoryFilter = option.value"
+        >
+          {{ option.label }}
+        </button>
+      </nav>
       <div class="platform-grid">
         <div
           v-if="loading && platforms.length === 0"
@@ -1055,6 +1076,7 @@ defineExpose({ goPrevious, runFooterPrimary, cancel })
           />
           <span class="platform-card__copy">
             <strong>{{ platformLabel(platform) }}</strong>
+            <small v-if="platform.productCategory" class="platform-card__category">{{ t(`plugins.categories.${platform.productCategory}`) }}</small>
             <small v-if="platform.source === 'CUSTOM_MANUAL'">{{ t('applicationOnboarding.platforms.manualHint') }}</small>
             <span v-if="platform.businessMetadata" class="platform-card__metadata">
               <small class="platform-card__metadata-row"><span>{{ t('applicationOnboarding.platforms.capabilityVersion') }}</span><span>{{ platform.businessMetadata.capabilityVersion }}</span></small>
@@ -1259,12 +1281,17 @@ h1, h2, p { margin: 0; }
 .onboarding-platform-loading__spinner { inline-size: var(--gc-space-5); aspect-ratio: 1; border: var(--gc-border-width-thick) solid var(--gc-color-primary-border); border-top-color: var(--gc-color-primary); border-radius: var(--gc-radius-full); animation: application-onboarding-platform-spin 700ms linear infinite; }
 @keyframes application-onboarding-platform-spin { to { transform: rotate(1turn); } }
 .platform-card { display: grid; grid-template-columns: calc(var(--gc-space-4) * 3) minmax(0, 1fr); align-items: start; gap: var(--gc-space-3); block-size: var(--gc-size-application-onboarding-card); min-block-size: 0; padding: var(--gc-space-3); text-align: left; color: var(--gc-color-text); cursor: pointer; background: var(--gc-color-surface-soft); border: var(--gc-space-hairline) solid var(--gc-color-border); border-radius: var(--gc-radius-card); box-shadow: var(--gc-shadow-sm); transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
+.platform-category-tabs { display: flex; gap: var(--gc-space-2); overflow-x: auto; padding-block: var(--gc-space-1); border-bottom: var(--gc-space-hairline) solid var(--gc-color-border); }
+.platform-category-tab { flex: 0 0 auto; padding: var(--gc-space-2) var(--gc-space-3); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); background: transparent; border: 0; border-bottom: var(--gc-border-width-thick) solid transparent; cursor: pointer; }
+.platform-category-tab:hover, .platform-category-tab--active { color: var(--gc-color-primary); border-bottom-color: var(--gc-color-primary); }
+.platform-category-tab:focus-visible { outline: none; box-shadow: var(--gc-shadow-focus); }
 .platform-card:hover:not(:disabled) { background: var(--gc-color-surface); border-color: var(--gc-color-primary-border-strong); box-shadow: var(--gc-shadow-hover); }
 .platform-card:focus-visible { outline: none; box-shadow: var(--gc-shadow-focus); }
 .platform-card:disabled { cursor: not-allowed; opacity: var(--gc-opacity-disabled); }
 .platform-card--review { background: var(--gc-color-surface); }
 .platform-card__copy { display: grid; min-inline-size: 0; gap: var(--gc-space-compact); }
 .platform-card__copy strong { color: var(--gc-color-text-strong); font-size: var(--gc-font-size-label); line-height: var(--gc-line-height-tight); overflow-wrap: anywhere; }
+.platform-card__copy .platform-card__category { color: var(--gc-color-primary); }
 .platform-card__copy small { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-caption); line-height: var(--gc-line-height-tight); overflow-wrap: anywhere; }
 .platform-card__metadata { display: grid; gap: var(--gc-space-compact); }
 .platform-card__metadata-row { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: baseline; column-gap: var(--gc-space-compact); }

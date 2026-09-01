@@ -80,6 +80,7 @@ export class ApplicationOnboardingService {
               pluginVersionId: bundle.pluginVersionId,
               pluginId: bundle.pluginId,
               pluginVersion: bundle.pluginVersion,
+              ...(bundle.productCategory ? { productCategory: bundle.productCategory } : {}),
               displayNameKey: bundle.recipe.displayNameKey,
               displayName: this.resolveDisplayName(version, bundle, locale),
               ...(version.manifest.resources.logos?.horizontal ? { logoUrl: pluginLogoResourceUrl(version.id, 'horizontal') } : {}),

@@ -17,7 +17,7 @@ import type { ApiRecord } from '@/api/modules/common'
 import { GcDevicePresentation, GcEmptyState, GcModal, GcPagination, GcPluginForm, GcPluginLogo, type DevicePresentationSchema, type PluginFormSchema } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { translateDynamic } from '@/i18n/translate'
-import { toCatalogPluginRecord, type PluginRecord, type ProductCategory } from './plugin-record'
+import { PRODUCT_CATEGORIES, toCatalogPluginRecord, type PluginRecord, type ProductCategory } from './plugin-record'
 
 type SourceFilter = 'all' | PluginSource
 type ValidityFilter = 'all' | 'valid' | 'invalid'
@@ -73,11 +73,7 @@ const validityOptions = computed(() => [
 
 const categoryOptions = computed(() => [
   { value: 'all' as const, label: t('plugins.categories.all') },
-  { value: 'WEB_SITE' as const, label: t('plugins.categories.WEB_SITE') },
-  { value: 'APPLICATION_MIDDLEWARE' as const, label: t('plugins.categories.APPLICATION_MIDDLEWARE') },
-  { value: 'NETWORK_GATEWAY' as const, label: t('plugins.categories.NETWORK_GATEWAY') },
-  { value: 'CLOUD_PLATFORM' as const, label: t('plugins.categories.CLOUD_PLATFORM') },
-  { value: 'CA_ISSUANCE' as const, label: t('plugins.categories.CA_ISSUANCE') },
+  ...PRODUCT_CATEGORIES.map((value) => ({ value, label: t(`plugins.categories.${value}`) })),
 ])
 
 const filteredPlugins = computed(() => {

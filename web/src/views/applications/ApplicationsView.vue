@@ -47,6 +47,7 @@ import DeviceOnboardingWizard from '@/views/devices/DeviceOnboardingWizard.vue'
 import type { DeviceOnboardingInitialSelection } from '@/views/devices/device-onboarding.model'
 import UnifiedAssetDetailModal from '@/views/assets/UnifiedAssetDetailModal.vue'
 import UnifiedAssetEditModal from '@/views/assets/UnifiedAssetEditModal.vue'
+import { PRODUCT_CATEGORIES, type ProductCategory } from '@/views/plugins/plugin-record'
 
 type AssetPlatform = 'LINUX' | 'WINDOWS' | 'APPLIANCE'
 type AssetProtocol = 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP' | 'CUSTOM'
@@ -66,6 +67,11 @@ type ApplicationCertificateProviderType = 'internal_ca' | 'acme'
 
 function isCloudServiceAsset(asset: ApiRecord): boolean {
   return String(asset.assetKind ?? '').trim().toUpperCase() === 'CLOUD_SERVICE'
+}
+
+function readProductCategory(value: unknown): ProductCategory | undefined {
+  const normalized = String(value ?? '').trim().toUpperCase()
+  return PRODUCT_CATEGORIES.includes(normalized as ProductCategory) ? normalized as ProductCategory : undefined
 }
 
 interface CertificateSupplyDraft {
@@ -186,6 +192,7 @@ interface AssetOverviewCard {
   readonly name: string
   readonly status: string
   readonly pluginVersionId: string
+  readonly productCategory?: ProductCategory
   readonly executionCompatibilityStatus: string
   readonly executionCompatibilityIssueCount: number
   readonly executionCompatibilityIssues: readonly DeploymentInputIssueDetail[]
@@ -205,6 +212,7 @@ interface AssetListRow extends Record<string, unknown> {
 }
 
 interface AssetDraft {
+  productCategory: ProductCategory | ''
   managementMode: AssetManagementMode
   managedExecutionMode: ManagedExecutionMode
   deviceId: string
@@ -315,6 +323,10 @@ const assetOverviewStatusOptions = computed(() => [
   { value: 'INACTIVE', label: t('dashboard.statusBlock.status.inactive') },
   { value: 'DISABLED', label: t('dashboard.statusBlock.status.disabled') },
 ])
+const productCategoryOptions = computed(() => PRODUCT_CATEGORIES.map((value) => ({ value, label: t(`plugins.categories.${value}`) })))
+const categoryCompatibleManagedPlugins = computed(() => assetDraft.productCategory
+  ? compatibleManagedPlugins.value.filter((item) => readProductCategory(item.productCategory) === assetDraft.productCategory)
+  : compatibleManagedPlugins.value)
 const selectedServiceAsset = ref<ViewRow | null>(null)
 const selectedAssetIsCloudService = computed(() => isCloudServiceAsset(selectedServiceAsset.value?.raw ?? {}))
 const userAssetItems = ref<ApiRecord[]>([])
@@ -330,6 +342,7 @@ const assetOverviewFiltersVisible = ref(false)
 const assetOverviewFilters = reactive({
   address: '',
   status: '',
+  productCategory: '' as ProductCategory | '',
 })
 const detailModalOpen = ref(false)
 const unifiedAssetDetailModal = ref<InstanceType<typeof UnifiedAssetDetailModal> | null>(null)
@@ -433,6 +446,7 @@ const assetPlatformOptions: ReadonlyArray<{ value: AssetPlatform; labelKey: stri
 ]
 
 const assetDraft = reactive<AssetDraft>({
+  productCategory: '',
   managementMode: 'MANAGED_TARGET',
   managedExecutionMode: 'PLUGIN',
   deviceId: '',
@@ -934,7 +948,7 @@ const pluginFallbackCapability = computed(() => {
 })
 
 const pluginProjectionVersionId = computed(() =>
-  String(compatibleManagedPlugins.value.find((item) => String(item.pluginId ?? '') === assetDraft.pluginOverridePluginId.trim())?.pluginVersionId ?? '')
+  String(categoryCompatibleManagedPlugins.value.find((item) => String(item.pluginId ?? '') === assetDraft.pluginOverridePluginId.trim())?.pluginVersionId ?? '')
     || (assetDraft.pluginOverridePluginId.trim() ? '' : String(readNested(pluginFallbackCapability.value, ['plugin', 'pluginVersionId']) ?? '')),
 )
 
@@ -951,7 +965,7 @@ const agentCertificateFormatReady = computed(() => isFixedPkcs12Contract.value |
 const pendingPluginCapability = computed<ApiRecord | null>(() => {
   const pluginVersionId = pluginProjectionVersionId.value
   if (!pluginVersionId) return null
-  const plugin = compatibleManagedPlugins.value.find(
+  const plugin = categoryCompatibleManagedPlugins.value.find(
     (item) => String(item.pluginVersionId ?? '') === pluginVersionId,
   )
   if (!plugin) return null
@@ -1043,6 +1057,7 @@ const commonStepReady = computed(() => {
   return Boolean(
     assetDraft.address.trim()
     && assetDraft.platform
+    && (isEditMode.value || Boolean(assetDraft.productCategory))
     && Number.isInteger(port)
     && port >= 1
     && port <= 65535,
@@ -1759,6 +1774,7 @@ async function openEditDialog(row: ViewRow) {
     const detail = await getApplicationEditDetail(editingServiceAssetId.value)
     editAssetDetail.value = detail.data ?? null
     const source = detail.data ?? row.raw
+    assetDraft.productCategory = readProductCategory(source.productCategory) ?? ''
     targetSelectionInitializing.value = true
     const targetContext = readRecord(readNested(source, ['targetBindingDetail']))
     const contextHost = readRecord(targetContext?.host)
@@ -2510,6 +2526,7 @@ async function submitCreate() {
       platform: assetDraft.platform,
       verifyUrl: workflowTarget?.verifyUrl ?? assetDraft.verifyUrl.trim(),
       sniName: workflowTarget?.sniName ?? undefined,
+      ...(assetDraft.productCategory ? { productCategory: assetDraft.productCategory } : {}),
     }
     if (isEditMode.value) {
       const result = await updateServiceAsset(editingServiceAssetId.value, {
@@ -2629,6 +2646,7 @@ function resetDraft() {
   editInitializationError.value = ''
   assetWizardStep.value = 1
   assetDraft.managementMode = 'MANAGED_TARGET'
+  assetDraft.productCategory = ''
   assetDraft.managedExecutionMode = 'PLUGIN'
   assetDraft.deviceId = ''
   assetDraft.serviceAssetId = ''
@@ -2823,6 +2841,7 @@ function toAssetOverviewCard(asset: ApiRecord): AssetOverviewCard {
     name,
     status: firstAssetText(asset, ['status', 'state']) || 'UNKNOWN',
     pluginVersionId: assetPluginVersionId(asset),
+    productCategory: readProductCategory(asset.productCategory),
     executionCompatibilityStatus: String(asset.executionCompatibilityStatus ?? 'UNKNOWN'),
     executionCompatibilityIssueCount: Number(asset.executionCompatibilityIssueCount ?? 0),
     executionCompatibilityIssues: Array.isArray(asset.executionCompatibility)
@@ -3461,6 +3480,7 @@ function assetOverviewQueryFilters(): BusinessListQuery['filters'] {
   return {
     address: assetOverviewFilters.address.trim(),
     status: assetOverviewFilters.status,
+    productCategory: assetOverviewFilters.productCategory,
   }
 }
 
@@ -3546,6 +3566,7 @@ async function applyAssetOverviewFilters(): Promise<void> {
 async function clearAssetOverviewFilters(): Promise<void> {
   assetOverviewFilters.address = ''
   assetOverviewFilters.status = ''
+  assetOverviewFilters.productCategory = ''
   await applyAssetOverviewFilters()
 }
 
@@ -4152,6 +4173,13 @@ function managedTargetLabel(target: ApiRecord): string {
               </option>
             </select>
           </label>
+          <label class="asset-page__filter">
+            <span>{{ t('plugins.categories.label') }}</span>
+            <select v-model="assetOverviewFilters.productCategory" data-testid="asset-overview-product-category-filter" @change="applyAssetOverviewFilters">
+              <option value="">{{ t('plugins.categories.all') }}</option>
+              <option v-for="option in productCategoryOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+          </label>
           <div class="asset-page__filter-actions">
             <GcButton type="submit" variant="primary">{{ t('tasks.actions.search') }}</GcButton>
             <GcButton type="button" variant="ghost" @click="clearAssetOverviewFilters">{{ t('businessPage.clearFilters') }}</GcButton>
@@ -4195,6 +4223,7 @@ function managedTargetLabel(target: ApiRecord): string {
                 <div class="asset-page__card-heading">
                   <h3>{{ card.name }}</h3>
                   <p class="asset-page__card-url" :title="assetCardUrl(card.asset)">{{ assetCardUrl(card.asset) }}</p>
+                  <span v-if="card.productCategory" class="asset-page__card-category">{{ t(`plugins.categories.${card.productCategory}`) }}</span>
                 </div>
                 <input
                   :checked="isAssetSelected(card.id)"
@@ -4784,6 +4813,13 @@ function managedTargetLabel(target: ApiRecord): string {
               </option>
             </select>
           </label>
+          <label class="asset-form__field asset-form__field--wide">
+            <span>{{ t('plugins.categories.label') }} <strong>*</strong></span>
+            <select v-model="assetDraft.productCategory" data-testid="asset-product-category">
+              <option value="">{{ t('assets.select.generic') }}</option>
+              <option v-for="option in productCategoryOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+          </label>
         </div>
         <section class="asset-certificate-supply" :aria-label="t('assets.certificateSupply.title')">
           <header class="asset-certificate-supply__header">
@@ -5029,6 +5065,13 @@ function managedTargetLabel(target: ApiRecord): string {
                 </option>
               </select>
             </label>
+            <label class="asset-form__field">
+              <span>{{ t('plugins.categories.label') }} <strong>*</strong></span>
+              <select v-model="assetDraft.productCategory" data-testid="asset-product-category">
+                <option value="">{{ t('assets.select.generic') }}</option>
+                <option v-for="option in productCategoryOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+              </select>
+            </label>
           </div>
           <section class="asset-certificate-supply" :aria-label="t('assets.certificateSupply.title')">
             <header class="asset-certificate-supply__header">
@@ -5121,7 +5164,7 @@ function managedTargetLabel(target: ApiRecord): string {
             <template v-if="assetDraft.managedExecutionMode === 'PLUGIN'">
               <GcCompatiblePluginSelector
                 v-model="assetDraft.pluginOverridePluginId"
-                :items="compatibleManagedPlugins"
+                :items="categoryCompatibleManagedPlugins"
                 :loading="compatibleManagedPluginsLoading"
                 :required="!pluginFallbackCapability"
                 :label="t('assets.fields.updatePlugin')"
@@ -5813,6 +5856,16 @@ function managedTargetLabel(target: ApiRecord): string {
   line-height: var(--gc-line-height-tight);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.asset-page__card-category {
+  inline-size: fit-content;
+  padding: var(--gc-space-compact) var(--gc-space-2);
+  color: var(--gc-color-primary);
+  font-size: var(--gc-font-size-caption);
+  line-height: var(--gc-line-height-tight);
+  background: var(--gc-color-primary-soft);
+  border-radius: var(--gc-radius-control);
 }
 
 .asset-page__card-heading h3 {
