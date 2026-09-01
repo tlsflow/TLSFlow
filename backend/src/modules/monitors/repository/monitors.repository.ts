@@ -112,8 +112,9 @@ export class PgMonitorsRepository implements MonitorsRepository {
            on asset.id = target.service_asset_id
           and asset.tenant_id = target.tenant_id
         where target.tenant_id = $1
-          and ($2::boolean or target.deleted_at is null)`,
-      [query.tenantId, query.includeRemoved === true],
+          and ($2::boolean or target.deleted_at is null)
+          and ($3::text[] is null or target.service_asset_id = any($3::text[]))`,
+      [query.tenantId, query.includeRemoved === true, query.authorizedServiceAssetIds?.length ? query.authorizedServiceAssetIds : null],
     )).rows.map(toMonitorTarget);
     return page(rows, query, monitorTargetFilter);
   }
@@ -394,6 +395,10 @@ export class PgMonitorsRepository implements MonitorsRepository {
     addOptionalCondition(query.tenantId, 'tenant_id = $PARAM', conditions, params);
     addOptionalCondition(query.monitorTargetId, 'monitor_target_id = $PARAM', conditions, params);
     addOptionalCondition(query.serviceAssetId, 'service_asset_id = $PARAM', conditions, params);
+    if (query.authorizedServiceAssetIds) {
+      params.push(query.authorizedServiceAssetIds);
+      conditions.push(`service_asset_id = any($${params.length}::text[])`);
+    }
     params.push(normalizePageSize(query.pageSize));
     const rows = (await this.db.query<MonitorProbeResultRow>(
       `select * from pg_monitor_probe_results
@@ -534,14 +539,37 @@ export class PgMonitorsRepository implements MonitorsRepository {
   }
 
   async listRiskEvents(query?: ListRiskEventsQuery): Promise<RiskEvent[]> {
-    const rows = (await this.db.query<RiskEventRow>(`select * from pg_monitor_risk_events order by last_detected_at desc, created_at desc`)).rows.map(toRiskEvent);
-    return rows.filter((item) => {
-      if (query?.tenantId !== undefined && item.scope.tenantId !== query.tenantId) return false;
-      if (query?.status !== undefined && item.status !== query.status) return false;
-      if (query?.severity !== undefined && item.severity !== query.severity) return false;
-      if (query?.type !== undefined && item.type !== query.type) return false;
-      return true;
-    });
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    addOptionalCondition(query?.tenantId, 'coalesce(tenant_id, scope->>\'tenantId\') = $PARAM', conditions, params);
+    addOptionalCondition(query?.status, 'status = $PARAM', conditions, params);
+    addOptionalCondition(query?.severity, 'severity = $PARAM', conditions, params);
+    addOptionalCondition(query?.type, 'risk_type = $PARAM', conditions, params);
+    const parentIds = query?.authorizedParentObjectIds;
+    if (parentIds) {
+      const scopeFields: Record<string, string> = {
+        service_asset: 'serviceAssetId',
+        certificate_asset: 'certificateAssetId',
+        certificate_binding: 'bindingId',
+        execution_run: 'executionRunId',
+        host: 'hostId',
+      };
+      const clauses: string[] = [];
+      for (const [objectType, ids] of Object.entries(parentIds)) {
+        if (!ids || ids.length === 0) continue;
+        const field = scopeFields[objectType];
+        if (!field) continue;
+        params.push(ids);
+        clauses.push(`scope->>'${field}' = any($${params.length}::text[])`);
+      }
+      if (clauses.length === 0) return [];
+      conditions.push(`(${clauses.join(' or ')})`);
+    }
+    const rows = (await this.db.query<RiskEventRow>(
+      `select * from pg_monitor_risk_events ${conditions.length ? `where ${conditions.join(' and ')}` : ''} order by last_detected_at desc, created_at desc`,
+      params,
+    )).rows.map(toRiskEvent);
+    return rows;
   }
 
   async getRiskEventByDedupKey(dedupKey: string): Promise<RiskEvent | undefined> {
@@ -770,6 +798,10 @@ export class PgMonitorsRepository implements MonitorsRepository {
     const params: unknown[] = [];
     addOptionalCondition(query.tenantId, 'tenant_id = $PARAM', conditions, params);
     addOptionalCondition(query.serviceAssetId, 'service_asset_id = $PARAM', conditions, params);
+    if (query.authorizedServiceAssetIds) {
+      params.push(query.authorizedServiceAssetIds);
+      conditions.push(`service_asset_id = any($${params.length}::text[])`);
+    }
     params.push(normalizePageSize(query.pageSize));
     const rows = (await this.db.query<CertificateObservationRow>(
       `select * from (

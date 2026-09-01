@@ -140,7 +140,6 @@ export class AssetsController {
       ...query,
       page: 1,
       pageSize: 5000,
-      filter: { ...query.filter, assetKind: 'CLOUD_SERVICE' },
     });
     const effectiveServiceReadAuthorization = normalizeReadAuthorization(serviceReadAuthorization.authorization, serviceAllowed);
     const hostScopedAllowed = hostAllowed || hasAuthorizedReadScope(hostReadAuthorization.authorization);
@@ -376,6 +375,7 @@ export class AssetsController {
     const body = validateObject(request.body, {
       deviceId: { type: 'string' },
       assetId: { type: 'string' },
+      serviceAssetId: { type: 'string' },
       frameworkType: { type: 'string', required: true },
       frameworkKey: { type: 'string', required: true },
       discoveryProviderKey: { type: 'string', required: true },
@@ -397,7 +397,7 @@ export class AssetsController {
   private async listFrameworkInstances(request: HttpRequest) {
     const query = parsePageQuery(request.query, {
       allowedSortFields: ['displayName', 'frameworkType', 'createdAt', 'updatedAt', 'status', 'deviceId'],
-      allowedFilterFields: ['deviceId', 'frameworkType', 'frameworkKey', 'discoveryProviderKey', 'displayName', 'status', 'discoverySource'],
+      allowedFilterFields: ['deviceId', 'serviceAssetId', 'frameworkType', 'frameworkKey', 'discoveryProviderKey', 'displayName', 'status', 'discoverySource'],
     });
     const subject = this.subjectFromRequest(request);
     await this.assertCan(subject, 'service_instance.read', 'service_instance', request);
@@ -409,6 +409,7 @@ export class AssetsController {
       id: { type: 'string', required: true },
       deviceId: { type: 'string' },
       assetId: { type: 'string' },
+      serviceAssetId: { type: 'string' },
       frameworkType: { type: 'string' },
       frameworkKey: { type: 'string' },
       discoveryProviderKey: { type: 'string' },

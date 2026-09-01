@@ -45,6 +45,7 @@ export interface ListMonitorTargetsQuery {
   sort?: { field: string; direction: 'asc' | 'desc' };
   filter: Record<string, string>;
   includeRemoved?: boolean;
+  authorizedServiceAssetIds?: string[];
 }
 
 export interface ListMonitorProbeResultsQuery {
@@ -52,6 +53,7 @@ export interface ListMonitorProbeResultsQuery {
   monitorTargetId?: string;
   serviceAssetId?: string;
   pageSize?: number;
+  authorizedServiceAssetIds?: string[];
 }
 
 export interface MonitorProbeResultDto {
@@ -100,6 +102,7 @@ export interface ListRiskEventsQuery {
   status?: RiskStatus;
   severity?: RiskSeverity;
   type?: RiskEventType;
+  authorizedParentObjectIds?: Record<string, string[]>;
 }
 
 export interface CreateAlertRuleInput {
@@ -264,4 +267,5 @@ export interface ListCertificateObservationsQuery {
   serviceAssetId?: string;
   pageSize?: number;
   includeRemoved?: boolean;
+  authorizedServiceAssetIds?: string[];
 }

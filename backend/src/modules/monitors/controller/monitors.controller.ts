@@ -11,7 +11,11 @@ import type { SecurityServices } from '../../security/security.controller.js';
 import {
   assertRouteAction,
   assertRouteObjectAccess,
+  assertResourceObjectAccess,
   filterAuthorizedItems,
+  filterAuthorizedResourceItems,
+  authorizedParentObjectIds,
+  authorizedParentObjectIdMap,
   requireRouteSecurity,
 } from '../../security/security-route-helpers.js';
 import { MonitorsApplicationService } from '../application/monitors.application-service.js';
@@ -45,7 +49,11 @@ export class MonitorsController {
 
   private async listTargets(request: HttpRequest) {
     const security = requireRouteSecurity(request, this.security);
-    await assertRouteAction(security, 'monitor.target.read', 'monitor_target');
+    // 应用管理者通过应用监控授权访问关联目标；保留旧的监控技术权限兼容入口。
+    await assertRouteActionAny(security, [
+      { action: 'application.monitor.read', resourceType: 'service_asset' },
+      { action: 'monitor.target.read', resourceType: 'monitor_target' },
+    ]);
     const query = parsePageQuery(request.query, {
       allowedSortFields: ['createdAt', 'updatedAt', 'intervalSeconds', 'status'],
       allowedFilterFields: ['serviceAssetId', 'assetId', 'status'],
@@ -57,14 +65,10 @@ export class MonitorsController {
       tenantId: security.tenantId,
       ...query,
       includeRemoved,
+      authorizedServiceAssetIds: await authorizedParentObjectIds(security, 'monitor_target', 'read'),
     });
-    const authorizedItems = await filterAuthorizedItems(security, page.items, 'monitor_target', 'read');
-    if (!includeRemoved) return { ...page, items: authorizedItems };
-    // 中文说明：对象权限的业务投影只覆盖活动对象；已删除目标没有活动资产成员可供投影。
-    // includeRemoved 是显式的历史查询，目标已经按当前租户过滤，保留这些归档记录供审计查看。
-    const authorizedIds = new Set(authorizedItems.map((item) => item.id));
-    const removedItems = page.items.filter((item) => item.deletedAt && !authorizedIds.has(item.id));
-    return { ...page, items: [...authorizedItems, ...removedItems] };
+    const authorizedItems = await filterAuthorizedResourceItems(security, page.items, 'monitor_target', 'read');
+    return { ...page, items: authorizedItems };
   }
 
   private async createTarget(request: HttpRequest) {
@@ -104,7 +108,7 @@ export class MonitorsController {
     const current = await this.service.getMonitorTarget(security.tenantId, String(body.id));
     if (!current) throw new AppError('RESOURCE_NOT_FOUND', '监控目标不存在', { monitorTargetId: body.id });
     await assertRouteAction(security, 'monitor.target.update', 'monitor_target', { resourceId: current.id });
-    await assertRouteObjectAccess(security, 'edit', { objectType: 'monitor_target', objectId: current.id, tenantId: security.tenantId });
+    await assertResourceObjectAccess(security, 'edit', 'monitor_target', current);
     return this.service.updateMonitorTarget({
       tenantId: security.tenantId,
       id: String(body.id),
@@ -122,7 +126,7 @@ export class MonitorsController {
     const current = await this.service.getMonitorTarget(security.tenantId, String(body.id));
     if (!current) throw new AppError('RESOURCE_NOT_FOUND', '监控目标不存在', { monitorTargetId: body.id });
     await assertRouteAction(security, 'monitor.target.delete', 'monitor_target', { resourceId: current.id });
-    await assertRouteObjectAccess(security, 'control', { objectType: 'monitor_target', objectId: current.id, tenantId: security.tenantId });
+    await assertResourceObjectAccess(security, 'control', 'monitor_target', current);
     return this.service.deleteMonitorTarget(security.tenantId, String(body.id));
   }
 
@@ -163,7 +167,7 @@ export class MonitorsController {
     if (typeof body.monitorTargetId === 'string' && body.monitorTargetId.trim() !== '') {
       const target = await this.service.getMonitorTarget(security.tenantId, String(body.monitorTargetId));
       if (!target) throw new AppError('RESOURCE_NOT_FOUND', '监控目标不存在', { monitorTargetId: body.monitorTargetId });
-      await assertRouteObjectAccess(security, applicationRescan ? 'read' : 'control', { objectType: 'monitor_target', objectId: target.id, tenantId: security.tenantId });
+      await assertResourceObjectAccess(security, applicationRescan ? 'read' : 'control', 'monitor_target', target);
     }
     await assertRouteObjectAccess(security, 'read', { objectType: 'service_asset', objectId: serviceAssetId, tenantId: security.tenantId });
     return {
@@ -185,13 +189,13 @@ export class MonitorsController {
       status: readOptionalQueryString(request, 'status') as typeof RiskStatuses[number] | undefined,
       severity: readOptionalQueryString(request, 'severity') as typeof severity[number] | undefined,
       type: readOptionalQueryString(request, 'type') as typeof riskEventTypes[number] | undefined,
+      authorizedParentObjectIds: await authorizedParentObjectIdMap(security, 'monitor_risk', 'read'),
     });
-    const authorizedItems = await filterAuthorizedItems(security, items, 'monitor_risk', 'read');
     return {
-      items: authorizedItems,
+      items,
       page: 1,
       pageSize: 200,
-      total: authorizedItems.length,
+      total: items.length,
     };
   }
 
@@ -205,7 +209,7 @@ export class MonitorsController {
     const risk = await this.service.getRiskEvent(security.tenantId, readRiskEventId(request));
     if (!risk) throw new AppError('RESOURCE_NOT_FOUND', '监控风险不存在', { riskEventId: readRiskEventId(request) });
     await assertRouteAction(security, 'monitor.risk.update', 'monitor_risk', { resourceId: risk.id });
-    await assertRouteObjectAccess(security, 'control', { objectType: 'monitor_risk', objectId: risk.id, tenantId: security.tenantId });
+    await assertResourceObjectAccess(security, 'control', 'monitor_risk', risk);
     return this.service.changeRiskStatus({
       tenantId: security.tenantId,
       riskEventId: risk.id,
@@ -223,7 +227,7 @@ export class MonitorsController {
     const risk = await this.service.getRiskEvent(security.tenantId, readRiskEventId(request));
     if (!risk) throw new AppError('RESOURCE_NOT_FOUND', '监控风险不存在', { riskEventId: readRiskEventId(request) });
     await assertRouteAction(security, 'monitor.risk.read', 'monitor_risk', { resourceId: risk.id });
-    await assertRouteObjectAccess(security, 'read', { objectType: 'monitor_risk', objectId: risk.id, tenantId: security.tenantId });
+    await assertResourceObjectAccess(security, 'read', 'monitor_risk', risk);
     return {
       items: await this.service.listRiskStatusHistory(security.tenantId, risk.id),
     };
@@ -247,13 +251,13 @@ export class MonitorsController {
       monitorTargetId,
       serviceAssetId,
       pageSize: Number(readOptionalQueryString(request, 'pageSize') ?? 200),
+      authorizedServiceAssetIds: await authorizedParentObjectIds(security, 'monitor_probe_result', 'read'),
     });
-    const authorizedItems = await filterAuthorizedItems(security, items, 'monitor_probe_result', 'read');
     return {
-      items: authorizedItems,
+      items,
       page: 1,
       pageSize: 200,
-      total: authorizedItems.length,
+      total: items.length,
     };
   }
 
@@ -273,24 +277,23 @@ export class MonitorsController {
       serviceAssetId,
       pageSize: Number(readOptionalQueryString(request, 'pageSize') ?? 200),
       includeRemoved,
+      authorizedServiceAssetIds: await authorizedParentObjectIds(security, 'monitor_certificate_observation', 'read'),
     });
-    const authorizedItems = await filterAuthorizedItems(security, items, 'monitor_certificate_observation', 'read');
     return {
-      items: authorizedItems,
+      items,
       page: 1,
       pageSize: 200,
-      total: authorizedItems.length,
+      total: items.length,
     };
   }
 
   private async getDashboard(request: HttpRequest) {
     const security = requireRouteSecurity(request, this.security);
     await assertRouteAction(security, 'monitor.dashboard.read', 'monitor_dashboard');
-    const risks = await filterAuthorizedItems(
+    const risks = await filterAuthorizedResourceItems(
       security,
-      await this.service.listRiskEvents({ tenantId: security.tenantId }),
-      'monitor_risk',
-      'read',
+      await this.service.listRiskEvents({ tenantId: security.tenantId, authorizedParentObjectIds: await authorizedParentObjectIdMap(security, 'monitor_risk', 'read') }),
+      'monitor_risk', 'read',
     );
     return this.service.getDashboard(security.tenantId, risks);
   }
