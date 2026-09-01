@@ -141,8 +141,9 @@ export class AssetsController {
       pageSize: 5000,
       filter: { ...query.filter, assetKind: 'CLOUD_SERVICE' },
     });
+    const effectiveServiceReadAuthorization = normalizeReadAuthorization(serviceReadAuthorization.authorization, serviceAllowed);
     const hostScopedAllowed = hostAllowed || hasAuthorizedReadScope(hostReadAuthorization.authorization);
-    const serviceScopedAllowed = serviceAllowed || hasAuthorizedReadScope(serviceReadAuthorization.authorization);
+    const serviceScopedAllowed = serviceAllowed || hasAuthorizedReadScope(effectiveServiceReadAuthorization);
     if (!hostScopedAllowed && !serviceScopedAllowed) {
       await this.assertCan(subject, 'host.read', 'host', request);
     }
@@ -156,11 +157,11 @@ export class AssetsController {
         pageSize: 5000,
         filter: pickDeviceFilters(query.filter),
         ...(query.sort ? { sort: query.sort } : {}),
-        authorizedHostIds: hostAuthorization?.empty ? [] : hostAuthorization?.objectIds,
       } as Parameters<DevicesApplicationService['list']>[1];
       const devicePage = await this.devices.list(tenantId(request), deviceQuery);
-      const authorizedDevices = hostAuthorization
-        ? applyAuthorizationFilter(devicePage.items, { page: 1, pageSize: 5000, filter: {}, authorization: { ...hostAuthorization, objectIdField: 'id' } })
+      const effectiveHostAuthorization = normalizeReadAuthorization(hostAuthorization, hostAllowed);
+      const authorizedDevices = effectiveHostAuthorization
+        ? applyAuthorizationFilter(devicePage.items, { page: 1, pageSize: 5000, filter: {}, authorization: { ...effectiveHostAuthorization, objectIdField: 'id' } })
         : devicePage.items;
       for (const device of authorizedDevices) {
         items.push(projectDeviceAsset(device, hostManageAllowed && isObjectAllowed(hostManageAuthorization, device.id)));
@@ -168,7 +169,10 @@ export class AssetsController {
     }
     if (serviceScopedAllowed) {
       const serviceManageAuthorization = (await this.authorizedQuery(subject, 'service_asset', 'edit', query)).authorization;
-      const servicePage = await this.service.listServiceAssets(tenantId(request), serviceReadAuthorization);
+      const servicePage = await this.service.listServiceAssets(tenantId(request), {
+        ...serviceReadAuthorization,
+        authorization: effectiveServiceReadAuthorization,
+      });
       for (const asset of servicePage.items) {
         const projected = projectServiceAsset(asset as unknown as Record<string, unknown>, serviceManageAllowed && isObjectAllowed(serviceManageAuthorization, String(asset.id)));
         if (matchesUnifiedAssetFilter(projected, query.filter)) items.push(projected);
@@ -483,7 +487,22 @@ export class AssetsController {
     if (!hasAuthorizedReadScope(authorized.authorization) && !await this.canReadObject(subject, 'application.read', 'service_asset', request)) {
       await this.assertCan(subject, 'application.read', 'service_asset', request);
     }
-    return this.service.listServiceAssets(tenantId(request), authorized);
+    const result = await this.service.listServiceAssets(tenantId(request), authorized);
+    if (!this.executionCompatibility) return result;
+    const compatibility = await this.executionCompatibility.getForApplications(tenantId(request), result.items.map((item) => item.id));
+    return {
+      ...result,
+      items: result.items.map((item) => {
+        const executionCompatibility = compatibility.get(item.id) ?? [];
+        const nonReady = executionCompatibility.find((record) => record.status !== 'READY');
+        return {
+          ...item,
+          executionCompatibility,
+          executionCompatibilityStatus: nonReady?.status ?? (executionCompatibility.length > 0 ? 'READY' : 'UNKNOWN'),
+          executionCompatibilityIssueCount: executionCompatibility.reduce((count, record) => count + record.issues.length, 0),
+        };
+      }),
+    };
   }
 
   private async getServiceAssetDetail(request: HttpRequest) {
@@ -1120,6 +1139,17 @@ export function isObjectAllowed(authorization: PageQuery['authorization'] | unde
   if (authorization.unrestricted) return true;
   if (authorization.empty) return false;
   return authorization.objectIds?.includes(objectId) ?? false;
+}
+
+export function normalizeReadAuthorization(
+  authorization: PageQuery['authorization'] | undefined,
+  globalReadAllowed: boolean,
+): PageQuery['authorization'] | undefined {
+  if (!authorization) return undefined;
+  if (globalReadAllowed && authorization.empty) {
+    return { ...authorization, empty: false, unrestricted: true };
+  }
+  return authorization;
 }
 
 export function projectDeviceAsset(device: ManagedDeviceSummaryDto, canManage: boolean): Record<string, unknown> {

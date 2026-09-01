@@ -65,8 +65,12 @@ export function withAuthorization(query: PageQuery, authorization: PageAuthoriza
 export function applyAuthorizationFilter<T extends object>(items: T[], query: PageQuery): T[] {
   const authorization = query.authorization;
   if (!authorization) return items;
-  const scopedItems = items.filter((item) => matchesTenantScopeFilter(item, authorization));
-  if (authorization.unrestricted) return scopedItems;
+  // unrestricted 表示调用方已通过 RBAC 获得当前租户内的全量读取能力。
+  // 列表读模型不一定携带 ownerType（设备摘要就是如此），不能再用 SYSTEM
+  // 所有权标签把租户内记录全部误过滤；显式 deny 仍在下方统一保留。
+  const scopedItems = authorization.unrestricted
+    ? items
+    : items.filter((item) => matchesTenantScopeFilter(item, authorization));
   if (authorization.empty) return [];
 
   const allowedIds = new Set(authorization.objectIds ?? []);
@@ -77,7 +81,8 @@ export function applyAuthorizationFilter<T extends object>(items: T[], query: Pa
 
   return scopedItems.filter((item) => {
     const id = readObjectField(item, objectIdField);
-    const allowed = (typeof id === 'string' && allowedIds.has(id))
+    const allowed = authorization.unrestricted === true
+      || (typeof id === 'string' && allowedIds.has(id))
       || allowedConditions.some((condition) => conditionMatches(item, condition));
     if (!allowed) return false;
     if (typeof id === 'string' && deniedIds.has(id)) return false;

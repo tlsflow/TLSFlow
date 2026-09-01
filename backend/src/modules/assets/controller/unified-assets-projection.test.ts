@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { compareUnifiedAssets, getAssetsRouteContracts, isObjectAllowed, matchesUnifiedAssetFilter, projectDeviceAsset, projectServiceAsset } from './assets.controller.js';
+import { applyAuthorizationFilter } from '../../../common/pagination/pagination.js';
+import { compareUnifiedAssets, getAssetsRouteContracts, isObjectAllowed, matchesUnifiedAssetFilter, normalizeReadAuthorization, projectDeviceAsset, projectServiceAsset } from './assets.controller.js';
 
 test('统一资产投影为设备和云服务提供稳定 assetRef 与通用动作', () => {
   const device = projectDeviceAsset({
@@ -26,6 +27,44 @@ test('统一资产对象 deny 优先于 allow，空授权不会放行对象', ()
   assert.equal(isObjectAllowed({ objectIds: ['device-1'], deniedObjectIds: ['device-1'] }, 'device-1'), false);
   assert.equal(isObjectAllowed({ empty: true }, 'device-1'), false);
   assert.equal(isObjectAllowed({ unrestricted: true }, 'device-1'), true);
+});
+
+test('全局读取权限下的空对象授权不应把设备列表裁剪为空', () => {
+  const normalized = normalizeReadAuthorization({ empty: true }, true);
+  assert.equal(normalized?.unrestricted, true);
+  assert.equal(normalized?.empty, false);
+  assert.deepEqual(normalized?.objectIds, undefined);
+});
+
+test('显式对象拒绝不能被全局读取权限的归一化覆盖', () => {
+  const normalized = normalizeReadAuthorization({ empty: true, deniedObjectIds: ['device-1'] }, true);
+  assert.equal(normalized?.unrestricted, true);
+  assert.deepEqual(normalized?.deniedObjectIds, ['device-1']);
+  assert.equal(isObjectAllowed(normalized, 'device-1'), false);
+  const visible = applyAuthorizationFilter([{ id: 'device-1' }, { id: 'device-2' }], {
+    page: 1,
+    pageSize: 20,
+    filter: {},
+    authorization: { ...normalized, objectIdField: 'id' },
+  });
+  assert.deepEqual(visible.map((item) => item.id), ['device-2']);
+});
+
+test('全局授权带 SYSTEM 所有权标签时仍允许租户内无 ownerType 的设备摘要', () => {
+  const visible = applyAuthorizationFilter([{ id: 'device-1' }, { id: 'device-2' }], {
+    page: 1,
+    pageSize: 20,
+    filter: {},
+    authorization: {
+      unrestricted: true,
+      empty: false,
+      ownerTypes: ['SYSTEM'],
+      objectIds: [],
+      dynamicConditions: [{}],
+      deniedObjectIds: ['device-2'],
+    },
+  });
+  assert.deepEqual(visible.map((item) => item.id), ['device-1']);
 });
 
 test('统一资产详情和动作路由属于资产合同', () => {

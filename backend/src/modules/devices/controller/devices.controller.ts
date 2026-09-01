@@ -51,7 +51,12 @@ export class DevicesController {
       scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
     }, { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject });
     const authorization = await this.security?.objectPermissions.buildAuthorizedQuery(subject, 'host', 'read');
-    const authorizedHostIds = authorization && !authorization.unrestricted ? authorization.objectIds ?? [] : undefined;
+    // 全局 host.read 且没有对象授权记录时保持全量可读，不能把空授权误转为空 ID 数组。
+    const authorizedHostIds = authorization && !authorization.unrestricted
+      ? (authorization.empty
+        ? (authorization.deniedObjectIds?.length || authorization.deniedDynamicConditions?.length ? [] : undefined)
+        : authorization.objectIds ?? [])
+      : undefined;
     return this.service.list(tenantId(request), { ...query, authorizedHostIds });
   }
 
