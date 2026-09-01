@@ -108,14 +108,12 @@ export class CaOperationsQueryRepository {
   }
 
   async countByObjectType(tenantId: string, caId: string): Promise<Record<CaOperationObjectType, number>> {
+    const projections = (['request', 'issuance', 'revocation'] as const)
+      .map((objectType) => `select object_type from (${sourceProjectionSql(objectType)}) projected`)
+      .join(' union all ');
     const result = await this.db.query<{ object_type: CaOperationObjectType; count: number }>(
       `select object_type, count(*)::int as count
-       from (
-         select object_type from pg_ca_external_observations where tenant_id = $1 and ca_id = $2
-         union all select 'request' from pg_certificate_requests where tenant_id = $1 and ca_id = $2
-         union all select 'issuance' from pg_ca_issuance_records where tenant_id = $1 and ca_id = $2
-         union all select 'revocation' from pg_certificate_revocations where tenant_id = $1 and ca_id = $2
-       ) records
+       from (${projections}) records
        group by object_type`,
       [tenantId, caId],
     );
@@ -155,28 +153,41 @@ function nativeProjectionSql(objectType: CaOperationObjectType): string {
     return `select
       'gcac:request:' || request.id as record_key,
       'request' as object_type,
-      'gcac_native' as source,
+      case when observation.id is null then 'gcac_native' else 'external_sync' end as source,
       'certificateRequest' as gcac_resource_type,
       request.id as gcac_resource_id,
       authority.provider_id,
-      request.provider_request_id as external_object_id,
+      coalesce(observation.external_object_id, request.provider_request_id) as external_object_id,
       request.ca_id,
-      case
+      coalesce(observation.normalized_status, case
         when request.status in ('pending_approval', 'approved', 'issuing', 'pending_key', 'pending_csr') then 'pending'
         when request.status in ('issued', 'deploying', 'active') then 'issued'
         when request.status = 'rejected' then 'rejected'
         when request.status in ('issue_failed', 'deploy_failed') then 'failed'
         when request.status = 'revoked' then 'revoked'
         else 'unknown'
-      end as normalized_status,
-      request.status as source_status,
-      request.payload->>'subjectCommonName' as subject_common_name,
-      null::text as serial_number,
-      request.profile_version_id as template_external_id,
-      request.requested_by as requested_by_display,
-      request.created_at as observed_at
+      end) as normalized_status,
+      coalesce(observation.source_status, request.status) as source_status,
+      coalesce(observation.subject_common_name, request.payload->>'subjectCommonName') as subject_common_name,
+      observation.serial_number as serial_number,
+      coalesce(observation.template_external_id, request.profile_version_id) as template_external_id,
+      coalesce(observation.requested_by_display, request.requested_by) as requested_by_display,
+      coalesce(observation.observed_at, request.created_at) as observed_at
     from pg_certificate_requests request
     join pg_certificate_authorities authority on authority.id = request.ca_id
+    left join lateral (
+      select external.*
+      from pg_ca_external_observations external
+      where external.tenant_id = request.tenant_id
+        and external.ca_id = request.ca_id
+        and external.object_type = 'request'
+        and (
+          external.external_object_id = request.provider_request_id
+          or external.external_object_id = 'request:' || request.provider_request_id
+        )
+      order by external.observed_at desc, external.id desc
+      limit 1
+    ) observation on true
     where request.tenant_id = $1 and request.ca_id = $2`;
   }
   if (objectType === 'issuance') {
@@ -240,7 +251,10 @@ function externalDeduplicationSql(objectType: CaOperationObjectType): string {
     return `and not exists (
       select 1 from pg_certificate_requests request
       where request.tenant_id = observation.tenant_id and request.ca_id = observation.ca_id
-        and request.provider_request_id = observation.external_object_id
+        and (
+          request.provider_request_id = observation.external_object_id
+          or observation.external_object_id = 'request:' || request.provider_request_id
+        )
     )`;
   }
   if (objectType === 'issuance') {

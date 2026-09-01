@@ -75,6 +75,79 @@ test('统一运营查询合并原生与外部事实，使用稳定游标且拒�
   );
 });
 
+test('AD CS 请求 ID 规范化后合并本地申请与 Agent 观测', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const repository = new InternalCaRepository(database);
+  const provider = await repository.saveProvider({
+    id: 'provider-adcs-request-merge', tenantId, name: 'AD CS 合并测试', type: 'plugin', deploymentMode: 'external', runtimePlatform: 'windows',
+    availabilityMode: 'single', capabilities: {
+      discoverHierarchy: false, createRoot: false, createIntermediate: false, signCsr: true, queryIssuance: true,
+      revokeCertificate: true, publishCrl: false, ocsp: false, listProfiles: false, deviceLocalCsr: false,
+      hardwareBackedKey: false, highAvailability: false,
+    }, status: 'active', configuration: { providerKind: 'microsoft_adcs' },
+    createdAt: '2026-08-26T00:00:00.000Z', updatedAt: '2026-08-26T00:00:00.000Z',
+  });
+  const authority = await repository.saveAuthority({
+    id: 'ca-adcs-request-merge', tenantId, name: 'AD CS 合并测试', role: 'root', topologyMode: 'external_managed', providerId: provider.id,
+    securityDomain: 'test', status: 'active', subjectCommonName: 'AD CS 合并测试', configuration: { providerKind: 'microsoft_adcs' },
+    createdAt: '2026-08-26T00:00:00.000Z', updatedAt: '2026-08-26T00:00:00.000Z',
+  });
+  await database.query(
+    `insert into pg_key_references (
+      id, tenant_id, owner_type, owner_id, custody_mode, backend_type,
+      public_key_fingerprint_sha256, exportability, protection_level, status, created_at, updated_at
+    ) values ($1, $2, 'certificate_request', $3, 'managed_secret', 'test', $4, 'non_exportable', 'software', 'active', $5, $5)`,
+    ['key-reference-1', tenantId, 'certreq-adcs-request-merge', 'public-key-sha256', '2026-08-26T12:00:00.000Z'],
+  );
+  await database.query(
+    `insert into pg_certificate_profiles (
+      id, tenant_id, name, security_domain, status, current_version, created_at, updated_at
+    ) values ($1, $2, 'AD CS 合并测试 Profile', 'test', 'active', 1, $3, $3)`,
+    ['profile-1', tenantId, '2026-08-26T12:00:00.000Z'],
+  );
+  await database.query(
+    `insert into pg_certificate_profile_versions (
+      id, profile_id, version_no, rules, created_by, created_at, updated_at
+    ) values ($1, $2, 1, '{}'::jsonb, 'user_admin', $3, $3)`,
+    ['profile-version-1', 'profile-1', '2026-08-26T12:00:00.000Z'],
+  );
+  await database.query(
+    `insert into pg_certificate_requests (
+      id, tenant_id, application_asset_id, ca_id, profile_version_id, key_reference_id,
+      csr_pem, csr_sha256, public_key_fingerprint_sha256, idempotency_key, status,
+      requested_by, provider_request_id, payload, created_at, updated_at
+    ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15, $15)`,
+    [
+      'certreq-adcs-request-merge', tenantId, 'application-1', authority.id, 'profile-version-1', 'key-reference-1',
+      '-----BEGIN CERTIFICATE REQUEST-----', 'csr-sha256', 'public-key-sha256', 'request-merge-idempotency', 'issued',
+      'user_admin', '25', JSON.stringify({ subjectCommonName: 'merge.example.test' }), '2026-08-26T12:00:00.000Z',
+    ],
+  );
+  await new CaOperationsRepository(database).upsertExternalObservation({
+    id: 'adcs-request-merge-observation', tenantId, providerId: provider.id, caId: authority.id, objectType: 'request',
+    externalObjectId: 'request:25', normalizedStatus: 'revoked', sourceStatus: '21 -- 已吊销', subjectCommonName: 'merge.example.test',
+    serialNumber: 'ABC123', templateExternalId: 'WebServer', rawSummary: { requestId: 25 },
+    observedAt: '2026-08-26T12:05:00.000Z', firstObservedAt: '2026-08-26T12:05:00.000Z',
+    createdAt: '2026-08-26T12:05:00.000Z', updatedAt: '2026-08-26T12:05:00.000Z',
+  });
+
+  const service = new CaOperationsQueryService(database, undefined, repository);
+  const page = await service.records(tenantId, { caId: authority.id, view: 'request', limit: 50 });
+  assert.equal(page.total, 1);
+  assert.equal(page.items.length, 1);
+  assert.equal(page.items[0]?.recordKey, 'gcac:request:certreq-adcs-request-merge');
+  assert.equal(page.items[0]?.source, 'external_sync');
+  assert.equal(page.items[0]?.normalizedStatus, 'revoked');
+  assert.equal(page.items[0]?.display.serialNumber, 'ABC123');
+  assert.equal(page.items[0]?.gcacResource?.type, 'certificateRequest');
+  const tree = await service.tree(tenantId, async () => true);
+  const visibleAuthority = [...tree.trustDomains.flatMap((domain) => domain.authorities), ...tree.unassignedAuthorities]
+    .find((item) => item.id === authority.id);
+  assert.deepEqual(visibleAuthority?.views, [{ objectType: 'request', count: 1 }]);
+  await database.close();
+});
+
 test('没有运营适配器的 plugin CA 仍可读取已持久化的历史记录', async () => {
   const database = new PgliteDatabase();
   await runMigrations(database, 'src/database/migrations');
