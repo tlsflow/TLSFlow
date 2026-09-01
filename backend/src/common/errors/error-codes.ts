@@ -89,6 +89,7 @@ const registeredErrorCodes: Record<string, ErrorCodeDefinition> = {
   CREDENTIAL_EXPIRED: { httpStatus: 422, message: '凭据已过期' },
   CAPABILITY_EXPIRED: { httpStatus: 422, message: '能力检测已过期' },
   DEPLOYMENT_INVALID_STATE: { httpStatus: 409, message: '部署计划状态不允许该操作' },
+  DEPLOYMENT_INTERNAL_APPROVAL_FROZEN: { httpStatus: 409, message: '内部审批部署计划已冻结' },
   DEPLOYMENT_APPROVAL_REQUIRED: { httpStatus: 422, message: '需要审批' },
   DEPLOYMENT_ASSET_CONTEXT_INVALID: { httpStatus: 422, message: '部署资产上下文无效' },
   DEPLOYMENT_INPUT_CONTRACT_INVALID: { httpStatus: 422, message: '部署输入契约无效' },

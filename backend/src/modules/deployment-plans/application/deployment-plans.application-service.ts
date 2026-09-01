@@ -367,6 +367,8 @@ export class DeploymentPlansApplicationService {
     const resolved = deferPreflight ? this.resolveDeferredCreateInput(input) : await this.resolveCreateInput(input);
     const normalizedInput: CreateDeploymentPlanInput = {
       ...input,
+      // 中文说明：保留字段用于兼容历史请求，但新计划不得再启用内部审批。
+      policy: { ...(input.policy ?? {}), approvalRequired: false },
       certificateVersionId: resolved.certificateVersionId,
       certificateFormatId: resolved.certificateFormatId,
       selectionMode: resolved.selectionMode,
@@ -401,7 +403,7 @@ export class DeploymentPlansApplicationService {
     }
 
     const now = new Date().toISOString();
-    const policy = this.domain.normalizePolicy(input.policy);
+    const policy = { ...this.domain.normalizePolicy(normalizedInput.policy), approvalRequired: false };
     const targetDrafts = await Promise.all(resolved.targets.map(async (target) => {
       const gatewayRoute = await this.normalizeGatewayRoute(target, input.tenantId, policy);
       return {
@@ -638,6 +640,8 @@ export class DeploymentPlansApplicationService {
     const resolved = await this.resolveCreateInput(draft);
     const normalizedInput: CreateDeploymentPlanInput = {
       ...draft,
+      // 中文说明：草稿更新同样不能重新打开已冻结的内部审批。
+      policy: { ...(draft.policy ?? {}), approvalRequired: false },
       certificateVersionId: resolved.certificateVersionId,
       certificateFormatId: resolved.certificateFormatId,
       selectionMode: resolved.selectionMode,
@@ -665,7 +669,7 @@ export class DeploymentPlansApplicationService {
       })),
     };
     const requestHash = this.domain.buildRequestHash(normalizedInput);
-    const policy = this.domain.normalizePolicy(draft.policy);
+    const policy = { ...this.domain.normalizePolicy(normalizedInput.policy), approvalRequired: false };
     const targetDrafts = await Promise.all(resolved.targets.map(async (target) => {
       const gatewayRoute = await this.normalizeGatewayRoute(target, draft.tenantId, policy);
       return {
@@ -1518,16 +1522,7 @@ export class DeploymentPlansApplicationService {
       await this.assertSynchronousPreflight(plan, preflightTargets, 'submit', settings);
     }
 
-    if (plan.status === 'PENDING_APPROVAL') {
-      if (!(await this.requiresApproval(plan, settings))) {
-        const ready = await this.transitionPlan(plan, 'READY', input.actorId, 'approval.disabled', {
-          approvalStatus: 'NOT_REQUIRED',
-          approvalId: undefined,
-        });
-        return this.toDto(ready);
-      }
-      return this.toDto(plan);
-    }
+    this.assertInternalApprovalFrozen(plan);
 
     if (plan.status !== 'DRAFT') {
       throw new AppError('DEPLOYMENT_INVALID_STATE', '只有 DRAFT 或 PENDING_APPROVAL 计划允许提交', { planId: plan.id, status: plan.status });
@@ -1555,12 +1550,7 @@ export class DeploymentPlansApplicationService {
     await this.assertPersistedDeploymentExecutors(storedPlan.id, input.tenantId, 'execute');
     let plan = await this.synchronizeApprovalState(storedPlan);
     const executionApproved = false;
-    if (plan.status === 'PENDING_APPROVAL' && !(await this.requiresApproval(plan, settings))) {
-      plan = await this.transitionPlan(plan, 'READY', input.actorId, 'approval.disabled', {
-        approvalStatus: 'NOT_REQUIRED',
-        approvalId: undefined,
-      });
-    }
+    this.assertInternalApprovalFrozen(plan);
 
     if (!['READY', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK'].includes(plan.status)) {
       throw new AppError('DEPLOYMENT_INVALID_STATE', '只有 READY 或已结束的计划允许执行/重新执行', { planId: plan.id, status: plan.status });
@@ -1678,13 +1668,11 @@ export class DeploymentPlansApplicationService {
     const { runIds, stepIds } = await this.executions.getRepository().deleteRunsByDeploymentPlan(input.tenantId, plan.id);
     const targetIds = targets.map((target) => target.id);
     const deletedTransitions = await this.repository.deleteTransitionsByEntityIds([plan.id, ...targetIds, ...runIds, ...stepIds], input.tenantId);
-    const approvalIds = await this.approval.deleteByDeploymentPlan(plan.id, plan.approvalId);
     const deletedAudits = await this.audit.deleteByResources([
       { resourceType: 'deploymentPlan', resourceId: plan.id },
       ...targetIds.map((resourceId) => ({ resourceType: 'deploymentPlanTarget', resourceId })),
       ...runIds.map((resourceId) => ({ resourceType: 'executionRun', resourceId })),
       ...stepIds.map((resourceId) => ({ resourceType: 'executionStep', resourceId })),
-      ...approvalIds.map((resourceId) => ({ resourceType: 'approval', resourceId })),
     ]);
 
     await this.repository.deleteTargetsByPlan(plan.id, input.tenantId);
@@ -1696,7 +1684,8 @@ export class DeploymentPlansApplicationService {
       deletedSteps: stepIds.length,
       deletedTargets: targets.length,
       deletedTransitions,
-      deletedApprovals: approvalIds.length,
+      // 中文说明：历史审批记录属于只读审计数据，删除部署计划时不得一并删除。
+      deletedApprovals: 0,
       deletedAudits,
     };
   }
@@ -1736,7 +1725,6 @@ export class DeploymentPlansApplicationService {
       return false;
     }
     await this.repository.deleteTransitionsByEntityIds([plan.id, ...targets.map((target) => target.id)], input.tenantId);
-    await this.approval.deleteByDeploymentPlan(plan.id, plan.approvalId, input.tenantId);
     if (this.deploymentInputSnapshots) await this.deploymentInputSnapshots.deleteByPlan(input.tenantId, plan.id);
     await this.repository.deleteTargetsByPlan(plan.id, input.tenantId);
     await this.repository.deletePlan(plan.id);
@@ -3073,6 +3061,15 @@ export class DeploymentPlansApplicationService {
   private async requiresApproval(plan: DeploymentPlanEntity, settings?: DeploymentTaskSettings): Promise<boolean> {
     // 中文说明：企业授权由外部 API 完成，部署计划不再创建或消费内部审批。
     return false;
+  }
+
+  private assertInternalApprovalFrozen(plan: DeploymentPlanEntity): void {
+    if (plan.status === 'PENDING_APPROVAL' || plan.approvalId) {
+      throw new AppError('DEPLOYMENT_INTERNAL_APPROVAL_FROZEN', '内部审批部署计划已冻结，仅保留历史只读记录；请通过外部自动化 API 重新发起授权执行', {
+        planId: plan.id,
+        status: plan.status,
+      });
+    }
   }
 
   private async getDeploymentTaskSettings(tenantId?: string): Promise<DeploymentTaskSettings> {

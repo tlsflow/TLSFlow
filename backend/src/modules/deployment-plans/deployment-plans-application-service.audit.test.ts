@@ -216,3 +216,19 @@ test('部署审批已冻结且始终由外部授权入口负责', async () => {
   assert.equal(await requiresApproval({ ...plan, policy: { ...plan.policy, approvalRequired: true } }, { approvalEnabled: false, dryRunEnabled: false }), false);
   assert.equal(await requiresApproval({ ...plan, policy: { ...plan.policy, approvalRequired: false } }, { approvalEnabled: true, dryRunEnabled: false }), false);
 });
+
+test('历史内部审批计划只能读取，提交和执行不能绕过外部授权入口', async () => {
+  const { service, plan } = createService({ write: async () => undefined } as never);
+  const frozenPlan = { ...plan, status: 'PENDING_APPROVAL', approvalId: 'approval-history' };
+  const repository = (service as any).repository;
+  repository.getPlanOrThrow = async () => frozenPlan;
+
+  await assert.rejects(
+    () => service.submit({ planId: frozenPlan.id, actorId: frozenPlan.createdBy, tenantId: frozenPlan.tenantId }),
+    (error: unknown) => (error as { errorCode?: string }).errorCode === 'DEPLOYMENT_INTERNAL_APPROVAL_FROZEN',
+  );
+  await assert.rejects(
+    () => service.execute({ planId: frozenPlan.id, actorId: frozenPlan.createdBy, tenantId: frozenPlan.tenantId, idempotencyKey: 'frozen-plan' }),
+    (error: unknown) => (error as { errorCode?: string }).errorCode === 'DEPLOYMENT_INTERNAL_APPROVAL_FROZEN',
+  );
+});
