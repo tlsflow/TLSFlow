@@ -1205,7 +1205,13 @@ export class AgentsApplicationService {
    * 发送同一 UpgradePlan 的唯一 Envelope。传输成功只会进入 accepted，不能把 HTTP
    * 200 或 Agent 已接受误记为最终 succeeded。
    */
-  async dispatchUpgrade(tenantId: string, input: DispatchAgentUpgradeInput, actorId: string, requestId: string): Promise<AgentUpgradePlan> {
+  async dispatchUpgrade(
+    tenantId: string,
+    input: DispatchAgentUpgradeInput,
+    actorId: string,
+    requestId: string,
+    installPublicBaseUrl?: string,
+  ): Promise<AgentUpgradePlan> {
     const agent = await this.requireAgent(tenantId, input.agentId);
     if (!isGoFullAgent(agent)) throw new AppError('VALIDATION_FAILED', '当前接口只支持 Windows/Linux Go Full Agent 升级', { reason: 'PRODUCT_LINE_UNSUPPORTED' });
     const plan = await this.repository.getUpgradePlan(tenantId, input.planId);
@@ -1254,9 +1260,9 @@ export class AgentsApplicationService {
       let envelope: AgentUpgradeEnvelope;
       try {
         const upgradeBootstrapUrl = resolveGoFullProductLine(agent.descriptor.osType) === linuxGoProductLine
-          ? (await this.createLinuxUpgradeBootstrap(agent, dispatching, requestId, release)).bootstrapUrl
+          ? (await this.createLinuxUpgradeBootstrap(agent, dispatching, requestId, release, installPublicBaseUrl)).bootstrapUrl
           : resolveGoFullProductLine(agent.descriptor.osType) === windowsGoProductLine
-            ? (await this.createWindowsUpgradeBootstrap(agent, dispatching, requestId, release)).bootstrapUrl
+            ? (await this.createWindowsUpgradeBootstrap(agent, dispatching, requestId, release, installPublicBaseUrl)).bootstrapUrl
             : undefined;
         envelope = buildGoFullUpgradeEnvelope(agent, dispatching, release, requestId, upgradeBootstrapUrl);
       } catch (error) {
@@ -1322,8 +1328,10 @@ export class AgentsApplicationService {
     plan: AgentUpgradePlan,
     requestId: string,
     release: AgentVersionRelease,
+    installPublicBaseUrl?: string,
   ): Promise<AgentInstallSessionBootstrapProjection> {
     const releaseUrl = new URL(release.downloadUrl);
+    const controlPlaneUrl = resolveUpgradeControlPlaneUrl(installPublicBaseUrl, releaseUrl);
     const session = await this.createAgentInstallSession(
       plan.tenantId,
       {
@@ -1340,7 +1348,7 @@ export class AgentsApplicationService {
         startAfterInstall: true,
       },
       requestId,
-      releaseUrl.origin,
+      controlPlaneUrl,
     );
     return session;
   }
@@ -1354,8 +1362,10 @@ export class AgentsApplicationService {
     plan: AgentUpgradePlan,
     requestId: string,
     release: AgentVersionRelease,
+    installPublicBaseUrl?: string,
   ): Promise<AgentInstallSessionBootstrapProjection> {
     const releaseUrl = new URL(release.downloadUrl);
+    const controlPlaneUrl = resolveUpgradeControlPlaneUrl(installPublicBaseUrl, releaseUrl);
     return this.createAgentInstallSession(
       plan.tenantId,
       {
@@ -1372,7 +1382,7 @@ export class AgentsApplicationService {
         startAfterInstall: true,
       },
       requestId,
-      releaseUrl.origin,
+      controlPlaneUrl,
     );
   }
 
@@ -3189,6 +3199,24 @@ function localGoFullReleaseDownloadUrl(releaseId: string): string {
     base.port = process.env.PORT?.trim() || '3003';
   }
   return new URL(`/agent-releases/${encodeURIComponent(releaseId)}`, base).toString();
+}
+
+/**
+ * 在线升级的 Bootstrap 必须从 Agent 可访问的控制面获取，不能从制品下载地址推导。
+ * 旧的非 HTTP 调用没有请求上下文时仍保留 Release origin 回退，以兼容历史内部调用。
+ */
+function resolveUpgradeControlPlaneUrl(explicitBaseUrl: string | undefined, releaseUrl: URL): string {
+  const configuredBaseUrl = explicitBaseUrl?.trim()
+    || process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL?.trim()
+    || process.env.GCAC_PUBLIC_BASE_URL?.trim();
+  if (!configuredBaseUrl) return releaseUrl.origin;
+  try {
+    const parsed = new URL(configuredBaseUrl);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('unsupported protocol');
+    return parsed.origin.replace(/\/+$/u, '');
+  } catch {
+    throw new AppError('CONFIGURATION_ERROR', 'Agent 升级 Bootstrap 控制面地址无效', { controlPlaneUrl: configuredBaseUrl });
+  }
 }
 
 function resolveReachableHost(): string {

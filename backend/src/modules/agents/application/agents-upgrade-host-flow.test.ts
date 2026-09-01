@@ -30,14 +30,20 @@ test('Windows Go 宿主升级链路把接受与传输失败分开记录', async 
     });
     const plan = await acceptedService.checkUpgrade('tenant-host-flow', { agentId: 'agent-host-flow', releaseId: 'release-host-flow' });
     assert.equal('id' in plan, true);
-    const accepted = await acceptedService.dispatchUpgrade('tenant-host-flow', { agentId: 'agent-host-flow', planId: (plan as AgentUpgradePlan).id }, 'operator-1', 'request-1');
+    const accepted = await acceptedService.dispatchUpgrade(
+      'tenant-host-flow',
+      { agentId: 'agent-host-flow', planId: (plan as AgentUpgradePlan).id },
+      'operator-1',
+      'request-1',
+      'https://control-plane.invalid',
+    );
     assert.equal(accepted.status, 'accepted');
     assert.equal((accepted.result as { accepted?: boolean }).accepted, true);
     assert.equal(enqueuedTaskInput?.taskType, 'AGENT_UPDATE');
     assert.equal(enqueuedTaskInput?.triggerSource, 'agent-upgrade-confirmed');
     assert.equal((accepted.result as { taskId?: string }).taskId, 'task-agent-upgrade-1');
     assert.equal((acceptedEnvelope?.release as { productLine?: string }).productLine, 'windows-go-full');
-    assert.match(String(acceptedEnvelope?.upgradeBootstrapUrl), /\/agent-install\.ps1\?token=/u);
+    assert.match(String(acceptedEnvelope?.upgradeBootstrapUrl), /^https:\/\/control-plane\.invalid\/agent-install\.ps1\?token=/u);
     assert.equal(acceptedState.installSessions[0]?.agentKey, acceptedState.agent.agentKey);
     assert.equal(acceptedState.installSessions[0]?.platform, 'windows_go_service');
     const manualRequired = await acceptedService.markUpgradeManualRequired(

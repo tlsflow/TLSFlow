@@ -677,7 +677,13 @@ export class AgentsController {
       policyRef: { type: 'string' },
       retryReason: { type: 'string' },
     });
-    return this.service.dispatchUpgrade(tenantId(request), { agentId, ...body } as unknown as DispatchAgentUpgradeInput, actorId(request), requestId(request));
+    return this.service.dispatchUpgrade(
+      tenantId(request),
+      { agentId, ...body } as unknown as DispatchAgentUpgradeInput,
+      actorId(request),
+      requestId(request),
+      resolveInstallPublicBaseUrl(request),
+    );
   }
 
   private getAgentUpgradeStatus(request: HttpRequest) {
@@ -699,6 +705,7 @@ export class AgentsController {
       },
       actorId(request),
       requestId(request),
+      resolveInstallPublicBaseUrl(request),
     );
   }
 
