@@ -15,7 +15,7 @@ import { listManagedDevices } from '@/api/modules/devices.api'
 import { getDeploymentTaskSettings } from '@/api/modules/security.api'
 import type { ApiPageResult, ApiRecord, BusinessListQuery } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
-import { DeploymentInputForm, GcButton, GcCard, GcCertificateDeploymentForm, GcCompatiblePluginSelector, GcConfirmAction, GcDataTable, GcEffectiveCapabilityCard, GcEmptyState, GcExecutionModeSelector, GcHelpTip, GcManagedTargetSelector, GcModal, GcPagination, GcPermissionButton, GcPluginLogo, GcProgressBar, GcStatusTag, GcTabs, GcUserFlowWizard, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1, type StatusTone } from '@/design-system/components'
+import { DeploymentInputForm, GcButton, GcCard, GcCertificateDeploymentForm, GcConfirmAction, GcDataTable, GcEffectiveCapabilityCard, GcEmptyState, GcExecutionModeSelector, GcHelpTip, GcManagedTargetSelector, GcModal, GcPagination, GcPermissionButton, GcPluginLogo, GcProgressBar, GcStatusTag, GcTabs, GcUserFlowWizard, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1, type StatusTone } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import type { UserFlowStep } from '@/design-system/components/GcUserFlowWizard.vue'
 import { useAppStore } from '@/stores/app.store'
@@ -184,6 +184,9 @@ interface AssetOverviewCard {
   readonly name: string
   readonly status: string
   readonly pluginVersionId: string
+  readonly executionCompatibilityStatus: string
+  readonly executionCompatibilityIssueCount: number
+  readonly executionCompatibilityIssues: readonly DeploymentInputIssueDetail[]
   readonly certificate: AssetCardCertificate
 }
 
@@ -2308,9 +2311,9 @@ async function submitCreate() {
 }
 
 async function saveManagedTargetConfiguration(applicationAssetId: string): Promise<void> {
-  const explicitPluginVersionId = assetDraft.pluginOverrideVersionId.trim()
   const hasPluginInputOverride = hasInputBindingValues(deploymentInputBindings.value)
-  const pluginVersionId = explicitPluginVersionId || (hasPluginInputOverride ? pluginProjectionVersionId.value : '')
+  const pluginId = String(readNested(effectiveCapability.value, ['plugin', 'pluginId'])
+    ?? readNested(inheritedEffectiveCapability.value, ['plugin', 'pluginId']) ?? '').trim()
   await saveApplicationAssetManagedTarget(applicationAssetId, {
     managedTargetId: assetDraft.managedTargetId,
     certificateFormatId: assetDraft.agentCertificateFormatId.trim(),
@@ -2319,9 +2322,9 @@ async function saveManagedTargetConfiguration(applicationAssetId: string): Promi
     ...(assetDraft.managedExecutionMode === 'WORKFLOW_OVERRIDE'
       ? { workflowExecution: buildWorkflowExecutionInput() }
       : {}),
-    ...(assetDraft.managedExecutionMode === 'PLUGIN' && pluginVersionId ? {
+    ...(assetDraft.managedExecutionMode === 'PLUGIN' && hasPluginInputOverride && pluginId ? {
       pluginOverride: {
-        pluginVersionId,
+        pluginId,
         pluginBindingId: pluginBindingId.value || undefined,
         expectedBindingVersion: pluginBindingId.value ? pluginBindingVersion.value : undefined,
         inputBindings: deploymentInputBindings.value,
@@ -2573,8 +2576,35 @@ function toAssetOverviewCard(asset: ApiRecord): AssetOverviewCard {
     name,
     status: firstAssetText(asset, ['status', 'state']) || 'UNKNOWN',
     pluginVersionId: assetPluginVersionId(asset),
+    executionCompatibilityStatus: String(asset.executionCompatibilityStatus ?? 'UNKNOWN'),
+    executionCompatibilityIssueCount: Number(asset.executionCompatibilityIssueCount ?? 0),
+    executionCompatibilityIssues: Array.isArray(asset.executionCompatibility)
+      ? asset.executionCompatibility.flatMap((record) => {
+        if (!record || typeof record !== 'object' || Array.isArray(record)) return []
+        const issues = (record as Record<string, unknown>).issues
+        return Array.isArray(issues)
+          ? issues.filter((issue): issue is DeploymentInputIssueDetail => Boolean(issue && typeof issue === 'object' && !Array.isArray(issue)))
+          : []
+      })
+      : [],
     certificate: assetOverviewCertificate(asset),
   }
+}
+
+function assetExecutionCompatibilityLabel(card: AssetOverviewCard): string {
+  if (card.executionCompatibilityStatus === 'UPDATE_REQUIRED') return t('common.status.UPDATE_REQUIRED')
+  if (card.executionCompatibilityStatus === 'UNSUPPORTED') return t('common.status.ERROR')
+  return t(`common.status.${card.executionCompatibilityStatus}`, t('common.status.UNKNOWN'))
+}
+
+function assetExecutionReady(asset: ApiRecord): boolean {
+  return String(asset.executionCompatibilityStatus ?? 'UNKNOWN') === 'READY'
+}
+
+function assetExecutionCompatibilitySummary(card: AssetOverviewCard): string {
+  const issue = card.executionCompatibilityIssues[0]
+  if (!issue) return ''
+  return `${deploymentInputIssueLabel(issue)}: ${deploymentInputIssuePath(issue)}`
 }
 
 function assetPluginVersionId(asset: ApiRecord): string {
@@ -3702,6 +3732,7 @@ function managedTargetLabel(target: ApiRecord): string {
                   class="gc-button gc-button--primary"
                   :data-testid="`user-asset-card-deploy-${String(asset.id)}`"
                   permission="deployment.plan.execute"
+                  :disabled="!assetExecutionReady(asset)"
                   @click="openDeploymentDialog(userAssetRow(asset))"
                 >
                   {{ t('assets.actions.deployCertificate') }}
@@ -3899,6 +3930,16 @@ function managedTargetLabel(target: ApiRecord): string {
               <template #body>
                 <dl class="asset-page__card-facts">
                   <div>
+                    <dt>{{ t('assets.columns.status') }}</dt>
+                    <dd class="asset-page__card-fact-value">
+                      <GcStatusTag :status="card.executionCompatibilityStatus" :label="assetExecutionCompatibilityLabel(card)" />
+                      <span v-if="card.executionCompatibilityIssueCount > 0">({{ card.executionCompatibilityIssueCount }})</span>
+                      <span v-if="card.executionCompatibilityIssues.length" class="asset-page__compatibility-summary">
+                        {{ assetExecutionCompatibilitySummary(card) }}
+                      </span>
+                    </dd>
+                  </div>
+                  <div>
                     <dt>{{ t('assets.card.fields.certificate') }}</dt>
                     <dd v-auto-fit-card-fact-text class="asset-page__card-fact-value asset-page__card-certificate-name">{{ card.certificate.name }}</dd>
                   </div>
@@ -4041,18 +4082,30 @@ function managedTargetLabel(target: ApiRecord): string {
               </div>
             </template>
             <template #cell-status="{ row }">
-              <GcStatusTag
-                class="asset-page__card-certificate-state"
-                :status="row.status"
-                :label="assetCertificateStatusLabel(row.card)"
-                :tone="assetCertificateStatusTone(row.card)"
-              />
+              <div class="asset-page__table-statuses">
+                <GcStatusTag
+                  class="asset-page__card-certificate-state"
+                  :status="row.status"
+                  :label="assetCertificateStatusLabel(row.card)"
+                  :tone="assetCertificateStatusTone(row.card)"
+                />
+                <GcStatusTag
+                  class="asset-page__card-certificate-state"
+                  :status="row.card.executionCompatibilityStatus"
+                  :label="assetExecutionCompatibilityLabel(row.card)"
+                  :title="assetExecutionCompatibilitySummary(row.card)"
+                />
+                <span v-if="row.card.executionCompatibilityIssueCount > 0" class="asset-page__compatibility-summary">
+                  ({{ row.card.executionCompatibilityIssueCount }}) {{ assetExecutionCompatibilitySummary(row.card) }}
+                </span>
+              </div>
             </template>
             <template #cell-actions="{ row }">
               <div class="asset-page__table-actions">
                 <GcPermissionButton
                   class="asset-page__card-icon-action"
                   permission="deployment.plan.execute"
+                  :disabled="!assetExecutionReady(row.card.asset)"
                   :data-testid="`asset-list-deploy-${row.id}`"
                   :aria-label="t('assets.actions.deployCertificate')"
                   :title="t('assets.actions.deployCertificate')"
@@ -4765,16 +4818,6 @@ function managedTargetLabel(target: ApiRecord): string {
               :options="managedExecutionModeOptions"
             />
             <template v-if="assetDraft.managedExecutionMode === 'PLUGIN'">
-              <GcCompatiblePluginSelector
-                v-model="assetDraft.pluginOverrideVersionId"
-                :items="compatibleManagedPlugins"
-                :loading="compatibleManagedPluginsLoading"
-                :required="!pluginFallbackCapability"
-                :label="t('assets.fields.updatePlugin')"
-                :select-text="pluginFallbackCapability ? t('assets.select.updatePluginOptional') : t('assets.select.generic')"
-                :loading-text="t('common.loading')"
-                :empty-text="t('assets.errors.noCompatibleManagedPlugin')"
-              />
               <GcEffectiveCapabilityCard
                 :capability="effectiveCapability"
                 :pending-capability="pendingPluginCapability"

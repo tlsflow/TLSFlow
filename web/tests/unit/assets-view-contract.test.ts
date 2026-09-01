@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const source = readFileSync(resolve(process.cwd(), 'src/views/applications/ApplicationsView.vue'), 'utf8')
+const assetsViewSource = readFileSync(resolve(process.cwd(), 'src/views/assets/AssetsView.vue'), 'utf8')
 
 describe('应用资产卡片契约', () => {
   it('使用证书卡片的 285px 最小宽度令牌', () => {
@@ -104,5 +105,14 @@ describe('应用资产卡片契约', () => {
     expect(source).toContain('if (editInitializationLoading.value || targetSelectionInitializing.value) return')
     expect(source).toContain('function closeCreateDialog()')
     expect(source).toContain('editInitializationError.value = \'\'')
+  })
+})
+
+describe('统一资产中心入口契约', () => {
+  it('只通过统一资产列表读取，不在页面拼接设备和云服务列表', () => {
+    expect(assetsViewSource).toContain('listAssets(')
+    expect(assetsViewSource).not.toContain('listCloudServiceAssets(')
+    expect(assetsViewSource).not.toContain('listDevices(')
+    expect(assetsViewSource).not.toContain('listServiceAssets(')
   })
 })
