@@ -4,7 +4,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type { CapabilityDeclaration } from '../../../shared/contracts/capability-contracts.js';
 import { newId } from '../../../shared/id.js';
 import type { AgentCapabilitySnapshotInput, CreateAgentInstallSessionInput, CreateEnrollmentTokenInput, PublishAgentVersionInput, RegisterAgentInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput } from '../dto/agents.dto.js';
-import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentGatewayExtension, AgentInstallSession, AgentRegistration, AgentRuntimeLogEntry, AgentTaskLogEntry, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
+import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentGatewayExtension, AgentInstallSession, AgentRegistration, AgentRuntimeLogEntry, AgentTaskLogEntry, AgentVersionRelease, EnrollmentToken, LinuxAgentPlatformFamily } from '../schema/agents.schema.js';
 
 const MOCK_SAFE_CA_COMMON_NAME = 'GCAC Agent Mock Safe CA';
 const INSTALL_SESSION_TTL_MS = 10 * 60 * 1000;
@@ -191,6 +191,7 @@ export class AgentsDomainService {
     controlPlaneUrl: string,
   ): AgentInstallSession & { bootstrapToken: string; enrollmentTokenRecord: EnrollmentToken & { token: string } } {
     const platform = normalizeInstallSessionPlatform(input.platform);
+    const platformFamily = normalizeLinuxPlatformFamily(platform, input.platformFamily);
     const role = normalizeInstallSessionRole(input.role);
     if (WINDOWS_FULL_AGENT_PLATFORMS.has(platform) && role !== 'full_agent') throw new AppError('VALIDATION_FAILED', 'Windows Full/Compatibility Agent 安装会话只允许 full_agent 角色');
     if (platform === WINDOWS_ADCS_PLATFORM && role !== 'adcs_agent') throw new AppError('VALIDATION_FAILED', 'Windows AD CS Agent 安装会话只允许 adcs_agent 角色');
@@ -226,6 +227,7 @@ export class AgentsDomainService {
       controlPlaneUrl: normalizeControlPlaneUrl(controlPlaneUrl),
       zone,
       role,
+      ...(platformFamily ? { platformFamily } : {}),
       startAfterInstall: input.startAfterInstall !== false,
       createdAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + INSTALL_SESSION_TTL_MS).toISOString(),
@@ -538,6 +540,20 @@ export class AgentsDomainService {
       capabilitySetId: input.existing?.capabilitySetId,
     };
   }
+}
+
+function normalizeLinuxPlatformFamily(
+  platform: AgentInstallSession['platform'],
+  value: LinuxAgentPlatformFamily | undefined,
+): LinuxAgentPlatformFamily | undefined {
+  if (value === undefined) return undefined;
+  if (platform !== 'linux_go_systemd') {
+    throw new AppError('VALIDATION_FAILED', 'platformFamily 仅支持 Linux Agent 安装会话');
+  }
+  if (!['red-hat', 'debian-ubuntu', 'kylin', 'uos'].includes(value)) {
+    throw new AppError('VALIDATION_FAILED', '不支持的 Linux 平台系列', { platformFamily: value });
+  }
+  return value;
 }
 
 function normalizeManagementEndpoint(value: string | undefined): string | undefined {

@@ -20,6 +20,7 @@ export type AgentCertificateSigningRequestStatus = 'pending' | 'signed' | 'rejec
 export type AgentCertificateStatus = 'active' | 'rotated' | 'revoked' | 'expired';
 export type AgentInstallSessionPlatform = 'windows_go_service' | 'windows_compatibility_service' | 'windows_adcs_service' | 'linux_go_systemd';
 export type AgentInstallSessionRole = 'full_agent' | 'gateway' | 'adcs_agent';
+export type LinuxAgentPlatformFamily = 'red-hat' | 'debian-ubuntu' | 'kylin' | 'uos';
 
 export interface EnrollmentToken {
   id: string;
@@ -339,6 +340,8 @@ export interface AgentInstallSession {
   controlPlaneUrl: string;
   zone: string;
   role: AgentInstallSessionRole;
+  /** Linux 平台系列标签；仅用于配置、展示和注册标签。 */
+  platformFamily?: LinuxAgentPlatformFamily;
   startAfterInstall: boolean;
   createdAt: string;
   expiresAt: string;

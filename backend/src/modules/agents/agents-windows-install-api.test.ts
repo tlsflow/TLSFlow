@@ -305,6 +305,31 @@ describe('Agent 一键安装会话', () => {
     assert.equal(secondBootstrap.statusCode, 403);
   });
 
+  it('Linux 平台系列只增加可识别元数据，不改变安装管道', async () => {
+    const app = await createTestApp();
+    const response = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/install-sessions/linux-go',
+      headers: requestHeaders('tenant_linux_platform_family', 'req_linux_platform_family', { host: '127.0.0.1:3003' }),
+      body: { platformFamily: 'kylin' },
+    });
+
+    assert.equal(response.statusCode, 201, JSON.stringify(response.body));
+    const body = response.body as InstallSessionResponse;
+    assert.equal(body.platformFamily, 'kylin');
+    assert.match(body.installCommand, /^curl -fsSL 'http:\/\/127\.0\.0\.1:3003\/agent-install\?token=.*' \| sudo bash # os=kylin$/);
+    const token = new URL(body.bootstrapUrl).searchParams.get('token');
+    assert.ok(token);
+    const bootstrap = await app.inject({
+      method: 'GET',
+      path: `/agent-install?token=${encodeURIComponent(token)}`,
+      headers: requestHeaders('tenant_linux_platform_family', 'req_linux_platform_family_bootstrap', { host: '127.0.0.1:3003' }),
+    });
+    assert.equal(bootstrap.statusCode, 200, JSON.stringify(bootstrap.body));
+    assert.match(String(bootstrap.body), /platformFamily: manifest\.platformFamily \|\| "linux"/u);
+    assert.match(String(bootstrap.body), /"platformFamily": "kylin"/u);
+  });
+
   it('环境变量公共基地址优先于 Host、Origin 和转发头', async () => {
     const previous = process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL;
     process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL = 'https://gcac.public.example';
@@ -403,6 +428,7 @@ describe('Agent 一键安装会话', () => {
 
 interface InstallSessionResponse {
   platform: 'windows_go_service' | 'windows_compatibility_service' | 'windows_adcs_service' | 'linux_go_systemd';
+  platformFamily?: 'red-hat' | 'debian-ubuntu' | 'kylin' | 'uos';
   expiresAt: string;
   bootstrapUrl: string;
   installCommand: string;

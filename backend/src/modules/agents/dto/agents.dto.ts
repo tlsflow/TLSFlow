@@ -1,5 +1,5 @@
 import type { AgentStatus, CompatibilityLevel } from '../../../shared/enums/core.enums.js';
-import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentGatewayExtension, AgentHeartbeat, AgentInstallSession, AgentInstallSessionRole, AgentRegistration, AgentRuntimeHealth, AgentRuntimeLogEntry, AgentTaskEnvelope, AgentTaskLogCursor, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
+import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentGatewayExtension, AgentHeartbeat, AgentInstallSession, AgentInstallSessionRole, AgentRegistration, AgentRuntimeHealth, AgentRuntimeLogEntry, AgentTaskEnvelope, AgentTaskLogCursor, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken, LinuxAgentPlatformFamily } from '../schema/agents.schema.js';
 import type { CapabilityDeclaration } from '../../../shared/contracts/capability-contracts.js';
 import type { AgentSecurityStatus } from '../security/agent-security.contract.js';
 
@@ -206,6 +206,8 @@ export interface DeleteAgentInput {
 
 export interface CreateAgentInstallSessionInput {
   platform: 'windows_go' | 'windows_compatibility' | 'windows_adcs' | 'linux_go';
+  /** Linux 系列差异化标识，仅写入配置和注册标签，不改变执行流程。 */
+  platformFamily?: LinuxAgentPlatformFamily;
   role?: AgentInstallSessionRole;
   zone?: string;
   agentKey?: string;
@@ -257,6 +259,7 @@ export interface AgentInstallSessionBootstrapProjection {
   zone: string;
   enrollmentTokenPreview: string;
   role: AgentInstallSessionRole;
+  platformFamily?: LinuxAgentPlatformFamily;
   managementPort: number;
   agentVersion?: string;
   relayAllowedTargets?: string[];

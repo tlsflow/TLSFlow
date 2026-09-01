@@ -12,7 +12,7 @@ import { newId } from '../../../shared/id.js';
 import { isObservationStale, readPositiveSeconds } from '../../../shared/observation-freshness.js';
 import { AgentsDomainService, normalizeFingerprint } from '../domain/agents.domain-service.js';
 import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHealthProjection, AgentHeartbeatInput, AgentInstallSessionBootstrapProjection, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentInstallSessionInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, DeleteAgentInput, DisableAgentInput, DispatchAgentUpgradeInput, EnableAgentInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
-import type { AgentHeartbeat, AgentInstallSession, AgentInstallSessionRole, AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
+import type { AgentHeartbeat, AgentInstallSession, AgentInstallSessionRole, AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken, LinuxAgentPlatformFamily } from '../schema/agents.schema.js';
 import { PgAgentsRepository, type AgentsRepository } from '../repository/agents.repository.js';
 import type { GatewaysRepository } from '../../gateways/repository/gateways.repository.js';
 import { agentV2ContractTypes, validateAgentCapabilityToken, validateAgentExecutionReceipt, validateAgentPlan, validatePolicyAuthorityDecision, type AgentExecutionReceiptV1, type AgentSecurityStatus, type AgentV2ContractType } from '../security/agent-security.contract.js';
@@ -128,6 +128,7 @@ interface AgentInstallSessionManifest {
   dataDir: string;
   logDir: string;
   role: AgentInstallSessionRole;
+  platformFamily?: LinuxAgentPlatformFamily;
   managementPort: number;
   agentVersion?: string;
   startAfterInstall: boolean;
@@ -1594,7 +1595,7 @@ export class AgentsApplicationService {
     const encodedToken = encodeURIComponent(bootstrapToken);
     const route = installRouteForPlatform(stored.platform);
     const bootstrapUrl = `${stored.controlPlaneUrl}${route}?token=${encodedToken}`;
-    const installCommand = installCommandForPlatform(stored.platform, bootstrapUrl);
+    const installCommand = installCommandForPlatform(stored.platform, bootstrapUrl, stored.platformFamily);
     const agentVersion = stored.platform === 'windows_adcs_service' ? await readWindowsAdcsAgentVersion() : undefined;
     return {
       sessionId: stored.id,
@@ -1615,6 +1616,7 @@ export class AgentsApplicationService {
       zone: stored.zone,
       enrollmentTokenPreview: enrollmentTokenRecord.tokenPreview,
       role: stored.role,
+      platformFamily: stored.platformFamily,
       relayAllowedTargets: stored.relayAllowedTargets,
       relayAllowedPorts: stored.relayAllowedPorts,
       ...optionalBundleUrl(stored),
@@ -1784,6 +1786,7 @@ export class AgentsApplicationService {
       logDir: session.logDir,
       managementPort: session.managementPort ?? managementPortForInstallPlatform(session.platform),
       role: session.role,
+      platformFamily: session.platformFamily,
       startAfterInstall: session.startAfterInstall,
       controlPlaneUrl: baseUrl,
       agentKey: session.agentKey,
@@ -2947,14 +2950,22 @@ function installRouteForPlatform(platform: AgentInstallSession['platform']): str
   return routes[platform];
 }
 
-function installCommandForPlatform(platform: AgentInstallSession['platform'], bootstrapUrl: string): string {
+function installCommandForPlatform(
+  platform: AgentInstallSession['platform'],
+  bootstrapUrl: string,
+  platformFamily?: LinuxAgentPlatformFamily,
+): string {
   const commands: Record<AgentInstallSession['platform'], string> = {
     windows_go_service: `irm '${bootstrapUrl}' | iex`,
     windows_compatibility_service: `irm '${bootstrapUrl}' | iex`,
     windows_adcs_service: `irm '${bootstrapUrl}' | iex`,
     linux_go_systemd: `curl -fsSL '${bootstrapUrl}' | sudo bash`,
   };
-  return commands[platform];
+  const command = commands[platform];
+  // 仅追加机器可读标识，管道和参数保持完全一致。
+  return platform === 'linux_go_systemd' && platformFamily
+    ? `${command} # os=${platformFamily}`
+    : command;
 }
 
 function managementPortForInstallPlatform(platform: AgentInstallSession['platform']): number {

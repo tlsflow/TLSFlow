@@ -879,6 +879,7 @@ export function getAgentsRouteContracts(): RouteContract[] {
             enum: ['windows_go', 'windows_compatibility', 'windows_adcs', 'linux_go'],
           },
           role: { type: 'string', enum: ['full_agent', 'gateway', 'adcs_agent'] },
+          platformFamily: { type: 'string', enum: ['red-hat', 'debian-ubuntu', 'kylin', 'uos'] },
           zone: { type: 'string' },
           agentKey: { type: 'string' },
           relayAllowedTargets: { type: 'array', items: { type: 'string' } },
@@ -915,6 +916,7 @@ export function getAgentsRouteContracts(): RouteContract[] {
           agentKey: { type: 'string' },
           zone: { type: 'string' },
           role: { type: 'string', enum: ['full_agent', 'gateway', 'adcs_agent'] },
+          platformFamily: { type: 'string', enum: ['red-hat', 'debian-ubuntu', 'kylin', 'uos'] },
           relayAllowedTargets: { type: 'array', items: { type: 'string' } },
           relayAllowedPorts: { type: 'array', items: { type: 'number' } },
           bundleUrl: { type: 'string' },
@@ -1006,6 +1008,7 @@ export function getAgentsRouteContracts(): RouteContract[] {
         additionalProperties: false,
         properties: {
           role: { type: 'string', enum: ['full_agent', 'gateway'] },
+          platformFamily: { type: 'string', enum: ['red-hat', 'debian-ubuntu', 'kylin', 'uos'] },
           zone: { type: 'string' },
           agentKey: { type: 'string' },
           relayAllowedTargets: { type: 'array', items: { type: 'string' } },
@@ -1354,6 +1357,7 @@ function validateAgentInstallSessionBody(input: unknown): CreateAgentInstallSess
       enum: ['windows_go', 'windows_compatibility', 'windows_adcs', 'linux_go'],
     },
     role: { type: 'string', enum: ['full_agent', 'gateway', 'adcs_agent'] },
+    platformFamily: { type: 'string', enum: ['red-hat', 'debian-ubuntu', 'kylin', 'uos'] },
     zone: { type: 'string' },
     agentKey: { type: 'string' },
     serviceName: { type: 'string' },
@@ -1765,6 +1769,7 @@ function renderLinuxBootstrapScript(manifest: unknown): string {
     dataDir?: string;
     logDir?: string;
     startAfterInstall?: boolean;
+    platformFamily?: string;
   };
   const isGateway = installManifest.role === 'gateway';
   return [
@@ -1794,6 +1799,7 @@ function renderLinuxBootstrapScript(manifest: unknown): string {
     '  agentKey: manifest.agentKey,',
     '  enrollmentToken: manifest.enrollmentToken,',
     '  zone: manifest.zone,',
+    '  platformFamily: manifest.platformFamily || "linux",',
     '  controlPlaneUrl: manifest.controlPlaneUrl,',
     '  heartbeatIntervalSeconds: 10,',
     '  taskPollIntervalSeconds: 60,',
