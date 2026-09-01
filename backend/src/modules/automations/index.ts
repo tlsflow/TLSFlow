@@ -1,4 +1,3 @@
-export * from './application/automation-approval-orchestrator.js';
 export * from './application/automation-external-api.service.js';
 export * from './application/automation-action-registry.js';
 export * from './application/automation-event-delivery.service.js';

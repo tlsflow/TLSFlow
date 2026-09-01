@@ -58,8 +58,6 @@ export class AutomationRunCoordinator {
     private readonly repository: AutomationsRepository,
     private readonly actions: AutomationActionExecutionPort,
     private readonly clock: () => Date = () => new Date(),
-    /** 中文说明：保留旧构造参数位，兼容历史测试/装配；参数不再参与执行。 */
-    _legacyApprovalOrchestrator?: unknown,
   ) {}
 
   async execute(runId: string, tenantId: string): Promise<AutomationRunDto> {

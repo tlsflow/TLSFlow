@@ -208,11 +208,11 @@ test('能力重算等待审计写入且吞掉审计异常', async () => {
   }), audit, release);
 });
 
-test('审批判定只使用租户全局开关和应用级审批配置', async () => {
+test('部署审批已冻结且始终由外部授权入口负责', async () => {
   const { service, plan } = createService({ write: async () => undefined } as never);
   const requiresApproval = (service as any).requiresApproval.bind(service);
 
   assert.equal(await requiresApproval({ ...plan, policy: { ...plan.policy, approvalRequired: false } }, { approvalEnabled: false, dryRunEnabled: false }), false);
-  assert.equal(await requiresApproval({ ...plan, policy: { ...plan.policy, approvalRequired: true } }, { approvalEnabled: false, dryRunEnabled: false }), true);
-  assert.equal(await requiresApproval({ ...plan, policy: { ...plan.policy, approvalRequired: false } }, { approvalEnabled: true, dryRunEnabled: false }), true);
+  assert.equal(await requiresApproval({ ...plan, policy: { ...plan.policy, approvalRequired: true } }, { approvalEnabled: false, dryRunEnabled: false }), false);
+  assert.equal(await requiresApproval({ ...plan, policy: { ...plan.policy, approvalRequired: false } }, { approvalEnabled: true, dryRunEnabled: false }), false);
 });

@@ -3845,48 +3845,20 @@ export class DeploymentPlansApplicationService {
 
   private async buildApprovalPreflightCheck(
     plan: DeploymentPlanEntity,
-    settings?: DeploymentTaskSettings,
+    _settings?: DeploymentTaskSettings,
   ): Promise<DeploymentPlanDryRunCheckDto> {
-    try {
-      const approvalRequired = await this.requiresApproval(plan, settings);
-      if (!approvalRequired) {
-        return {
-          key: 'approval',
-          label: '审批状态',
-          status: 'passed',
-          detail: '当前部署策略不要求审批。',
-          evidence: { approvalRequired: false, approvalStatus: plan.approvalStatus },
-        };
-      }
-      const approval = plan.approvalId ? await this.approval.get(plan.approvalId, plan.tenantId) : undefined;
-      if (plan.approvalStatus === 'APPROVED' && (!approval || approval.status === 'approved' || approval.status === 'consumed')) {
-        return {
-          key: 'approval',
-          label: '审批状态',
-          status: 'passed',
-          detail: '正式执行所需审批已满足。',
-          evidence: { approvalRequired: true, approvalId: plan.approvalId, approvalStatus: approval?.status ?? plan.approvalStatus },
-        };
-      }
-      if (approval?.status === 'rejected' || approval?.status === 'expired' || approval?.status === 'cancelled') {
-        return {
-          key: 'approval',
-          label: '审批状态',
-          status: 'failed',
-          detail: '关联审批单已被拒绝、过期或取消，不能执行部署。',
-          evidence: { approvalRequired: true, approvalId: approval.id, approvalStatus: approval.status },
-        };
-      }
-      return {
-        key: 'approval',
-        label: '审批状态',
-        status: 'warning',
-        detail: approval ? '部署仍在等待审批通过。' : '正式执行前将创建或校验审批单。',
-        evidence: { approvalRequired: true, approvalId: plan.approvalId, approvalStatus: approval?.status ?? plan.approvalStatus },
-      };
-    } catch (error) {
-      return this.toFailedPreflightCheck('approval', '审批状态', error, { planId: plan.id });
-    }
+    // 中文说明：部署授权已交给企业外部审批系统；Dry-run 只报告兼容字段，不读取或消费内部 Approval。
+    return {
+      key: 'approval',
+      label: '授权入口',
+      status: 'passed',
+      detail: '部署计划不再创建或校验内部审批单，企业授权由外部 API 负责。',
+      evidence: {
+        approvalRequired: false,
+        approvalStatus: plan.approvalStatus,
+        externalAuthorization: true,
+      },
+    };
   }
 
   private toFailedPreflightCheck(

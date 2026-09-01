@@ -43,32 +43,22 @@ test('审批阻塞后从当前动作恢复且不重放计划创建', async () =>
   assert.equal((await repository.listActionResults('r', 't')).filter((result) => result.status === 'running').length, 0);
 });
 
-test('运行级审批在批准前暂停，批准后恢复原运行', async () => {
+test('历史运行级审批字段不再阻塞运行且不会传入执行授权', async () => {
   const actionInputs: Array<{ requireApproval?: boolean; approvalId?: string }> = [];
   const { repository } = await setup(async (input) => {
     actionInputs.push(input);
     return { status: 'succeeded' };
   });
-  let synchronizeCalls = 0;
   const coordinator = new AutomationRunCoordinator(
     repository,
     { execute: (async (input: Parameters<AutomationActionExecutionPort['execute']>[0]) => { actionInputs.push(input); return { status: 'succeeded' }; }) as never },
     () => new Date('2026-07-21T00:00:00.000Z'),
-    {
-      synchronizeRun: async () => {
-        synchronizeCalls += 1;
-        if (synchronizeCalls === 1) return { status: 'pending' as const, approvalId: 'apr_1' };
-        await repository.updateRun('r', 't', { status: 'queued' });
-        return { status: 'approved' as const, approvalId: 'apr_1' };
-      },
-    } as never,
   );
   await repository.updateRun('r', 't', { status: 'waiting_approval', approvalId: 'apr_1' });
-  assert.equal((await coordinator.execute('r', 't')).status, 'waiting_approval');
   assert.equal((await coordinator.execute('r', 't')).status, 'succeeded');
   assert.equal(actionInputs.length, 9);
   assert.equal(actionInputs.every((input) => input.requireApproval === false), true);
-  assert.equal(actionInputs.every((input) => input.approvalId === 'apr_1'), true);
+  assert.equal(actionInputs.every((input) => input.approvalId === undefined), true);
 });
 
 test('验证失败与回滚失败映射稳定失败阶段，阈值停止剩余目标', async () => {

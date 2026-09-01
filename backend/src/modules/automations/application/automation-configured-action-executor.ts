@@ -34,9 +34,9 @@ export class AutomationConfiguredActionExecutor implements AutomationActionExecu
         const planId = input.target.deploymentPlanId;
         if (!planId) throw new Error('AUTOMATION_DEPLOYMENT_PLAN_MISSING');
         let plan = await this.deployment.getPlan(planId, input.run.tenantId);
-        if (plan.status === 'DRAFT') {
+        if (plan.status === 'DRAFT' || plan.status === 'PENDING_APPROVAL') {
           // 旧配置中的 dryRunFirst / executionOptions.dryRun 仅作历史兼容。
-          // 自动化不能再创建带副作用的预检任务，正式执行会自行同步校验。
+          // 自动化不能再创建带副作用的预检任务，正式执行会自行同步校验；历史待审批计划也在提交时转为 READY。
           plan = await this.deployment.submit({
             planId,
             actorId: input.run.createdBy,
