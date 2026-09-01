@@ -216,12 +216,12 @@ export class AcmeRenewalScheduler {
    * 专属 ACME provisioning 完成后立即创建首次 RenewalJob。
    * 任务仍由同一个调度器和 Worker 执行，后台扫描只是兜底补偿。
    */
-  async scheduleInitialIssuance(tenantId: string, certificateAssetId: string, now = new Date()): Promise<AcmeRenewalJobEntity | undefined> {
+  async scheduleInitialIssuance(tenantId: string, certificateAssetId: string, now = new Date(), parentTaskId?: string): Promise<AcmeRenewalJobEntity | undefined> {
     const policy = (await this.repository.listPolicies(tenantId))
       .find((item) => item.certificateAssetId === certificateAssetId && item.enabled && item.status === 'active');
     if (!policy) throw new AppError('RESOURCE_NOT_FOUND', '证书没有关联的活动 ACME 续签策略', { certificateAssetId });
     const job = await this.scheduleMissingInitialIssuance(policy, now);
-    if (job) await this.ensureRenewalTask(job);
+    if (job) await this.ensureRenewalTask(job, parentTaskId);
     return job;
   }
 
@@ -274,6 +274,7 @@ export class AcmeRenewalScheduler {
         requestedValidityDays: 90,
         custodyMode: 'managed_secret',
         deferIssuance: true,
+        skipApproval: Boolean(policy.applicationCertificatePolicyVersionId),
         idempotencyKey: `acme-initial-request:${asset.id}`,
         actorId: policy.createdBy,
       });
@@ -342,13 +343,19 @@ export class AcmeRenewalScheduler {
       ?? binding?.localCertificateVersionId;
   }
 
-  private async ensureRenewalTask(job: AcmeRenewalJobEntity): Promise<void> {
+  private async ensureRenewalTask(job: AcmeRenewalJobEntity, parentTaskId?: string): Promise<void> {
     if (!this.tasks || !isUnifiedTaskWorkerEnabled()) return;
-    const idempotencyKey = renewalTaskIdempotencyKey(job);
+    // 应用专属 ACME 首次签发使用统一签发任务；历史/续期 Job 保持原任务类型兼容。
+    const taskType = !job.sourceCertificateVersionId && job.applicationAssetId
+      ? 'ACME_CERTIFICATE_ISSUE'
+      : 'ACME_CERTIFICATE_RENEWAL';
+    const idempotencyKey = taskType === 'ACME_CERTIFICATE_ISSUE'
+      ? `acme-issue:${job.id}`
+      : renewalTaskIdempotencyKey(job);
     try {
       const existing = this.tasks.findByIdempotencyKey
-        ? await this.tasks.findByIdempotencyKey(job.tenantId, 'ACME_CERTIFICATE_RENEWAL', idempotencyKey)
-        : await this.tasks.findActiveByIdempotency?.(job.tenantId, 'ACME_CERTIFICATE_RENEWAL', idempotencyKey);
+        ? await this.tasks.findByIdempotencyKey(job.tenantId, taskType, idempotencyKey)
+        : await this.tasks.findActiveByIdempotency?.(job.tenantId, taskType, idempotencyKey);
       if (existing) {
         if (existing.status === 'FAILED' && this.tasks.retry) {
           try {
@@ -379,17 +386,21 @@ export class AcmeRenewalScheduler {
         error: error instanceof Error ? error.message : String(error),
       }, { module: 'acme-renewal-scheduler', resourceType: 'acmeRenewalJob', resourceId: job.id });
     }
-    await enqueueTaskBestEffort(this.tasks, {
+    const taskInput = {
       tenantId: job.tenantId,
-      taskType: 'ACME_CERTIFICATE_RENEWAL',
+      taskType,
       triggerSource: 'acme.renewal.scheduler',
       idempotencyKey,
       payload: renewalTaskPayload(job),
+      parentTaskId,
       resourceRefs: [
         { resourceType: 'acmeRenewalJob', resourceId: job.id },
         ...(job.certificateVersionId ? [{ resourceType: 'certificateVersion', resourceId: job.certificateVersionId }] : []),
       ],
-    });
+    };
+    // 父任务编排要求申请子任务可观测；此路径入队失败必须回滚到父任务重试，不能吞掉异常。
+    if (parentTaskId && this.tasks) await this.tasks.enqueue(taskInput);
+    else await enqueueTaskBestEffort(this.tasks, taskInput);
   }
 }
 

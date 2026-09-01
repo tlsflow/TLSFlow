@@ -79,6 +79,7 @@ import {
 } from '../schema/internal-ca.schema.js';
 import { AcmeDomainService } from '../domain/acme.domain-service.js';
 import type { AcmeChallengeType, AcmeProviderConfiguration } from '../schema/acme.schema.js';
+import type { TaskEnqueuer } from '../../tasks/task-enqueue.js';
 
 export interface CreateCaProviderInput {
   name: string;
@@ -184,6 +185,8 @@ export interface UpdateCertificateAuthorityInput {
   certificateProfileId?: string | null;
   /** 兼容旧版多 Profile 请求，新调用方应使用 certificateProfileId。 */
   certificateProfileIds?: string[];
+  /** 外部 CA 的运行时管理配置，例如 AD CS 模板标识；仅合并更新，不覆盖既有配置。 */
+  configuration?: Record<string, unknown>;
 }
 
 export interface CreateProfileInput {
@@ -226,6 +229,8 @@ export interface CreateCertificateRequestInput {
   requestedKeyAlgorithm?: 'rsa' | 'ec';
   idempotencyKey?: string;
   deferIssuance?: boolean;
+  /** 仅由应用证书供应编排传入；重新申请/自动续期不创建人工审批单。 */
+  skipApproval?: boolean;
   actorId: string;
 }
 
@@ -284,6 +289,7 @@ export class InternalCaApplicationService {
   }>;
   private adcsObservationRefresher?: (tenantId: string, agentId: string, force?: boolean) => Promise<Record<string, unknown>>;
   private readonly adcsProviderEnsurePromises = new Map<string, Promise<void>>();
+  private certificateIssueTasks?: TaskEnqueuer;
   private localAgentIssuedHandler?: (input: { tenantId: string; request: CertificateRequestEntity; actorId: string; context?: RequestContext }) => Promise<void>;
   private managedSecretIssuedHandler?: (input: { tenantId: string; request: CertificateRequestEntity; actorId: string; context?: RequestContext }) => Promise<IssuedCertificateLifecycleResult | void>;
 
@@ -317,6 +323,11 @@ export class InternalCaApplicationService {
   /** 注入托管密钥签发后的部署计划编排；失败不回滚 CA 已签发事实。 */
   setManagedSecretIssuedHandler(handler?: InternalCaApplicationService['managedSecretIssuedHandler']): void {
     this.managedSecretIssuedHandler = handler;
+  }
+
+  /** 应用级本机 CSR 回执后统一排队签发任务，避免回执入口同步调用 CA。 */
+  setCertificateIssueTaskEnqueuer(tasks?: TaskEnqueuer): void {
+    this.certificateIssueTasks = tasks;
   }
 
   /** 在完整 Runner 资源装配后注入外部 CA 动作执行器。 */
@@ -1554,6 +1565,9 @@ export class InternalCaApplicationService {
       trustDomainId: trustDomain.id,
       securityDomain: input.securityDomain === undefined ? authority.securityDomain : requiredText(input.securityDomain, 'securityDomain'),
       crlDistributionPoint: resolvePublicCrlDistributionPoint(publicCrlBaseUrl, tenantId, authority.id, authority.crlDistributionPoint),
+      configuration: input.configuration === undefined
+        ? authority.configuration
+        : { ...authority.configuration, ...structuredClone(input.configuration) },
       updatedAt: now,
     };
     const profiles = await this.repository.listProfiles(tenantId);
@@ -1950,6 +1964,11 @@ export class InternalCaApplicationService {
     } else if (profile.securityDomain !== authority.securityDomain) {
       throw new AppError('CERTIFICATE_PROFILE_VIOLATION', '证书 Profile 与 CA 安全域不匹配');
     }
+    // 应用专属证书的重新申请由统一任务编排，签发动作本身不再插入人工审批步骤。
+    // 将豁免结果写入不可变快照，确保本机 CSR 回执阶段不会再次回到 pending_approval。
+    const effectivePolicySnapshot: EffectiveCertificatePolicySnapshot = input.skipApproval === true
+      ? { ...policySnapshot, requiresApproval: false, approvalBypassed: true }
+      : policySnapshot;
     const idempotencyKey = input.idempotencyKey?.trim() || createHash('sha256').update([
       tenantId, input.applicationAssetId, input.caId, input.profileVersionId, input.commonName,
       [...input.sans].sort().join(','), new Date().toISOString().slice(0, 10),
@@ -1959,12 +1978,13 @@ export class InternalCaApplicationService {
     // 本机持钥申请先落一条 pending_key 事实，再由 Agent v2 返回 CSR。此时
     // 不创建任何私钥材料；占位 KeyReference 仅用于维持现有外键和幂等模型。
     if (input.custodyMode === 'local_agent' && !input.csrPem) {
-      return this.createPendingLocalAgentRequest(tenantId, input, authority, profileVersion, policySnapshot, idempotencyKey, context);
+      return this.createPendingLocalAgentRequest(tenantId, input, authority, profileVersion, effectivePolicySnapshot, idempotencyKey, context);
     }
     const keyMaterial = await this.prepareKeyMaterial(tenantId, input, profileVersion.rules, context);
     const now = new Date().toISOString();
     const requestId = newId('certreq');
-    const approval = policySnapshot.requiresApproval && this.dependencies.approvals
+    const approvalRequired = effectivePolicySnapshot.requiresApproval;
+    const approval = approvalRequired && this.dependencies.approvals
       ? await this.dependencies.approvals.create({
           operationType: 'certificate_request.issue',
           resourceRefs: [{ type: 'certificate_request', id: requestId }],
@@ -1982,21 +2002,21 @@ export class InternalCaApplicationService {
       caId: authority.id,
       trustDomainId: authority.trustDomainId,
       profileVersionId: profileVersion.id,
-      certificatePolicyVersionId: policySnapshot.policyVersionId,
-      providerActionBindingId: policySnapshot.providerActionBindingId,
-      effectivePolicySnapshot: policySnapshot,
+      certificatePolicyVersionId: effectivePolicySnapshot.policyVersionId,
+      providerActionBindingId: effectivePolicySnapshot.providerActionBindingId,
+      effectivePolicySnapshot,
       keyReferenceId: keyMaterial.keyReference.id,
       csrPem: keyMaterial.csrPem,
       csrSha256: keyMaterial.csrSha256,
       publicKeyFingerprintSha256: keyMaterial.publicKeyFingerprintSha256,
       idempotencyKey,
-      status: policySnapshot.requiresApproval ? 'pending_approval' : 'approved',
+      status: approvalRequired ? 'pending_approval' : 'approved',
       requestedBy: input.actorId,
       approvalId: approval?.id,
       deferIssuance: input.deferIssuance === true,
       subjectCommonName: requiredText(input.commonName, 'commonName'),
       sans: normalizeCertificateNames(input.sans),
-      requestedValidityDays: policySnapshot.effectiveValidityDays,
+      requestedValidityDays: effectivePolicySnapshot.effectiveValidityDays,
       createdAt: now,
       updatedAt: now,
     };
@@ -2007,7 +2027,7 @@ export class InternalCaApplicationService {
       keyCustodyMode: input.custodyMode,
       publicKeyFingerprintSha256: request.publicKeyFingerprintSha256,
     });
-    if (policySnapshot.requiresApproval || input.deferIssuance === true) return request;
+    if (approvalRequired || input.deferIssuance === true) return request;
     return this.issueRequest(tenantId, request.id, input.actorId, context);
   }
 
@@ -2214,6 +2234,27 @@ export class InternalCaApplicationService {
       next = await this.repository.saveRequest({ ...next, approvalId: approval.id, updatedAt: new Date().toISOString() });
       return next;
     }
+    if (next.applicationCertificatePolicyVersionId && this.certificateIssueTasks) {
+      await this.certificateIssueTasks.enqueue({
+        tenantId,
+        taskType: 'CERTIFICATE_ISSUE',
+        requestedBy: actorId,
+        triggerSource: 'internal-ca.local-agent-csr.completed',
+        idempotencyKey: `certificate-issue:${next.id}`,
+        payload: {
+          certificateRequestId: next.id,
+          applicationAssetId: next.applicationAssetId,
+          ...(next.certificateAssetId ? { certificateAssetId: next.certificateAssetId } : {}),
+          policyVersionId: next.applicationCertificatePolicyVersionId,
+        },
+        resourceRefs: [
+          { resourceType: 'certificateRequest', resourceId: next.id },
+          ...(next.certificateAssetId ? [{ resourceType: 'certificateAsset', resourceId: next.certificateAssetId }] : []),
+          { resourceType: 'applicationCertificatePolicyVersion', resourceId: next.applicationCertificatePolicyVersionId },
+        ],
+      });
+      return this.requireRequest(tenantId, next.id);
+    }
     return this.issueRequest(tenantId, next.id, actorId, context);
   }
 
@@ -2332,6 +2373,14 @@ export class InternalCaApplicationService {
 
   async issueRequest(tenantId: string, requestId: string, actorId: string, context?: RequestContext): Promise<CertificateRequestEntity> {
     const request = await this.requireRequest(tenantId, requestId);
+    structuredLogger.info('证书签发任务开始处理', {
+      requestId,
+      tenantId,
+      caId: request.caId,
+      applicationAssetId: request.applicationAssetId,
+      providerRequestId: request.providerRequestId,
+      status: request.status,
+    }, { module: 'internal-ca', resourceType: 'certificateRequest', resourceId: requestId, tenantId });
     if (['issued', 'deploying', 'active'].includes(request.status)) {
       // 已签发但部署计划曾因缺少目标/Workflow 而阻断时，显式重试入口仍应
       // 能恢复部署编排；已存在计划则直接返回，保证同一申请不产生第二份计划。
@@ -2369,10 +2418,23 @@ export class InternalCaApplicationService {
         serialNumber: provider.type === 'gcac_builtin' ? ledgerRecord?.serialNumber : undefined,
         actionBinding,
       });
+      structuredLogger.info('CA Provider 返回签发结果', {
+        requestId,
+        tenantId,
+        providerType: provider.type,
+        providerRequestId: issued.providerRequestId,
+        status: issued.status,
+      }, { module: 'internal-ca', resourceType: 'certificateRequest', resourceId: requestId, tenantId });
       if (issued.status !== 'issued') return this.saveNonFinalIssuance(request, issued);
       const completed = await this.completeIssuedRequest(request, issued, provider, authority, keyReference, actorId, context);
       return this.handleIssuedLifecycle({ tenantId, request: completed, keyCustodyMode: keyReference.custodyMode, actorId, context });
     } catch (error) {
+      structuredLogger.warn('证书签发任务失败', {
+        requestId,
+        tenantId,
+        providerType: provider.type,
+        error: error instanceof Error ? error.message : String(error),
+      }, { module: 'internal-ca', resourceType: 'certificateRequest', resourceId: requestId, tenantId });
       if (ledgerRecord && ledgerRecord.status !== 'issued') await this.repository.saveIssuanceRecord({ ...ledgerRecord, status: 'failed', updatedAt: new Date().toISOString() });
       await this.repository.saveRequest({
         ...request,
@@ -2455,7 +2517,7 @@ export class InternalCaApplicationService {
     });
     const keyReference = await this.repository.getKeyReference(tenantId, request.keyReferenceId);
     if (!keyReference) throw new AppError('RESOURCE_NOT_FOUND', '证书申请密钥引用不存在');
-    return this.completeIssuedRequest(request, {
+    const completed = await this.completeIssuedRequest(request, {
       status: 'issued',
       providerRequestId,
       certificatePem: material.certificatePem,
@@ -2466,6 +2528,8 @@ export class InternalCaApplicationService {
       notBefore: validation.certificate.notBefore,
       notAfter: validation.certificate.notAfter,
     }, provider, authority, keyReference, actorId, context);
+    // ACME 与内置 CA 必须共享同一条“签发完成→标准部署计划”生命周期入口。
+    return this.handleIssuedLifecycle({ tenantId, request: completed, keyCustodyMode: keyReference.custodyMode, actorId, context });
   }
 
   async markRequestActive(tenantId: string, requestId: string): Promise<CertificateRequestEntity> {

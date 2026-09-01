@@ -282,6 +282,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     audit: security.audit,
     approvals: security.approvals,
   });
+  internalCaService.setCertificateIssueTaskEnqueuer(tasksService);
   internalCaService.setCaOperationsRealtimePublisher(caOperationsRealtimeStream);
   const certificateLifecycleService = new CertificateLifecycleService({
     internalCa: internalCaService,
@@ -1277,6 +1278,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     certificateServices.certificates,
     internalCaService,
     security.secrets,
+    tasksService,
   );
   assetsService.setApplicationCertificateDomainChangePort(applicationCertificateSupplyService);
   certificateLifecycleService.setApplicationPolicyStatusUpdater((tenantId, applicationAssetId, status, certificateVersionId) => applicationCertificateSupplyService.updateLifecycleStatus(tenantId, applicationAssetId, status, certificateVersionId));
@@ -1363,6 +1365,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     worker: acmeRenewalWorker,
   };
   applicationCertificateSupplyService.setAcmeRenewalIntegration(acmeRenewalPolicyService, acmeRepository, acmeRenewalScheduler);
+  applicationCertificateSupplyService.setDedicatedDeploymentPlans(deploymentPlans.getApplicationService());
   app.setResource('acmeRenewalWorker', acmeRenewalWorker);
   new InternalCaController(internalCaService, security, acmeServices, tasksService, certificateLifecycleService).register(app.router);
   new DeviceAssetsController(deviceAssetsService, new SecurityServicesDeviceAssetPort(security)).register(app.router);
@@ -1496,6 +1499,9 @@ export function createApp(dependencies: AppDependencies = {}): App {
     agents: agentsService,
     pluginCatalog: builtinCatalogRefresher,
     credentialHealth: credentialHealthService,
+    internalCa: internalCaService,
+    applicationCertificateSupply: applicationCertificateSupplyService,
+    taskControl: tasksService,
   }, tasksService.registry.list().map((definition) => definition.executorKey));
   const taskWorkerSupervisor = new TaskWorkerSupervisor(
     tasksService,

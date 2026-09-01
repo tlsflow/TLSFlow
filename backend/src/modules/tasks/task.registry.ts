@@ -6,6 +6,9 @@ const defaultDefinitions: TaskDefinition[] = [
   ['CERTIFICATE_DEPLOY', 'EXECUTION', 'tasks.types.certificateDeploy', 'certificate.deploy', 'deployment.plan.execute'],
   ['DEPLOYMENT_APPROVAL', 'EXECUTION', 'tasks.types.deploymentApproval', 'deployment.approval', 'approval.decide'],
   ['CERTIFICATE_VERIFY', 'EXECUTION', 'tasks.types.certificateVerify', 'certificate.verify', 'execution.run.read'],
+  // 应用专属证书的 ACME/Internal CA 签发统一走此任务；签发成功后由生命周期服务创建标准部署计划。
+  ['CERTIFICATE_ISSUE', 'SYSTEM', 'tasks.types.certificateIssue', 'certificate.issue', 'ca.request.retry'],
+  ['APPLICATION_CERTIFICATE_DEPLOY', 'EXECUTION', 'tasks.types.applicationCertificateDeploy', 'application.certificate-deploy', 'application.deployment.execute'],
   ['CERTIFICATE_ROLLBACK', 'EXECUTION', 'tasks.types.certificateRollback', 'certificate.rollback', 'execution.rollback'],
   ['AGENT_INSTALL', 'EXECUTION', 'tasks.types.agentInstall', 'agent.install', 'agent.write'],
   ['AGENT_UPDATE', 'EXECUTION', 'tasks.types.agentUpdate', 'agent.update', 'agent.write'],

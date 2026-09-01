@@ -523,7 +523,8 @@ export class TaskRepository {
     const where = [
       'tenant_id = $1',
       `status in ('SUCCEEDED', 'FAILED', 'CANCELLED')`,
-      `(category = 'EXECUTION' or task_type in ('AUTOMATION_RUN', 'ACME_CERTIFICATE_RENEWAL'))`,
+      // 证书签发属于 SYSTEM 任务，但必须和部署/续期一样出现在全局任务历史中。
+      `(category = 'EXECUTION' or task_type in ('AUTOMATION_RUN', 'CERTIFICATE_ISSUE', 'ACME_CERTIFICATE_ISSUE', 'ACME_CERTIFICATE_RENEWAL'))`,
     ];
     if (requestedBy) {
       params.push(requestedBy);

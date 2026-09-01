@@ -1664,6 +1664,7 @@ export class DeploymentPlansApplicationService {
       retry: plan.policy.retry,
       failurePolicy: plan.policy.failurePolicy,
       source: input.executionSource,
+      parentTaskId: input.parentTaskId,
     }, context);
 
     return { plan: await this.toDto(running), ...created };

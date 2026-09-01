@@ -241,6 +241,7 @@ export interface ExecuteDeploymentPlanInput {
   idempotencyKey: string;
   approvalId?: string;
   executionSource?: ExecutionSourceDto;
+  parentTaskId?: string;
 }
 
 export interface DryRunDeploymentPlanInput {

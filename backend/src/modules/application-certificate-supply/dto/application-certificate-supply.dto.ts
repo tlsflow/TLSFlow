@@ -10,7 +10,6 @@ export interface UpdateApplicationCertificatePolicyDto {
   supplyMode: ApplicationCertificateSupplyMode;
   certificateAssetId?: string;
   certificateVersionId?: string;
-  versionNo?: number;
   providerType?: ApplicationCertificateProviderType;
   providerId?: string;
   certificateAuthorityId?: string;
@@ -29,6 +28,7 @@ export interface UpdateApplicationCertificatePolicyDto {
 export interface CertificateSupplyCandidateDto {
   certificateAssetId: string;
   certificateVersionId?: string;
+  versionNo?: number;
   name: string;
   primaryDomain: string;
   commonName?: string;

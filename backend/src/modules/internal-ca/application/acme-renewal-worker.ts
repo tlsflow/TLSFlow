@@ -180,6 +180,7 @@ export class AcmeRenewalWorker {
         requestedValidityDays: 90,
         custodyMode: 'managed_secret',
         deferIssuance: true,
+        skipApproval: Boolean(policy.applicationCertificatePolicyVersionId),
         idempotencyKey: renewalRequestIdempotencyKey(job, recreateRequest),
         actorId,
       }, context);
@@ -213,6 +214,7 @@ export class AcmeRenewalWorker {
           protectionEvidence: sourceKey.evidence,
         }),
         deferIssuance: true,
+        skipApproval: Boolean(policy.applicationCertificatePolicyVersionId),
         idempotencyKey: renewalRequestIdempotencyKey(job, recreateRequest),
         actorId,
       }, context);

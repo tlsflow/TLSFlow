@@ -234,16 +234,22 @@ test('实时首帧的最近完成任务排除监控任务并遵守发起人范�
     requestedBy: 'user-execution',
     triggerSource: 'automation.manual',
   });
+  const certificateIssueTask = await service.enqueue({
+    tenantId,
+    taskType: 'CERTIFICATE_ISSUE',
+    requestedBy: 'user-execution',
+    triggerSource: 'application.certificate-supply.provision',
+  });
   await db.query(
     `update task_runs set status = 'SUCCEEDED', finished_at = now()
       where id = any($1::text[])`,
-    [[monitoringTask.id, executionTask.id, automationTask.id]],
+    [[monitoringTask.id, executionTask.id, automationTask.id, certificateIssueTask.id]],
   );
 
   const allRecent = await repository.listRecentTaskRuns(tenantId);
-  assert.deepEqual(new Set(allRecent.map((task) => task.id)), new Set([executionTask.id, automationTask.id]));
+  assert.deepEqual(new Set(allRecent.map((task) => task.id)), new Set([executionTask.id, automationTask.id, certificateIssueTask.id]));
   const userRecent = await repository.listRecentTaskRuns(tenantId, 'user-execution');
-  assert.deepEqual(new Set(userRecent.map((task) => task.id)), new Set([executionTask.id, automationTask.id]));
+  assert.deepEqual(new Set(userRecent.map((task) => task.id)), new Set([executionTask.id, automationTask.id, certificateIssueTask.id]));
 });
 
 test('执行器失败会按注册策略进入重试并最终失败', async () => {

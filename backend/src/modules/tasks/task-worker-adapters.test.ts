@@ -50,6 +50,78 @@ test('宿主 ACME 签发和续签执行器恢复，独立 Challenge 与 Provider
   assert.equal(registry.has('acme.renewal'), true);
 });
 
+test('Internal CA 统一签发任务按申请状态签发、轮询并收敛终态', async () => {
+  const calls: string[] = [];
+  const request = (status: string) => ({ id: 'request-1', status, providerRequestId: status === 'issuing' ? 'provider-request-1' : undefined });
+  const registry = createTaskExecutorRegistry({
+    internalCa: {
+      listRequests: async () => [request('approved')],
+      issueRequest: async () => { calls.push('issue'); return { ...request('approved'), status: 'issued', certificateVersionId: 'version-1' }; },
+      refreshRequestIssuance: async () => { calls.push('refresh'); return { ...request('issuing'), status: 'issued', certificateVersionId: 'version-1' }; },
+    } as never,
+  });
+  const issued = await registry.get('certificate.issue')(task('CERTIFICATE_ISSUE', { certificateRequestId: 'request-1' }), attempt);
+  assert.equal(issued.success, true);
+  assert.deepEqual(calls, ['issue']);
+
+  const pollingRegistry = createTaskExecutorRegistry({
+    internalCa: {
+      listRequests: async () => [request('issuing')],
+      issueRequest: async () => { throw new Error('issuing 状态不得重复提交'); },
+      refreshRequestIssuance: async () => ({ ...request('issuing'), status: 'issuing', providerRequestId: 'provider-request-1' }),
+    } as never,
+  });
+  const waiting = await pollingRegistry.get('certificate.issue')(task('CERTIFICATE_ISSUE', { certificateRequestId: 'request-1' }), attempt);
+  assert.equal(waiting.waitingStatus, 'WAITING_RESULT');
+  assert.equal(waiting.retryAfterSeconds, 10);
+});
+
+test('Internal CA 统一签发任务支持显式重试失败申请，并保持已签发申请幂等成功', async () => {
+  let retryCalls = 0;
+  const failedRegistry = createTaskExecutorRegistry({
+    internalCa: {
+      listRequests: async () => [{ id: 'request-failed', status: 'issue_failed', failureCode: 'CA_DOWN', failureMessage: 'CA 不可用' }],
+      issueRequest: async () => { retryCalls += 1; return { id: 'request-failed', status: 'issue_failed', failureCode: 'CA_DOWN', failureMessage: 'CA 仍不可用' }; },
+      refreshRequestIssuance: async () => { throw new Error('失败申请不应查询'); },
+    } as never,
+  });
+  const failed = await failedRegistry.get('certificate.issue')(task('CERTIFICATE_ISSUE', { certificateRequestId: 'request-failed' }), attempt);
+  assert.equal(failed.success, false);
+  assert.equal(failed.retryable, false);
+  assert.equal(failed.errorCode, 'CA_DOWN');
+  assert.equal(retryCalls, 1);
+
+  const issuedRegistry = createTaskExecutorRegistry({
+    internalCa: {
+      listRequests: async () => [{ id: 'request-issued', status: 'issued', certificateVersionId: 'version-1' }],
+      issueRequest: async () => { throw new Error('已签发申请不得重复签发'); },
+      refreshRequestIssuance: async () => { throw new Error('已签发申请不得查询'); },
+    } as never,
+  });
+  const issued = await issuedRegistry.get('certificate.issue')(task('CERTIFICATE_ISSUE', { certificateRequestId: 'request-issued' }), attempt);
+  assert.equal(issued.success, true);
+  assert.equal((issued.detail as { certificateVersionId?: string }).certificateVersionId, 'version-1');
+});
+
+test('专属证书部署父任务先等待签发子任务，再创建标准部署子任务', async () => {
+  let prepared = 0;
+  let plans = 0;
+  const registry = createTaskExecutorRegistry({
+    applicationCertificateSupply: {
+      prepareDedicatedDeployment: async () => { prepared += 1; return { issueRequired: false, certificateVersionId: 'version-fixed', certificateAssetId: 'asset-1' }; },
+      createDedicatedDeploymentPlan: async () => { plans += 1; return { planId: 'plan-1', jobId: 'child-deploy-1' }; },
+    } as never,
+    taskControl: {
+      detail: async (_tenantId: string, _taskId: string) => ({ task: task('APPLICATION_CERTIFICATE_DEPLOY', { applicationAssetId: 'app-1' }), attempts: [], events: [], childTasks: [], resourceRefs: [], auditEvents: [] }),
+    } as never,
+  });
+  const result = await registry.get('application.certificate-deploy')(task('APPLICATION_CERTIFICATE_DEPLOY', { applicationAssetId: 'app-1' }), attempt);
+  assert.equal(result.waitingStatus, 'WAITING_RESULT');
+  assert.equal(prepared, 1);
+  assert.equal(plans, 1);
+  assert.equal((result.detail as { certificateVersionId?: string }).certificateVersionId, 'version-fixed');
+});
+
 test('ACME 旧代次统一任务不会在人工重试后再次执行 RenewalJob', async () => {
   let runCalls = 0;
   const registry = createTaskExecutorRegistry({

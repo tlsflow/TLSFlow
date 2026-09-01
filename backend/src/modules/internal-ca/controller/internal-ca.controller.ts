@@ -320,7 +320,10 @@ export class InternalCaController {
   private async createRequest(request: HttpRequest) {
     await this.assertAction(request, 'ca.request.retry', 'certificate_request');
     const body = objectBody(request);
-    return { statusCode: 201, body: await this.service.createCertificateRequest(tenantId(request), { ...body, actorId: actorId(request) } as unknown as CreateCertificateRequestInput, request.context) };
+    // skipApproval 只允许应用证书供应服务在进程内传递，HTTP 调用方不得伪造免审批签发。
+    const requestBody = { ...body };
+    delete requestBody.skipApproval;
+    return { statusCode: 201, body: await this.service.createCertificateRequest(tenantId(request), { ...requestBody, actorId: actorId(request) } as unknown as CreateCertificateRequestInput, request.context) };
   }
 
   private async generateLocalCsr(request: HttpRequest) {
@@ -1101,7 +1104,7 @@ function optionalQuery(request: HttpRequest, key: string): string | undefined {
 
 function pathId(request: HttpRequest): string {
   const segments = request.path.split('/').filter(Boolean);
-  const actionIndex = segments.findIndex((segment) => ['test', 'versions', 'approve', 'retry', 'activate', 'result', 'complete', 'remediation-preview', 'reconcile', 'finalize', 'renew', 'cancel', 'crl', 'install-action', 'tls-verify', 'generate-local-csr'].includes(segment));
+  const actionIndex = segments.findIndex((segment) => ['test', 'versions', 'approve', 'retry', 'query', 'activate', 'result', 'complete', 'remediation-preview', 'reconcile', 'finalize', 'renew', 'cancel', 'crl', 'install-action', 'tls-verify', 'generate-local-csr'].includes(segment));
   const value = actionIndex > 0 ? segments[actionIndex - 1] : segments.at(-1);
   if (!value) throw new AppError('VALIDATION_FAILED', '路径缺少资源 ID');
   return value;

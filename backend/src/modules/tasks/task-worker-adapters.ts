@@ -15,6 +15,9 @@ import type { TaskAttempt, TaskExecutionResult, TaskRun } from './task.types.js'
 import { TaskExecutorRegistry } from './task-worker-supervisor.js';
 import type { PluginRefreshResult } from '../plugins/dto/plugin-refresh-result.dto.js';
 import type { CredentialHealthService } from '../credentials/health/credential-health.service.js';
+import type { InternalCaApplicationService } from '../internal-ca/application/internal-ca.application-service.js';
+import type { ApplicationCertificateSupplyApplicationService } from '../application-certificate-supply/application/application-certificate-supply.application-service.js';
+import type { TasksApplicationService } from './task.application-service.js';
 
 export interface BuiltinPluginCatalogRefresher {
   refresh(tenantId?: string): Promise<PluginRefreshResult>;
@@ -34,6 +37,9 @@ export interface TaskWorkerAdapterDependencies {
   agents?: Pick<AgentsApplicationService, 'getRepository' | 'getUpgradeStatus'>;
   pluginCatalog?: BuiltinPluginCatalogRefresher;
   credentialHealth?: Pick<CredentialHealthService, 'executeTask'>;
+  internalCa?: Pick<InternalCaApplicationService, 'issueRequest' | 'refreshRequestIssuance' | 'listRequests'>;
+  applicationCertificateSupply?: Pick<ApplicationCertificateSupplyApplicationService, 'prepareDedicatedDeployment' | 'createDedicatedDeploymentPlan' | 'updateLifecycleStatus'>;
+  taskControl?: Pick<TasksApplicationService, 'detail'>;
 }
 
 /**
@@ -67,7 +73,7 @@ export function createTaskExecutorRegistry(
     const current = result ?? await dependencies.acmeJobs?.getRenewalJob(task.tenantId, renewalJobId);
     if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'ACME 续签任务不存在', { renewalJobId });
     if (['completed', 'issued_waiting_for_installation'].includes(current.status)) {
-      return { success: true, detail: { renewalJobId, status: current.status, claimed: Boolean(result) } };
+      return { success: true, detail: { renewalJobId, status: current.status, claimed: Boolean(result), certificateVersionId: current.certificateVersionId } };
     }
     if (['failed', 'cancelled'].includes(current.status)) {
       return {
@@ -88,6 +94,87 @@ export function createTaskExecutorRegistry(
   });
   registry.register('acme.issue', acme);
   registry.register('acme.renewal', acme);
+
+  const certificateIssue = dependencyExecutor('证书签发 Worker', dependencies.internalCa, async (task) => {
+    const requestId = requiredPayloadString(task, 'certificateRequestId');
+    const requests = await dependencies.internalCa!.listRequests(task.tenantId);
+    const before = requests.find((item) => item.id === requestId);
+    if (!before) throw new AppError('RESOURCE_NOT_FOUND', '证书申请不存在', { requestId });
+    if (['issued', 'deploying', 'active'].includes(before.status)) {
+      return { success: true, detail: { certificateRequestId: requestId, status: before.status, certificateVersionId: before.certificateVersionId } };
+    }
+    const actorId = task.requestedBy ?? 'task-worker';
+    const current = before.status === 'issuing' && before.providerRequestId
+      ? await dependencies.internalCa!.refreshRequestIssuance(task.tenantId, requestId, actorId)
+      : before.status === 'pending_key' || before.status === 'pending_csr'
+        ? before
+        : await dependencies.internalCa!.issueRequest(task.tenantId, requestId, actorId);
+    if (['issued', 'deploying', 'active'].includes(current.status)) {
+      return { success: true, detail: { certificateRequestId: requestId, status: current.status, certificateVersionId: current.certificateVersionId, deploymentPlanId: current.deploymentPlanId } };
+    }
+    if (['issue_failed', 'rejected', 'cancelled'].includes(current.status)) {
+      return { success: false, retryable: false, errorCode: current.failureCode ?? 'CERTIFICATE_ISSUE_FAILED', errorMessage: current.failureMessage ?? `证书申请以 ${current.status} 结束`, detail: { certificateRequestId: requestId, status: current.status } };
+    }
+    return {
+      success: false,
+      waitingStatus: 'WAITING_RESULT',
+      retryAfterSeconds: 10,
+      errorCode: current.status === 'issuing' ? 'CERTIFICATE_ISSUE_PENDING' : 'CERTIFICATE_KEY_OR_CSR_PENDING',
+      errorMessage: current.status === 'issuing' ? '证书签发仍在等待 CA 结果' : '证书申请仍在等待本机密钥或 CSR',
+      detail: { certificateRequestId: requestId, status: current.status, certificateVersionId: current.certificateVersionId },
+    };
+  });
+  registry.register('certificate.issue', certificateIssue);
+
+  registry.register('application.certificate-deploy', dependencyExecutor('应用专属证书部署编排 Worker', dependencies.applicationCertificateSupply, async (task) => {
+    if (!dependencies.taskControl) throw new AppError('SYSTEM_INTERNAL_ERROR', '统一任务详情服务未接入');
+    const applicationAssetId = requiredPayloadString(task, 'applicationAssetId');
+    const reapply = task.payload.reapply === true;
+    const currentDetail = await dependencies.taskControl.detail(task.tenantId, task.id);
+    let prepared = readDedicatedPreparation(task.progress);
+    if (!prepared) {
+      prepared = await dependencies.applicationCertificateSupply!.prepareDedicatedDeployment({
+        tenantId: task.tenantId,
+        applicationAssetId,
+        actorId: task.requestedBy ?? 'task-worker',
+        reapply,
+        parentTaskId: task.id,
+      });
+    }
+    const issueChild = currentDetail.childTasks.find((child) => child.taskType === 'CERTIFICATE_ISSUE' || child.taskType === 'ACME_CERTIFICATE_ISSUE');
+    if (prepared.issueRequired) {
+      if (issueChild?.status === 'FAILED' || issueChild?.status === 'CANCELLED') {
+        return { success: false, retryable: false, errorCode: issueChild.lastErrorCode ?? 'CERTIFICATE_ISSUE_FAILED', errorMessage: issueChild.lastErrorMessage ?? '专属证书签发失败', detail: { applicationAssetId, issueTaskId: issueChild.id } };
+      }
+      if (!issueChild || issueChild.status !== 'SUCCEEDED') {
+        return { success: false, waitingStatus: 'WAITING_RESULT', retryAfterSeconds: 10, errorCode: 'CERTIFICATE_ISSUE_PENDING', errorMessage: '专属证书正在签发，等待签发子任务完成', detail: { applicationAssetId, preparation: prepared, issueTaskId: issueChild?.id, issueRequired: true } };
+      }
+      prepared.certificateVersionId = prepared.certificateVersionId ?? readCertificateVersionFromTask(issueChild);
+      if (!prepared.certificateVersionId) {
+        return { success: false, waitingStatus: 'WAITING_RESULT', retryAfterSeconds: 10, errorCode: 'CERTIFICATE_VERSION_PENDING', errorMessage: '签发任务已完成但证书版本尚未回写', detail: { applicationAssetId, preparation: prepared, issueTaskId: issueChild.id } };
+      }
+    }
+    const deploymentChild = currentDetail.childTasks.find((child) => child.taskType === 'CERTIFICATE_DEPLOY');
+    if (!deploymentChild) {
+      const created = await dependencies.applicationCertificateSupply!.createDedicatedDeploymentPlan({
+        tenantId: task.tenantId,
+        applicationAssetId,
+        certificateVersionId: prepared.certificateVersionId!,
+        actorId: task.requestedBy ?? 'task-worker',
+        parentTaskId: task.id,
+      });
+      return { success: false, waitingStatus: 'WAITING_RESULT', retryAfterSeconds: 5, errorCode: 'CERTIFICATE_DEPLOY_PENDING', errorMessage: '标准证书部署子任务已创建，等待执行完成', detail: { applicationAssetId, preparation: prepared, certificateVersionId: prepared.certificateVersionId, deploymentPlanId: created.planId, deploymentTaskId: created.jobId } };
+    }
+    if (deploymentChild.status === 'SUCCEEDED') {
+      await dependencies.applicationCertificateSupply!.updateLifecycleStatus(task.tenantId, applicationAssetId, 'deployed', prepared.certificateVersionId);
+      return { success: true, detail: { applicationAssetId, certificateVersionId: prepared.certificateVersionId, deploymentTaskId: deploymentChild.id } };
+    }
+    if (deploymentChild.status === 'FAILED' || deploymentChild.status === 'CANCELLED') {
+      await dependencies.applicationCertificateSupply!.updateLifecycleStatus(task.tenantId, applicationAssetId, 'needs_attention', prepared.certificateVersionId);
+      return { success: false, retryable: false, errorCode: deploymentChild.lastErrorCode ?? 'CERTIFICATE_DEPLOY_FAILED', errorMessage: deploymentChild.lastErrorMessage ?? '标准证书部署失败', detail: { applicationAssetId, certificateVersionId: prepared.certificateVersionId, deploymentTaskId: deploymentChild.id } };
+    }
+    return { success: false, waitingStatus: 'WAITING_RESULT', retryAfterSeconds: 10, errorCode: 'CERTIFICATE_DEPLOY_PENDING', errorMessage: '标准证书部署仍在执行', detail: { applicationAssetId, preparation: prepared, certificateVersionId: prepared.certificateVersionId, deploymentTaskId: deploymentChild.id } };
+  }));
 
   const execution = dependencyExecutor('Execution Worker', dependencies.executions, async (task) => {
     const runId = requiredPayloadString(task, 'runId');
@@ -403,6 +490,24 @@ function upgradePlanSummaryCode(status: string, phase: string): string {
 function optionalRecordString(record: Record<string, unknown> | undefined, key: string): string | undefined {
   const value = record?.[key];
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function readDedicatedPreparation(progress: Record<string, unknown> | undefined): { certificateVersionId?: string; certificateAssetId?: string; certificateRequestId?: string; issueRequired: boolean } | undefined {
+  const value = progress?.preparation;
+  if (!isRecord(value) || typeof value.issueRequired !== 'boolean') return undefined;
+  return {
+    issueRequired: value.issueRequired,
+    ...(typeof value.certificateVersionId === 'string' ? { certificateVersionId: value.certificateVersionId } : {}),
+    ...(typeof value.certificateAssetId === 'string' ? { certificateAssetId: value.certificateAssetId } : {}),
+    ...(typeof value.certificateRequestId === 'string' ? { certificateRequestId: value.certificateRequestId } : {}),
+  };
+}
+
+function readCertificateVersionFromTask(task: TaskRun): string | undefined {
+  const detail = isRecord(task.progress?.detail) ? task.progress.detail : undefined;
+  return optionalRecordString(task.progress, 'certificateVersionId')
+    ?? optionalRecordString(detail, 'certificateVersionId')
+    ?? optionalRecordString(task.payload, 'certificateVersionId');
 }
 
 function dependencyExecutor<T>(

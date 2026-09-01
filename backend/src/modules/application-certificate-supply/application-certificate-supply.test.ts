@@ -155,8 +155,10 @@ describe('应用证书供应策略', () => {
     const profile = await internalCa.createProfile(tenantA, { name: 'dedicated-profile', securityDomain: 'dedicated', actorId: 'operator' });
     const profileVersion = (await internalCa.listProfiles(tenantA)).find((item) => item.profile.id === profile.profile.id)?.versions[0];
     assert.ok(profileVersion);
+    const enqueued: any[] = [];
     const service = new ApplicationCertificateSupplyApplicationService(
-      new ApplicationCertificateSupplyRepository(db), internalCa, certificates, internalCa,
+      new ApplicationCertificateSupplyRepository(db), internalCa, certificates, internalCa, undefined,
+      { enqueue: async (input: any) => { enqueued.push(input); return { id: 'task-cert-issue', ...input }; } },
     );
     const saved = await service.update(tenantA, 'app-dedicated-a', {
       supplyMode: 'dedicated', providerType: 'internal_ca', providerId: provider.id,
@@ -173,12 +175,17 @@ describe('应用证书供应策略', () => {
     assert.equal(requests[0]?.applicationAssetId, 'app-dedicated-a');
     assert.equal(requests[0]?.certificateAssetId, certificateAssetId);
     assert.equal(requests[0]?.applicationCertificatePolicyVersionId, saved.currentVersion?.id);
+    assert.notEqual(requests[0]?.status, 'pending_approval');
+    assert.equal(requests[0]?.approvalId, undefined);
     const row = await db.query<{ certificate_asset_id: string; application_certificate_policy_version_id: string }>(
       'select certificate_asset_id, application_certificate_policy_version_id from pg_certificate_requests where id = $1',
       [requests[0]!.id],
     );
     assert.equal(row.rows[0]?.certificate_asset_id, certificateAssetId);
     assert.equal(row.rows[0]?.application_certificate_policy_version_id, saved.currentVersion?.id);
+    assert.equal(enqueued.length, 1);
+    assert.equal(enqueued[0]?.taskType, 'CERTIFICATE_ISSUE');
+    assert.equal(enqueued[0]?.payload?.certificateRequestId, requests[0]?.id);
   });
 
   it('完整专属配置默认只保存 draft，不创建证书资产或申请', async () => {

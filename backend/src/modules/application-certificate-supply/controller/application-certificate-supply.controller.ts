@@ -22,6 +22,7 @@ export class ApplicationCertificateSupplyController {
     router.get('/api/v1/application-assets/:applicationAssetId/certificate-supply-policy', '查询应用证书供应策略', tags, (request) => this.get(request));
     router.put('/api/v1/application-assets/:applicationAssetId/certificate-supply-policy', '保存应用证书供应策略', tags, (request) => this.update(request));
     router.post('/api/v1/application-assets/:applicationAssetId/certificate-supply-policy/preview', '预览应用证书供应策略', tags, (request) => this.preview(request));
+    router.post('/api/v1/application-assets/:applicationAssetId/certificate-supply-policy/deploy', '创建专属证书部署任务', tags, (request) => this.deploy(request));
   }
 
   private async get(request: HttpRequest) {
@@ -45,6 +46,22 @@ export class ApplicationCertificateSupplyController {
     const subject = this.subjectFromRequest(request);
     await this.assertCan(subject, 'service_asset.read', 'service_asset', request, applicationAssetId);
     return this.service.preview(requireTenantId(request), applicationAssetId, body as unknown as CertificateSupplyPreviewDto);
+  }
+
+  private async deploy(request: HttpRequest) {
+    const applicationAssetId = this.readApplicationAssetId(request);
+    const body = validateObject(request.body, { reapply: { type: 'boolean' } });
+    const subject = this.subjectFromRequest(request);
+    await this.assertCan(subject, 'application.deployment.execute', 'service_asset', request, applicationAssetId);
+    return {
+      statusCode: 202,
+      body: this.service.enqueueDedicatedDeployment({
+        tenantId: requireTenantId(request),
+        applicationAssetId,
+        actorId: subject.id,
+        reapply: body.reapply === true,
+      }),
+    };
   }
 
   private readApplicationAssetId(request: HttpRequest): string {
@@ -78,6 +95,15 @@ export function getApplicationCertificateSupplyRouteContracts(): RouteContract[]
       operationId: 'getApplicationCertificateSupplyPolicy',
       summary: '查询应用证书供应策略',
       tags,
+      responseSchema: { type: 'object', additionalProperties: true },
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/application-assets/:applicationAssetId/certificate-supply-policy/deploy',
+      operationId: 'enqueueApplicationCertificateDeployment',
+      summary: '创建专属证书部署任务',
+      tags,
+      requestSchema: { type: 'object', additionalProperties: false, properties: { reapply: { type: 'boolean' } } },
       responseSchema: { type: 'object', additionalProperties: true },
     },
     {

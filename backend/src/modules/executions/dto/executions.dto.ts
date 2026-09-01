@@ -84,6 +84,8 @@ export interface CreateExecutionRunInput {
   retry?: DeploymentPlanPolicyDto['retry'];
   allowMockExecutor?: boolean;
   source?: ExecutionSourceDto;
+  /** 中文说明：编排任务创建的标准部署子任务必须挂在同一父任务下。 */
+  parentTaskId?: string;
 }
 
 export interface DeploymentArtifactSnapshotDto {

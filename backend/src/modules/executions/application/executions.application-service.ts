@@ -923,6 +923,7 @@ export class ExecutionsApplicationService {
       requestedBy: input.actorId,
       triggerSource: `execution.${input.type}.enqueue`,
       idempotencyKey: `execution-run:${run.id}`,
+      parentTaskId: input.parentTaskId,
       resourceSummary: {
         resourceName: deploymentPlan?.name ?? input.deploymentPlanId,
         deploymentPlanId: input.deploymentPlanId,
