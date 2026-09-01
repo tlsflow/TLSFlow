@@ -309,26 +309,28 @@ async function refreshAll(options: { scanRisks?: boolean; silent?: boolean } = {
   try {
     if (options.scanRisks) await scanMonitorRisks()
     // 第一批：监控目标列表（完整加载）与列表渲染所需的基础数据。
-    const [targetResult, assetResult, riskResult, bindingResult, certificateAssetResult, certificateVersionResult, tlsInspectorResult] = await Promise.all([
+    const results = await Promise.allSettled([
       listMonitorTargets({ page: 1, pageSize: MONITOR_TARGETS_PAGE_SIZE, sort: 'createdAt:desc', includeRemoved: true }),
       listApplications({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
       listRiskEvents({ page: 1, pageSize: 200, sort: 'lastDetectedAt:desc' }),
       listBindings({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
       listCertificates({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
       listCertificateVersions({ page: 1, pageSize: 200, sort: 'createdAt:desc' }),
-      listTlsInspectorTargets({ page: 1, pageSize: 200 }).catch(() => null),
+      listTlsInspectorTargets({ page: 1, pageSize: 200 }),
     ])
-    monitorTargets.value = (targetResult.data?.items ?? [])
+    const [targetResult, assetResult, riskResult, bindingResult, certificateAssetResult, certificateVersionResult, tlsInspectorResult] = results
+    if (targetResult.status === 'rejected') throw targetResult.reason
+    if (assetResult.status === 'rejected') throw assetResult.reason
+    if (riskResult.status === 'rejected') throw riskResult.reason
+    monitorTargets.value = (targetResult.value.data?.items ?? [])
       .map(normalizeMonitorTargetRecord)
       .filter((target): target is MonitorTarget => Boolean(target))
-    assets.value = [...(assetResult.data?.items ?? [])]
-    risks.value = [...(riskResult.data?.items ?? [])]
-    bindings.value = [...(bindingResult.data?.items ?? [])]
-    certificateAssets.value = [...(certificateAssetResult.data?.items ?? [])]
-    certificateVersions.value = [...(certificateVersionResult.data?.items ?? [])]
-    if (tlsInspectorResult) {
-      tlsInspectorTargets.value = [...(tlsInspectorResult.data?.items ?? [])]
-    }
+    assets.value = [...(assetResult.value.data?.items ?? [])]
+    risks.value = [...(riskResult.value.data?.items ?? [])]
+    bindings.value = bindingResult.status === 'fulfilled' ? [...(bindingResult.value.data?.items ?? [])] : []
+    certificateAssets.value = certificateAssetResult.status === 'fulfilled' ? [...(certificateAssetResult.value.data?.items ?? [])] : []
+    certificateVersions.value = certificateVersionResult.status === 'fulfilled' ? [...(certificateVersionResult.value.data?.items ?? [])] : []
+    tlsInspectorTargets.value = tlsInspectorResult.status === 'fulfilled' ? [...(tlsInspectorResult.value.data?.items ?? [])] : []
     // 第二批：列表级摘要（每个目标的最新探测与实测证书观测）。
     // 不再全量拉取所有监控项的探测/证书历史，其余历史在点击目标后按资产懒加载。
     await refreshListSummaries()

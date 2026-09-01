@@ -126,7 +126,73 @@ describe('权限 Store', () => {
     const certificates = store.visibleMenuItems.find((item) => item.path === '/certificates')
     expect(certificates?.children?.map((item) => item.path)).toEqual(['/certificates', '/acme'])
     const assets = store.visibleMenuItems.find((item) => item.path === '/applications')
-    expect(assets?.children?.map((item) => item.path)).toEqual(['/applications'])
+    expect(assets?.children?.map((item) => item.path)).toEqual(['/applications', '/assets'])
+  })
+
+  it('业务管理者授权会进入前端能力集合，但不会污染显式权限集合', () => {
+    const store = usePermissionStore()
+    store.$patch({
+      permissions: [],
+      objectSets: [],
+      businessPermissions: [
+        {
+          domain: 'application',
+          level: 'manager',
+          effect: 'allow',
+          status: 'active',
+          expandedResourceTypes: ['service_asset'],
+          expandedActions: ['application.update']
+        },
+        {
+          domain: 'certificate',
+          level: 'manager',
+          effect: 'allow',
+          status: 'active',
+          expandedResourceTypes: ['certificate_asset'],
+          expandedActions: ['certificate.update', 'certificate.lifecycle', 'certificate.import']
+        }
+      ],
+      loadedAt: new Date().toISOString()
+    })
+
+    expect(store.hasPermission('application.update')).toBe(true)
+    expect(store.hasPermission('application.deployment.execute')).toBe(true)
+    expect(store.hasPermission('service_asset.manage')).toBe(true)
+    expect(store.hasPermission('certificate.lifecycle')).toBe(true)
+    expect(store.hasPermission('certificate.import')).toBe(true)
+    expect(store.hasPermission('service_asset.manage', { explicitOnly: true })).toBe(false)
+    expect(store.explicitPermissionSet.has('service_asset.manage')).toBe(false)
+  })
+
+  it('业务使用者和拒绝授权不会获得管理动作，旧上下文资源类型仍提供读取权限', () => {
+    const store = usePermissionStore()
+    store.$patch({
+      permissions: [],
+      objectSets: [],
+      businessPermissions: [
+        {
+          domain: 'application',
+          level: 'user',
+          effect: 'allow',
+          status: 'active',
+          expandedResourceTypes: ['service_asset'],
+          expandedActions: ['application.read']
+        },
+        {
+          domain: 'application',
+          level: 'manager',
+          effect: 'deny',
+          status: 'active',
+          expandedResourceTypes: ['service_asset'],
+          expandedActions: ['service_asset.manage']
+        }
+      ],
+      loadedAt: new Date().toISOString()
+    })
+
+    expect(store.hasPermission('service_asset.read')).toBe(true)
+    expect(store.hasPermission('application.read')).toBe(true)
+    expect(store.hasPermission('service_asset.manage')).toBe(false)
   })
 
   it('兼容历史前端权限名与后端真实动作名映射', () => {

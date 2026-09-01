@@ -62,7 +62,7 @@ export const mainMenuItems: MenuItem[] = [
     titleKey: 'nav.monitoringAnalysis',
     path: '/monitors',
     module: 'monitoring',
-    permissions: ['monitor.target.read', 'monitor.risk.read', 'monitor.dashboard.read', 'monitor.alert_rule.read'],
+    permissions: ['monitor.target.read', 'monitor.risk.read', 'monitor.dashboard.read', 'monitor.alert_rule.read', 'application.monitor.read'],
     icon: 'activity',
     descriptionKey: 'nav.monitoringAnalysisDesc',
   },

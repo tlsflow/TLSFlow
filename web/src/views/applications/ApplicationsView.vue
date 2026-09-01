@@ -3,15 +3,14 @@ import { computed, nextTick, reactive, ref, watch, type Directive } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
-import { createServiceAsset, deleteServiceAsset, enqueueApplicationCertificateDeployment, getApplicationEditDetail, getApplicationDetail, getApplicationAssetLinkageStatus, getApplicationCertificateSupplyPolicy, getManagedTargetEffectiveCapability, listApplications, listManagedTargets, listManagedTargetCompatiblePlugins, listManagedTargetSnapshots, listFrameworkInstances, listSiteAssets, previewApplicationCertificateSupplyPolicy, repairApplicationAssetLinkage, saveApplicationAssetManagedTarget, saveApplicationAssetStandaloneWorkflow, saveApplicationCertificateSupplyPolicy, updateServiceAsset } from '@/api/modules/assets.api'
+import { createServiceAsset, deleteServiceAsset, enqueueApplicationCertificateDeployment, getApplicationEditDetail, getApplicationDetail, getApplicationAssetLinkageStatus, getApplicationCertificateSupplyPolicy, getManagedTargetEffectiveCapability, listApplications, listAssets, listManagedTargets, listManagedTargetCompatiblePlugins, listManagedTargetSnapshots, listFrameworkInstances, listSiteAssets, previewApplicationCertificateSupplyPolicy, repairApplicationAssetLinkage, saveApplicationAssetManagedTarget, saveApplicationAssetStandaloneWorkflow, saveApplicationCertificateSupplyPolicy, updateServiceAsset } from '@/api/modules/assets.api'
 import { rollbackExecution } from '@/api/modules/executions.api'
 import { listGateways } from '@/api/modules/gateways.api'
 import { getWorkflowExecutionBinding, listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
-import { listCertificateFormats, listCertificateVersions } from '@/api/modules/certificates.api'
+import { listCertificates, listCertificateFormats, listCertificateVersions } from '@/api/modules/certificates.api'
 import { createDeploymentPlanFromApplicationAsset, dryRunDeploymentPlan, executeDeploymentPlan, listDeploymentPlansByApplicationAsset, submitDeploymentPlan } from '@/api/modules/deployments.api'
 import { projectApplicationAssetPluginInputs, projectDeploymentInputs, type WorkflowDeploymentInputProjectionOverride } from '@/api/modules/deployment-inputs.api'
 import { getPluginBinding } from '@/api/modules/plugins.api'
-import { listManagedDevices } from '@/api/modules/devices.api'
 import { getDeploymentTaskSettings } from '@/api/modules/security.api'
 import type { ApiPageResult, ApiRecord, BusinessListQuery } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
@@ -209,6 +208,7 @@ interface AssetDraft {
   managementMode: AssetManagementMode
   managedExecutionMode: ManagedExecutionMode
   deviceId: string
+  serviceAssetId: string
   frameworkInstanceId: string
   address: string
   port: string
@@ -307,7 +307,8 @@ const selectedCertificateDomain = computed(() => {
   return domains.every((domain) => domain === firstDomain) ? firstDomain : ''
 })
 const canBatchUpdateCertificates = computed(() => Boolean(selectedCertificateDomain.value))
-const canExecuteDeployments = computed(() => permissionStore.hasPermission('deployment.plan.execute'))
+const canExecuteDeployments = computed(() => permissionStore.hasPermission('deployment.plan.execute')
+  || permissionStore.hasPermission('application.deployment.execute'))
 const canManageAssets = computed(() => permissionStore.hasPermission('service_asset.manage'))
 const assetOverviewStatusOptions = computed(() => [
   { value: 'ACTIVE', label: t('dashboard.statusBlock.status.active') },
@@ -354,6 +355,8 @@ const editInitializationLoading = ref(false)
 const editInitializationError = ref('')
 const deviceListLoading = ref(false)
 const deviceItems = ref<ApiRecord[]>([])
+const serviceAssetItems = ref<ApiRecord[]>([])
+let deviceListRequestSequence = 0
 const serviceInstanceListLoading = ref(false)
 const serviceInstanceItems = ref<ApiRecord[]>([])
 const siteListLoading = ref(false)
@@ -433,6 +436,7 @@ const assetDraft = reactive<AssetDraft>({
   managementMode: 'MANAGED_TARGET',
   managedExecutionMode: 'PLUGIN',
   deviceId: '',
+  serviceAssetId: '',
   frameworkInstanceId: '',
   address: '',
   port: '443',
@@ -480,21 +484,30 @@ const certificateSupplyDraft = reactive<CertificateSupplyDraft>({
 })
 const certificateSupplyData = ref<CertificateSupplyData | null>(null)
 const certificateSupplyPreview = ref<CertificateSupplyData | null>(null)
+// 新建应用尚未有 applicationAssetId，先从证书版本列表构造候选；创建后仍由供应策略接口返回正式候选。
+const createCertificateCandidates = ref<ApiRecord[]>([])
 const certificateSupplyLoading = ref(false)
 const certificateSupplySaving = ref(false)
 const certificateSupplyError = ref('')
 let certificateSupplyPreviewSequence = 0
 
 const activeCertificateSupplyData = computed(() => certificateSupplyPreview.value ?? certificateSupplyData.value)
-const certificateSupplyCandidates = computed(() => activeCertificateSupplyData.value?.certificateCandidates ?? [])
+const certificateSupplyCandidates = computed(() => {
+  const data = activeCertificateSupplyData.value
+  if (data) return data.certificateCandidates ?? []
+  const domain = assetDraft.address.trim()
+  if (!domain) return []
+  return createCertificateCandidates.value.filter((candidate) => certificateCandidateMatchesDomain(candidate, domain))
+})
 const certificateSupplyCertificateOptions = computed(() => {
-  const byName = new Map<string, ApiRecord>()
+  const byAsset = new Map<string, ApiRecord>()
   for (const candidate of certificateSupplyCandidates.value) {
-    const name = String(candidate.name ?? candidate.primaryDomain ?? candidate.certificateAssetId ?? '').trim()
-    const key = name.toLocaleLowerCase() || String(candidate.certificateAssetId ?? '')
-    if (key && !byName.has(key)) byName.set(key, candidate)
+    const key = String(candidate.certificateAssetId ?? candidate.certificateId ?? '').trim()
+    if (!key) continue
+    const previous = byAsset.get(key)
+    if (!previous || certificateCandidateExpiry(candidate) > certificateCandidateExpiry(previous)) byAsset.set(key, candidate)
   }
-  return [...byName.values()]
+  return [...byAsset.values()].sort((left, right) => certificateSupplyCandidateLabel(left).localeCompare(certificateSupplyCandidateLabel(right)))
 })
 const certificateSupplyProviders = computed(() => activeCertificateSupplyData.value?.providers ?? {})
 const certificateSupplyDnsCredentialTemplate = computed(() => {
@@ -1471,6 +1484,7 @@ function resetCertificateSupplyDraft(): void {
   certificateSupplyDraft.rotateKeyOnRenewal = false
   certificateSupplyData.value = null
   certificateSupplyPreview.value = null
+  createCertificateCandidates.value = []
   certificateSupplyError.value = ''
 }
 
@@ -1505,6 +1519,7 @@ function certificateSupplyPayload(): Record<string, unknown> {
   }
   if (certificateSupplyDraft.supplyMode === 'manual') {
     if (certificateSupplyDraft.certificateAssetId) payload.certificateAssetId = certificateSupplyDraft.certificateAssetId
+    if (certificateSupplyDraft.certificateVersionId) payload.certificateVersionId = certificateSupplyDraft.certificateVersionId
     return payload
   }
   payload.providerType = certificateSupplyDraft.providerType
@@ -1528,7 +1543,34 @@ function selectInternalCaAuthority(authorityId: string): void {
 
 function selectCertificateSupplyCandidate(certificateAssetId: string): void {
   certificateSupplyDraft.certificateAssetId = certificateAssetId
-  certificateSupplyDraft.certificateVersionId = ''
+  const candidate = certificateSupplyCandidates.value.find((item) => (
+    String(item.certificateAssetId ?? item.certificateId ?? '') === certificateAssetId
+  ))
+  certificateSupplyDraft.certificateVersionId = String(candidate?.certificateVersionId ?? candidate?.id ?? '')
+}
+
+function certificateCandidateExpiry(candidate: ApiRecord): number {
+  const timestamp = Date.parse(String(candidate.notAfter ?? ''))
+  return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY
+}
+
+function certificateCandidateMatchesDomain(candidate: ApiRecord, domain: string): boolean {
+  const normalizedDomain = normalizeCertificateDomain(domain)
+  if (!normalizedDomain) return false
+  const names = [candidate.primaryDomain, candidate.commonName, ...(Array.isArray(candidate.sans) ? candidate.sans : [])]
+  return names.some((value) => certificateDnsNameMatches(String(value ?? ''), normalizedDomain))
+}
+
+function normalizeCertificateDomain(value: string): string {
+  return value.trim().toLowerCase().replace(/\.$/, '')
+}
+
+function certificateDnsNameMatches(pattern: string, domain: string): boolean {
+  const normalizedPattern = normalizeCertificateDomain(pattern)
+  if (normalizedPattern === domain) return true
+  if (!normalizedPattern.startsWith('*.')) return false
+  const suffix = normalizedPattern.slice(2)
+  return domain.endsWith(`.${suffix}`) && domain.split('.').length === suffix.split('.').length + 1
 }
 
 function certificateSupplyCandidateLabel(candidate: ApiRecord): string {
@@ -1562,6 +1604,32 @@ async function loadApplicationCertificateSupplyPolicy(applicationAssetId: string
       : cause instanceof Error ? cause.message : t('assets.certificateSupply.errors.loadFailed')
   } finally {
     certificateSupplyLoading.value = false
+  }
+}
+
+async function loadCreateCertificateCandidates(): Promise<void> {
+  try {
+    const [assets, versions] = await Promise.all([
+      fetchAllRecords((page, pageSize) => listCertificates({ page, pageSize, sort: 'createdAt:desc', filters: { status: 'active' } })),
+      fetchAllRecords((page, pageSize) => listCertificateVersions({ page, pageSize, sort: 'notAfter:desc', filters: { status: 'active' } })),
+    ])
+    const assetsById = new Map(assets
+      .filter((asset) => !String(asset.applicationAssetId ?? '').trim())
+      .map((asset) => [String(asset.id ?? ''), asset]))
+    createCertificateCandidates.value = versions.flatMap((version) => {
+      const certificateAssetId = String(version.certificateAssetId ?? '')
+      const asset = assetsById.get(certificateAssetId)
+      if (!asset || version.deployable === false) return []
+      return [{
+        ...version,
+        certificateAssetId,
+        primaryDomain: String(asset.primaryDomain ?? ''),
+        name: String(asset.name ?? ''),
+      }]
+    })
+  } catch {
+    // 证书候选加载失败不应阻塞基础资产创建；提交时由后端再次校验证书引用。
+    createCertificateCandidates.value = []
   }
 }
 
@@ -1602,7 +1670,14 @@ async function openCreateDialog() {
   createDialogOpen.value = true
   createError.value = ''
   createRequestId.value = ''
-  await Promise.all([loadDevices(), loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
+  await Promise.all([
+    loadDevices(),
+    loadWorkflowTemplates(),
+    loadGateways(),
+    loadCredentialsForWorkflowVariables(),
+    loadCertificateFormatsForWorkflow(),
+    loadCreateCertificateCandidates(),
+  ])
   selectUserModeDefaults()
 }
 
@@ -1744,6 +1819,12 @@ async function openEditDialog(row: ViewRow) {
       )
     }
     assetDraft.deviceId = String(contextHost?.id ?? contextManagedTarget?.deviceId ?? '')
+    assetDraft.serviceAssetId = String(
+      contextManagedTarget?.serviceAssetId
+        ?? contextSite?.serviceAssetId
+        ?? contextFramework?.serviceAssetId
+        ?? '',
+    )
     // 基础字段已填充后立即结束首屏 loading；选择器和高级配置继续后台加载。
     editInitializationLoading.value = false
     await Promise.all([
@@ -1880,12 +1961,20 @@ async function loadExistingWorkflowExecutionBinding(bindingId: string) {
 }
 
 async function loadDevices() {
+  const requestSequence = ++deviceListRequestSequence
   deviceListLoading.value = true
   try {
-    const result = await listManagedDevices({ page: 1, pageSize: 200, sort: 'displayName:asc' })
-    deviceItems.value = [...(result.data?.items ?? [])]
+    // 根资产状态不等价于可选择性：云服务首次发现、刷新失败或状态尚未收敛时，
+    // 其已发现的框架、站点和受管目标仍可作为应用部署上下文使用。
+    const result = await listAssets({ page: 1, pageSize: 200, sort: 'displayName:asc' })
+    if (requestSequence !== deviceListRequestSequence) return
+    const items = readUnifiedAssetItems(result)
+    deviceItems.value = items.filter((item) => unifiedAssetKind(item) === 'DEVICE')
+    serviceAssetItems.value = items.filter((item) => unifiedAssetKind(item) === 'CLOUD_SERVICE')
   } catch (cause) {
+    if (requestSequence !== deviceListRequestSequence) return
     deviceItems.value = []
+    serviceAssetItems.value = []
     createError.value = cause instanceof ApiClientError
       ? cause.message
       : cause instanceof Error ? cause.message : t('assets.errors.loadTargetsFailed')
@@ -1894,10 +1983,72 @@ async function loadDevices() {
   }
 }
 
+/**
+ * 统一资产接口在历史网关和当前 ApiClient 下可能分别表现为
+ * { items: [...] }、{ data: { items: [...] } } 或直接数组；页面只在此处解包，
+ * 避免选择器因响应包裹层变化而静默显示空列表。
+ */
+function readUnifiedAssetItems(result: unknown): ApiRecord[] {
+  let current: unknown = result
+  for (let depth = 0; depth < 6; depth += 1) {
+    if (Array.isArray(current)) return current as ApiRecord[]
+    if (!current || typeof current !== 'object') return []
+    const record = current as Record<string, unknown>
+    for (const key of ['items', 'rows', 'records']) {
+      if (Array.isArray(record[key])) return record[key] as ApiRecord[]
+    }
+    current = record.data ?? record.result ?? record.payload
+  }
+  return []
+}
+
+function unifiedAssetKind(item: ApiRecord): 'DEVICE' | 'CLOUD_SERVICE' | '' {
+  const record = item as Record<string, unknown>
+  const nestedRefValue = record.assetRef ?? record.asset_ref
+  const nestedRef = nestedRefValue && typeof nestedRefValue === 'object' && !Array.isArray(nestedRefValue)
+    ? nestedRefValue as Record<string, unknown>
+    : undefined
+  const rawValue = record.raw
+  const rawRecord = rawValue && typeof rawValue === 'object' && !Array.isArray(rawValue)
+    ? rawValue as Record<string, unknown>
+    : typeof rawValue === 'string'
+      ? parseJsonRecord(rawValue)
+      : undefined
+  const raw = [
+    record.assetKind,
+    record.asset_kind,
+    record.resourceType,
+    record.resource_type,
+    record.rootType,
+    record.root_type,
+    nestedRef?.rootType,
+    nestedRef?.root_type,
+    rawRecord?.assetKind,
+    rawRecord?.asset_kind,
+    record.kind,
+    record.type,
+  ].map((value) => String(value ?? '').trim().toUpperCase())
+  if (raw.includes('DEVICE')) return 'DEVICE'
+  if (raw.includes('CLOUD_SERVICE') || raw.includes('SERVICE_ASSET')) return 'CLOUD_SERVICE'
+  return ''
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> | undefined {
+  try {
+    const parsed: unknown = JSON.parse(value)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
 async function loadServiceInstances(hostId: string) {
   serviceInstanceListLoading.value = true
   serviceInstanceItems.value = []
-  if (!hostId) {
+  const serviceAssetId = assetDraft.serviceAssetId.trim()
+  if (!hostId && !serviceAssetId) {
     serviceInstanceListLoading.value = false
     return
   }
@@ -1906,7 +2057,10 @@ async function loadServiceInstances(hostId: string) {
       page: 1,
       pageSize: 200,
       sort: 'updatedAt:desc',
-      filters: { deviceId: hostId, status: 'ACTIVE' },
+      filters: {
+        ...(serviceAssetId ? { serviceAssetId } : { deviceId: hostId }),
+        status: 'ACTIVE',
+      },
     })
     serviceInstanceItems.value = [...(result.data?.items ?? [])]
   } finally {
@@ -2198,11 +2352,7 @@ async function refreshAssetTargets() {
   siteListLoading.value = true
   siteListError.value = ''
   siteItems.value = []
-  const deviceId = assetDraft.deviceId.trim()
   const frameworkInstanceId = assetDraft.frameworkInstanceId.trim()
-  if (!deviceId) {
-    serviceInstanceItems.value = []
-  }
   if (!frameworkInstanceId) {
     siteListLoading.value = false
     return
@@ -2481,6 +2631,7 @@ function resetDraft() {
   assetDraft.managementMode = 'MANAGED_TARGET'
   assetDraft.managedExecutionMode = 'PLUGIN'
   assetDraft.deviceId = ''
+  assetDraft.serviceAssetId = ''
   assetDraft.frameworkInstanceId = ''
   assetDraft.address = ''
   assetDraft.port = '443'
@@ -2522,6 +2673,7 @@ function resetDraft() {
   compatibleManagedPlugins.value = []
   workflowTargetAdvancedExpanded.value = false
   serviceInstanceItems.value = []
+  serviceAssetItems.value = []
   siteItems.value = []
   managedTargetItems.value = []
   targetSelectionInitializing.value = false
@@ -2537,7 +2689,7 @@ function resetDraft() {
 
 function selectUserModeDefaults() {
   if (!isUserViewMode.value) return
-  if (!assetDraft.deviceId && deviceItems.value.length === 1) {
+  if (!assetDraft.deviceId && !assetDraft.serviceAssetId && deviceItems.value.length === 1) {
     assetDraft.deviceId = String(deviceItems.value[0]?.id ?? '')
   }
   if (!assetDraft.agentCertificateFormatId && certificateFormatItems.value.length === 1) {
@@ -3636,7 +3788,7 @@ watch(
 )
 
 watch(
-  () => assetDraft.deviceId,
+  () => [assetDraft.deviceId, assetDraft.serviceAssetId],
   async () => {
     if (targetSelectionInitializing.value) return
     await refreshServiceInstancesForDevice()
@@ -3859,7 +4011,7 @@ function managedTargetLabel(target: ApiRecord): string {
                 <GcPermissionButton
                   class="gc-button gc-button--primary"
                   :data-testid="`user-asset-card-deploy-${String(asset.id)}`"
-                  permission="deployment.plan.execute"
+                  permission="application.deployment.execute"
                   :disabled="!assetExecutionReady(asset)"
                   @click="openDeploymentDialog(userAssetRow(asset))"
                 >
@@ -3951,7 +4103,7 @@ function managedTargetLabel(target: ApiRecord): string {
               <GcPermissionButton
                 v-if="canBatchUpdateCertificates && canExecuteDeployments"
                 class="asset-page__selection-update-action gc-button--secondary"
-                permission="deployment.plan.execute"
+                permission="application.deployment.execute"
                 data-testid="asset-bulk-update-action"
                 @click="openBatchCertificateUpdateDialog"
               >
@@ -4098,7 +4250,7 @@ function managedTargetLabel(target: ApiRecord): string {
                     ? 'asset-page__card-deploy-button--update'
                     : 'asset-page__card-deploy-button--latest'"
                   :data-testid="`asset-card-deploy-${card.id}`"
-                  permission="deployment.plan.execute"
+                  permission="application.deployment.execute"
                   :disabled="!assetExecutionReady(card.asset)"
                   @click="openDeploymentDialog(assetOverviewCardRow(card))"
                 >
@@ -4232,7 +4384,7 @@ function managedTargetLabel(target: ApiRecord): string {
               <div class="asset-page__table-actions">
                 <GcPermissionButton
                   class="asset-page__card-icon-action"
-                  permission="deployment.plan.execute"
+                  permission="application.deployment.execute"
                   :disabled="!assetExecutionReady(row.card.asset)"
                   :data-testid="`asset-list-deploy-${row.id}`"
                   :aria-label="t('assets.actions.deployCertificate')"
@@ -4449,7 +4601,7 @@ function managedTargetLabel(target: ApiRecord): string {
             <div class="asset-deployment__actions">
               <GcPermissionButton
                 class="gc-button gc-button--primary"
-                permission="deployment.plan.execute"
+                  permission="application.deployment.execute"
                 @click="openDeploymentDialog()"
               >
                 {{ t('assets.actions.deployCertificate') }}
@@ -4722,14 +4874,17 @@ function managedTargetLabel(target: ApiRecord): string {
           </header>
           <GcManagedTargetSelector
             v-model:device-id="assetDraft.deviceId"
+            v-model:service-asset-id="assetDraft.serviceAssetId"
             v-model:framework-instance-id="assetDraft.frameworkInstanceId"
             v-model:site-id="assetDraft.siteAssetId"
             v-model:managed-target-id="assetDraft.managedTargetId"
             :devices="deviceItems"
+            :service-assets="serviceAssetItems"
             :frameworks="serviceInstanceItems"
             :sites="filteredSiteItems"
             :managed-targets="managedTargetItems"
             :device-loading="deviceListLoading"
+            :service-asset-loading="deviceListLoading"
             :framework-loading="serviceInstanceListLoading"
             :site-loading="siteListLoading"
             :managed-target-loading="managedTargetListLoading"
@@ -4929,14 +5084,17 @@ function managedTargetLabel(target: ApiRecord): string {
           <template v-if="assetDraft.managementMode === 'MANAGED_TARGET'">
             <GcManagedTargetSelector
               v-model:device-id="assetDraft.deviceId"
+              v-model:service-asset-id="assetDraft.serviceAssetId"
               v-model:framework-instance-id="assetDraft.frameworkInstanceId"
               v-model:site-id="assetDraft.siteAssetId"
               v-model:managed-target-id="assetDraft.managedTargetId"
               :devices="deviceItems"
+              :service-assets="serviceAssetItems"
               :frameworks="serviceInstanceItems"
               :sites="filteredSiteItems"
               :managed-targets="managedTargetItems"
               :device-loading="deviceListLoading"
+              :service-asset-loading="deviceListLoading"
               :framework-loading="serviceInstanceListLoading"
               :site-loading="siteListLoading"
               :managed-target-loading="managedTargetListLoading"

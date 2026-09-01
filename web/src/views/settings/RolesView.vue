@@ -165,7 +165,7 @@ const currentRoleGrants = computed<ApiRecord[]>(() => {
   const roleId = readValue(selectedRole.value, 'id')
   if (!roleId) return []
   return businessPermissionRows.value
-    .filter((item) => readValue(item, 'roleId') === roleId)
+    .filter((item) => readValue(item, 'roleId') === roleId && readValue(item, 'status') === 'active')
     .map((item, index) => ({
       ...item,
       objectSetName: businessPermissionScopeLabel(item),
@@ -334,8 +334,24 @@ function roleAccessGrants(roleId: string): ApiRecord[] {
   return accessGrantRows.value.filter((item) => readValue(item, 'roleId') === roleId)
 }
 
+function activeBusinessPermissionGrants(roleId: string): ApiRecord[] {
+  return businessPermissionRows.value.filter((item) =>
+    readValue(item, 'roleId') === roleId && readValue(item, 'status') === 'active')
+}
+
+function businessPermissionGrantIdFromAccessGrant(grant: ApiRecord): string {
+  const constraints = readField(grant, 'constraints')
+  if (!constraints || typeof constraints !== 'object' || Array.isArray(constraints)) return ''
+  const value = (constraints as Record<string, unknown>).businessPermissionGrantId
+  return typeof value === 'string' ? value : ''
+}
+
 function roleObjectSetIds(roleId: string): string[] {
-  return [...new Set(roleAccessGrants(roleId).map((item) => readValue(item, 'objectSetId')).filter(Boolean))]
+  const activeGrantIds = new Set(activeBusinessPermissionGrants(roleId).map((item) => readValue(item, 'id')).filter(Boolean))
+  return [...new Set(roleAccessGrants(roleId)
+    .filter((item) => activeGrantIds.has(businessPermissionGrantIdFromAccessGrant(item)))
+    .map((item) => readValue(item, 'objectSetId'))
+    .filter(Boolean))]
 }
 
 function objectSetMembersForObjectSet(objectSetId: string): ApiRecord[] {
@@ -455,20 +471,48 @@ function buildScopeNodesForObjectSet(objectSet: ApiRecord): ObjectTreeNode[] {
 
 function buildRoleScopeNodes(roleId: string): ObjectTreeNode[] {
   const nodes: ObjectTreeNode[] = []
-  for (const grant of roleAccessGrants(roleId)) {
-    const objectSetId = readValue(grant, 'objectSetId')
-    const objectSet = objectSetRows.value.find((item) => readValue(item, 'id') === objectSetId)
-    if (!objectSet) continue
-    nodes.push(...buildScopeNodesForObjectSet(objectSet))
+  for (const grant of activeBusinessPermissionGrants(roleId)) {
+    const category = assignableCategories.find((item) => item.key === readValue(grant, 'domain'))
+    if (!category) continue
+    const objectId = readValue(grant, 'rootObjectId')
+    if (!objectId) {
+      nodes.push({
+        key: category.key,
+        label: objectCategoryLabel(category),
+        kind: 'type',
+        objectType: category.objectType,
+        objectTypes: [category.objectType],
+        level: 1,
+        selectable: category.key === 'audit' || category.key === 'settings',
+        description: t('settings.roles.tree.typeDescription', { category: objectCategoryLabel(category) })
+      })
+      continue
+    }
+    const record = (objectTreeRecords.value[category.key] ?? []).find((item) => recordId(item) === objectId)
+    nodes.push({
+      key: `${category.key}:${objectId}`,
+      label: record ? recordLabel(record, objectCategoryLabel(category)) : labelWithId(objectCategoryLabel(category), objectId),
+      kind: 'record',
+      objectType: category.objectType,
+      objectId,
+      objectTypes: [category.objectType],
+      level: 2,
+      selectable: true,
+      description: objectId
+    })
   }
   return uniqueObjectNodes(nodes)
 }
 
 function syncGrantDraftWithExistingRoleScopes(roleId: string): void {
-  const grants = roleAccessGrants(roleId)
+  const grants = activeBusinessPermissionGrants(roleId)
   const effects = [...new Set(grants.map((item) => readValue(item, 'effect')).filter(Boolean))]
   if (effects.length === 1 && ['allow', 'deny'].includes(effects[0])) {
     grantDraft.effect = effects[0] as AccessGrantDraft['effect']
+  }
+  const levels = [...new Set(grants.map((item) => readValue(item, 'level')).filter(Boolean))]
+  if (levels.length === 1 && ['user', 'manager'].includes(levels[0])) {
+    grantDraft.businessLevel = levels[0] as BusinessPermissionLevel
   }
 }
 
@@ -881,7 +925,8 @@ async function createGrantsForRole(
     )
     .map((item) => ['group', roleId, roleId, readValue(item, 'objectSetId')].join(':')))
   const existingScopeObjectSetIds = new Map<string, string[]>()
-  for (const grant of roleAccessGrants(roleId)) {
+  const activeGrantIds = new Set(activeBusinessPermissionGrants(roleId).map((item) => readValue(item, 'id')).filter(Boolean))
+  for (const grant of roleAccessGrants(roleId).filter((item) => activeGrantIds.has(businessPermissionGrantIdFromAccessGrant(item)))) {
     const objectSetId = readValue(grant, 'objectSetId')
     const objectSet = objectSetRows.value.find((item) => readValue(item, 'id') === objectSetId)
     if (!objectSet) continue
@@ -894,8 +939,7 @@ async function createGrantsForRole(
       await ensureRoleSelfBinding(roleId, objectSetId, existingRoleBindingKeys)
     }
   }
-  const existingBusinessGrantKeys = new Set(businessPermissionRows.value
-    .filter((item) => readValue(item, 'roleId') === roleId)
+  const existingBusinessGrantKeys = new Set(activeBusinessPermissionGrants(roleId)
     .map((item) => [
       readValue(item, 'domain'),
       readValue(item, 'level'),
@@ -903,12 +947,33 @@ async function createGrantsForRole(
       readValue(item, 'rootObjectId'),
       readValue(item, 'effect')
     ].join(':')))
-  const existingBusinessGrantIds = new Map(businessPermissionRows.value
-    .filter((item) => readValue(item, 'roleId') === roleId)
+  const existingBusinessGrantIds = new Map(activeBusinessPermissionGrants(roleId)
     .map((item) => [[
       readValue(item, 'domain'), readValue(item, 'level'), readValue(item, 'rootObjectType'), readValue(item, 'rootObjectId'), readValue(item, 'effect')
     ].join(':'), readValue(item, 'id')] as const))
-  for (const node of uniqueObjectNodes(nodes.filter((item) => item.selectable))) {
+  const selectedNodes = uniqueObjectNodes(nodes.filter((item) => item.selectable))
+  const selectedNodeKeys = new Set(selectedNodes.map((node) => node.key))
+  const selectedBusinessGrantKeys = new Set(selectedNodes.map((node) => {
+    const category = categoryByObjectType(node.objectType ?? '')
+    return [category?.key ?? '', businessLevel, node.objectType ?? '', node.objectId ?? '', effect].join(':')
+  }))
+  // 保存授权采用替换语义：当前未选中的旧业务授权必须撤销，避免权限范围越积越大。
+  await Promise.all(businessPermissionRows.value
+    .filter((item) => readValue(item, 'roleId') === roleId)
+    .filter((item) => readValue(item, 'status') === 'active')
+    .filter((item) => Boolean(readValue(item, 'id')))
+    .filter((item) => !selectedBusinessGrantKeys.has([
+      readValue(item, 'domain'),
+      readValue(item, 'level'),
+      readValue(item, 'rootObjectType'),
+      readValue(item, 'rootObjectId'),
+      readValue(item, 'effect')
+    ].join(':')))
+    .map((item) => revokeBusinessPermissionGrant(readValue(item, 'id'), Number(readValue(item, 'version')) || undefined)))
+  for (const key of [...existingScopeObjectSetIds.keys()]) {
+    if (!selectedNodeKeys.has(key)) existingScopeObjectSetIds.delete(key)
+  }
+  for (const node of selectedNodes) {
     const category = categoryByObjectType(node.objectType ?? '')
     if (!category) throw new Error(t('settings.roles.errors.invalidBusinessScope'))
     const businessGrantKey = [category.key, businessLevel, node.objectType, node.objectId ?? '', effect].join(':')
@@ -929,12 +994,21 @@ async function createGrantsForRole(
       if (businessPermissionGrantId) existingBusinessGrantIds.set(businessGrantKey, businessPermissionGrantId)
     }
     const existingObjectSetIds = existingScopeObjectSetIds.get(node.key) ?? []
-    if (existingObjectSetIds.length > 0) {
-      for (const objectSetId of existingObjectSetIds) {
+    const expectedAccessLevel = accessLevelForBusinessLevel(businessLevel)
+    const compatibleObjectSetIds = existingObjectSetIds.filter((objectSetId) => roleAccessGrants(roleId).some((grant) =>
+      readValue(grant, 'objectSetId') === objectSetId
+      && readValue(grant, 'accessLevel') === expectedAccessLevel
+      && readValue(grant, 'effect') === effect
+      && businessPermissionGrantIdFromAccessGrant(grant) === businessPermissionGrantId,
+    ))
+    if (compatibleObjectSetIds.length > 0) {
+      for (const objectSetId of compatibleObjectSetIds) {
         await ensureRoleSelfBinding(roleId, objectSetId, existingRoleBindingKeys)
       }
       continue
     }
+    // 级别或效果变更时，撤销旧业务授权会清理其来源标记对象集，不能继续复用旧 ID。
+    // 业务授权是权威来源，兼容授权只随新业务授权和新对象集一起创建。
     const objectSetResult = await createObjectSet({
       name: objectSetNameForNode(node),
       kind: node.kind === 'record' ? 'static' : 'dynamic',

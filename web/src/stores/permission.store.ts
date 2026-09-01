@@ -52,6 +52,8 @@ const objectTypePermissionAliases: Record<string, readonly string[]> = {
 
 const permissionAliases: Record<string, readonly string[]> = {
   'certificate.asset.read': ['certificate.read'],
+  'service_asset.read': ['application.read'],
+  'service_asset.manage': ['application.update'],
   'workflow.template.read': ['workflow.read'],
   'workflow.template.write': ['workflow.create', 'workflow.update', 'workflow.delete', 'workflow.publish', 'workflow.test'],
   'execution.read': ['execution.run.read', 'execution.step.read'],
@@ -77,6 +79,31 @@ function inferredReadPermissions(objectSets: readonly ApiRecord[]): string[] {
       for (const permission of objectTypePermissionAliases[objectType] ?? []) {
         permissions.add(permission)
       }
+    }
+  }
+  return [...permissions]
+}
+
+function readStringArray(row: ApiRecord, key: string): string[] {
+  const value = readField(row, key)
+  return Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean) : []
+}
+
+function inferredBusinessPermissions(businessPermissions: readonly ApiRecord[]): string[] {
+  const permissions = new Set<string>()
+  for (const grant of businessPermissions) {
+    // 业务拒绝授权不能反向变成前端允许权限；状态字段缺失时兼容旧上下文数据。
+    const effect = readField(grant, 'effect')
+    const status = readField(grant, 'status')
+    if (effect === 'deny' || (status !== undefined && status !== 'active')) continue
+    for (const action of readStringArray(grant, 'expandedActions')) permissions.add(action)
+    // 兼容历史应用管理授权：新增的单应用证书部署动作不能依赖旧记录的展开快照。
+    if (readField(grant, 'domain') === 'application' && readField(grant, 'level') === 'manager') {
+      permissions.add('application.deployment.execute')
+    }
+    // 兼容旧版本只返回资源类型、未返回 expandedActions 的权限上下文。
+    for (const objectType of readStringArray(grant, 'expandedResourceTypes')) {
+      for (const permission of objectTypePermissionAliases[objectType] ?? []) permissions.add(permission)
     }
   }
   return [...permissions]
@@ -135,7 +162,11 @@ export const usePermissionStore = defineStore('permission', {
   getters: {
     isLoaded: (state) => Boolean(state.loadedAt),
     explicitPermissionSet: (state) => new Set(state.permissions),
-    permissionSet: (state) => new Set([...state.permissions, ...inferredReadPermissions(state.objectSets)]),
+    permissionSet: (state) => new Set([
+      ...state.permissions,
+      ...inferredReadPermissions(state.objectSets),
+      ...inferredBusinessPermissions(state.businessPermissions),
+    ]),
     visibleMenuItems(): readonly MenuItem[] {
       return mainMenuItems
         .map((item) => filterMenuItem(item, this.permissionSet, this.explicitPermissionSet))

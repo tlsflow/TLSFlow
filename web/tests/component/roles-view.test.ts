@@ -18,9 +18,10 @@ const securityMocks = vi.hoisted(() => ({
   listRoleBindings: vi.fn(),
   listRoles: vi.fn(),
   listUsers: vi.fn(),
+  revokeBusinessPermissionGrant: vi.fn(),
 }))
 
-const assetMocks = vi.hoisted(() => ({ listAssets: vi.fn() }))
+const assetMocks = vi.hoisted(() => ({ listApplications: vi.fn() }))
 const certificateMocks = vi.hoisted(() => ({ listCertificates: vi.fn() }))
 
 vi.mock('@/api/modules/security.api', () => securityMocks)
@@ -56,7 +57,7 @@ describe('RolesView', () => {
     securityMocks.createBusinessPermissionGrant.mockResolvedValue({ data: { id: 'business-grant-app-manager' } })
     securityMocks.createRoleBinding.mockResolvedValue({ data: { id: 'binding-app-manager' } })
     securityMocks.addObjectSetMember.mockResolvedValue({ data: { id: 'member-app-manager' } })
-    assetMocks.listAssets.mockResolvedValue(page())
+    assetMocks.listApplications.mockResolvedValue(page())
     certificateMocks.listCertificates.mockResolvedValue(page())
   })
 
@@ -87,7 +88,7 @@ describe('RolesView', () => {
   })
 
   it('创建角色时以业务域、根对象和角色绑定保存应用管理者授权', async () => {
-    assetMocks.listAssets.mockResolvedValue(page([{ id: 'app_1', name: '订单应用' }]))
+    assetMocks.listApplications.mockResolvedValue(page([{ id: 'app_1', name: '订单应用' }]))
 
     const wrapper = mount(RolesView, { global: { plugins: [i18n], stubs: { teleport: true } } })
     await flushPromises()
@@ -145,9 +146,14 @@ describe('RolesView', () => {
 
   it('将用户关联到角色时按已有对象范围创建 RoleBinding', async () => {
     securityMocks.listRoles.mockResolvedValue(page([{ id: 'role-app-reader', code: 'app_reader', name: '应用查看者', builtin: false }]))
+    securityMocks.listBusinessPermissionGrants.mockResolvedValue(page([{
+      id: 'bpgr-app-reader', roleId: 'role-app-reader', status: 'active', domain: 'application', level: 'user',
+      rootObjectType: 'service_asset', rootObjectId: 'app-reader', effect: 'allow',
+    }]))
     securityMocks.listObjectSets.mockResolvedValue(page([{ id: 'object-set-app', name: '应用范围', kind: 'static' }]))
     securityMocks.listAccessGrants.mockResolvedValue(page([{
       roleId: 'role-app-reader', objectSetId: 'object-set-app', accessLevel: 'read', effect: 'allow',
+      constraints: { businessPermissionGrantId: 'bpgr-app-reader' },
     }]))
     securityMocks.listUsers.mockResolvedValue(page([{ id: 'user-1', username: 'operator', displayName: '运维用户', status: 'active' }]))
 
@@ -167,5 +173,107 @@ describe('RolesView', () => {
       effect: 'allow',
       enabled: true,
     })
+  })
+
+  it('编辑角色范围只回显 active 业务授权，不读取历史兼容对象集', async () => {
+    securityMocks.listRoles.mockResolvedValue(page([{ id: 'role-reader', code: 'reader', name: '查看者', builtin: false }]))
+    securityMocks.listBusinessPermissionGrants.mockResolvedValue(page([{
+      id: 'bpgr-cert-active', roleId: 'role-reader', status: 'active', domain: 'certificate', level: 'user',
+      rootObjectType: 'certificate', rootObjectId: 'cert-1', effect: 'allow',
+    }]))
+    securityMocks.listAccessGrants.mockResolvedValue(page([{
+      id: 'legacy-access', roleId: 'role-reader', objectSetId: 'legacy-app-set', accessLevel: 'read', effect: 'allow',
+    }]))
+    securityMocks.listObjectSets.mockResolvedValue(page([{ id: 'legacy-app-set', kind: 'static', objectTypes: ['service_asset'] }]))
+    securityMocks.listObjectSetMembers.mockResolvedValue(page([{ objectSetId: 'legacy-app-set', objectType: 'service_asset', objectId: 'app-old' }]))
+    certificateMocks.listCertificates.mockResolvedValue(page([{ id: 'cert-1', name: '*.example.com' }]))
+    assetMocks.listApplications.mockResolvedValue(page([{ id: 'app-old', name: '旧应用' }]))
+
+    const wrapper = mount(RolesView, { global: { plugins: [i18n], stubs: { teleport: true } } })
+    await flushPromises()
+    await buttonByText(wrapper, '授权').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('已选 1 个范围')
+    expect(wrapper.text()).toContain('*.example.com')
+    expect(wrapper.text()).not.toContain('旧应用')
+  })
+
+  it('替换角色范围时不重复撤销历史 revoked 业务授权', async () => {
+    securityMocks.listRoles.mockResolvedValue(page([{ id: 'role-reader', code: 'reader', name: '查看者', builtin: false }]))
+    securityMocks.listBusinessPermissionGrants.mockResolvedValue(page([
+      {
+        id: 'bpgr-cert-active', roleId: 'role-reader', status: 'active', domain: 'certificate', level: 'user',
+        rootObjectType: 'certificate', rootObjectId: 'cert-1', effect: 'allow', version: 2,
+      },
+      {
+        id: 'bpgr-old-revoked', roleId: 'role-reader', status: 'revoked', domain: 'application', level: 'user',
+        rootObjectType: 'service_asset', rootObjectId: 'app-old', effect: 'allow', version: 3,
+      },
+    ]))
+    certificateMocks.listCertificates.mockResolvedValue(page([{ id: 'cert-1', name: '*.example.com' }]))
+    assetMocks.listApplications.mockResolvedValue(page([{ id: 'app-old', name: '旧应用' }]))
+
+    const wrapper = mount(RolesView, { global: { plugins: [i18n], stubs: { teleport: true } } })
+    await flushPromises()
+    await buttonByText(wrapper, '授权').trigger('click')
+    await flushPromises()
+    await buttonByText(wrapper, '授予权限').trigger('click')
+    await flushPromises()
+
+    expect(securityMocks.revokeBusinessPermissionGrant).not.toHaveBeenCalledWith('bpgr-old-revoked', 3)
+  })
+
+  it('重新打开角色授权时回显已有业务级别，并为级别变更补写兼容授权', async () => {
+    securityMocks.listRoles.mockResolvedValue(page([{ id: 'role-reader', code: 'reader', name: '查看者', builtin: false }]))
+    securityMocks.listBusinessPermissionGrants.mockResolvedValue(page([{
+      id: 'bpgr-app-user', roleId: 'role-reader', status: 'active', domain: 'application', level: 'user',
+      rootObjectType: 'service_asset', rootObjectId: 'app-1', effect: 'allow', version: 1,
+    }]))
+    securityMocks.listObjectSets.mockResolvedValue(page([{ id: 'object-set-app', name: '应用范围', kind: 'static', objectTypes: ['service_asset'] }]))
+    securityMocks.listObjectSetMembers.mockResolvedValue(page([{ objectSetId: 'object-set-app', objectType: 'service_asset', objectId: 'app-1' }]))
+    securityMocks.listAccessGrants.mockResolvedValue(page([{
+      roleId: 'role-reader', objectSetId: 'object-set-app', accessLevel: 'read', effect: 'allow',
+      constraints: { businessPermissionGrantId: 'bpgr-app-user' },
+    }]))
+    assetMocks.listApplications.mockResolvedValue(page([{ id: 'app-1', name: '应用一' }]))
+
+    const wrapper = mount(RolesView, { global: { plugins: [i18n], stubs: { teleport: true } } })
+    await flushPromises()
+    await buttonByText(wrapper, '授权').trigger('click')
+    await flushPromises()
+
+    const levelSelect = wrapper.findAll('select').find((item) => item.find('option[value="manager"]').exists())
+    if (!levelSelect) throw new Error('未找到业务权限级别选择器')
+    expect((levelSelect.element as HTMLSelectElement).value).toBe('user')
+    await levelSelect.setValue('manager')
+    await buttonByText(wrapper, '授予权限').trigger('click')
+    await flushPromises()
+
+    expect(securityMocks.revokeBusinessPermissionGrant).toHaveBeenCalledWith('bpgr-app-user', 1)
+    expect(securityMocks.createBusinessPermissionGrant).toHaveBeenCalledWith(expect.objectContaining({
+      roleId: 'role-reader', level: 'manager', rootObjectId: 'app-1',
+    }))
+    expect(securityMocks.createAccessGrant).toHaveBeenCalledWith(expect.objectContaining({
+      roleId: 'role-reader', objectSetId: 'object-set-all', accessLevel: 'edit', effect: 'allow',
+    }))
+  })
+
+  it('已有管理者授权再次打开时不应退回使用者', async () => {
+    securityMocks.listRoles.mockResolvedValue(page([{ id: 'role-manager', code: 'manager', name: '管理员', builtin: false }]))
+    securityMocks.listBusinessPermissionGrants.mockResolvedValue(page([{
+      id: 'bpgr-app-manager', roleId: 'role-manager', status: 'active', domain: 'application', level: 'manager',
+      rootObjectType: 'service_asset', rootObjectId: 'app-1', effect: 'allow', version: 1,
+    }]))
+    assetMocks.listApplications.mockResolvedValue(page([{ id: 'app-1', name: '应用一' }]))
+
+    const wrapper = mount(RolesView, { global: { plugins: [i18n], stubs: { teleport: true } } })
+    await flushPromises()
+    await buttonByText(wrapper, '授权').trigger('click')
+    await flushPromises()
+
+    const levelSelect = wrapper.findAll('select').find((item) => item.find('option[value="manager"]').exists())
+    if (!levelSelect) throw new Error('未找到业务权限级别选择器')
+    expect((levelSelect.element as HTMLSelectElement).value).toBe('manager')
   })
 })
