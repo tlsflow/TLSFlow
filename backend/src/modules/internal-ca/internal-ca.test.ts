@@ -248,6 +248,44 @@ test('外部 Provider 可先创建，未绑定固定动作时申请被明确拒�
   }
 });
 
+test('专属证书申请拒绝跨应用或跨资产的策略版本绑定', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db, 'src/database/migrations');
+  const security = createSecurityServices();
+  const certificates = createCertificateServices(security, { db });
+  const service = new InternalCaApplicationService({ db, secrets: security.secrets, certificates: certificates.certificates });
+  const tenantId = 'tenant-policy-binding-guard';
+  try {
+    await db.exec(`
+      insert into pg_service_assets (id, tenant_id, address, address_type, port, protocol, discovery_source, status, asset_kind)
+      values ('app-policy-binding-guard', '${tenantId}', 'guard.example.test', 'DNS', 443, 'HTTPS', 'MANUAL', 'ACTIVE', 'APPLICATION');
+      insert into pg_application_certificate_policies (id, tenant_id, application_asset_id, created_at, updated_at)
+      values ('policy-binding-guard', '${tenantId}', 'app-policy-binding-guard', now(), now());
+      insert into pg_application_certificate_policy_versions (
+        id, policy_id, tenant_id, application_asset_id, version_no, is_active, primary_domain, supply_mode,
+        certificate_asset_id, auto_renew, rotate_key_on_renewal, status, policy_snapshot, created_at, updated_at
+      ) values (
+        'policy-version-binding-guard', 'policy-binding-guard', '${tenantId}', 'app-policy-binding-guard', 1, true,
+        'guard.example.test', 'dedicated', 'certificate-binding-guard', false, false, 'draft', '{}', now(), now()
+      );
+      insert into pg_certificate_assets (id, tenant_id, application_asset_id, name, primary_domain, sans, source_type, status, created_by, created_at, updated_at)
+      values ('certificate-binding-guard', '${tenantId}', 'other-application', 'wrong owner', 'guard.example.test', '[]', 'internal_ca', 'active', 'test', now(), now());
+    `);
+    await assert.rejects(
+      () => service.createCertificateRequest(tenantId, {
+        applicationAssetId: 'app-policy-binding-guard',
+        certificateAssetId: 'certificate-binding-guard',
+        applicationCertificatePolicyVersionId: 'policy-version-binding-guard',
+        caId: 'missing-ca', profileVersionId: 'missing-profile', commonName: 'guard.example.test', sans: ['guard.example.test'],
+        custodyMode: 'managed_secret', deferIssuance: true, actorId: 'operator',
+      }),
+      (error: any) => error?.errorCode === 'DEDICATED_CERTIFICATE_OWNERSHIP_CONFLICT',
+    );
+  } finally {
+    await db.close();
+  }
+});
+
 test('Microsoft AD CS Provider 支持更新并可删除登记而不破坏关联 CA 历史', async () => {
   const { db, service } = await createFixture();
   try {

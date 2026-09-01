@@ -18881,6 +18881,14 @@
                         "type": "string",
                         "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
                       },
+                      "serviceAssetId": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                      },
+                      "assetId": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                      },
                       "cloudAccountAssetId": {
                         "type": "string",
                         "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
@@ -18966,6 +18974,14 @@
                           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
                         },
                         "managedTargetId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                        },
+                        "serviceAssetId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                        },
+                        "assetId": {
                           "type": "string",
                           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
                         },
@@ -19094,6 +19110,14 @@
                           "type": "string",
                           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
                         },
+                        "serviceAssetId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                        },
+                        "assetId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                        },
                         "cloudAccountAssetId": {
                           "type": "string",
                           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
@@ -19206,6 +19230,14 @@
                         "type": "string",
                         "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
                       },
+                      "serviceAssetId": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                      },
+                      "assetId": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                      },
                       "cloudAccountAssetId": {
                         "type": "string",
                         "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
@@ -19299,6 +19331,14 @@
                           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
                         },
                         "managedTargetId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                        },
+                        "serviceAssetId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                        },
+                        "assetId": {
                           "type": "string",
                           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
                         },
@@ -24379,5 +24419,5 @@
       "description": "证书绑定生产事实中心"
     }
   ],
-  "x-generatedAt": "2026-08-27T15:05:58.262Z"
+  "x-generatedAt": "2026-08-27T21:12:24.951Z"
 }

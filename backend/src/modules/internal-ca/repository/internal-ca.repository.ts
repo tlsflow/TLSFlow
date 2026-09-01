@@ -19,8 +19,78 @@ import type {
   TrustDistributionEntity,
 } from '../schema/internal-ca.schema.js';
 
+/**
+ * ACME 专属申请在创建 Order 前使用的归属快照。
+ * 查询同时返回证书资产的实际归属，避免调用方只相信 DTO 中的 ID。
+ */
+export interface ApplicationCertificatePolicyBinding {
+  policyVersionId: string;
+  tenantId: string;
+  applicationAssetId: string;
+  supplyMode: 'manual' | 'dedicated';
+  providerType?: 'internal_ca' | 'acme';
+  providerId?: string;
+  certificateAssetId?: string;
+  dnsProviderId?: string;
+  credentialRef?: string;
+  assetTenantId?: string;
+  assetApplicationAssetId?: string;
+}
+
 export class InternalCaRepository {
   constructor(private readonly db: DatabasePort) {}
+
+  async getApplicationCertificatePolicyBinding(
+    tenantId: string,
+    policyVersionId: string,
+  ): Promise<ApplicationCertificatePolicyBinding | undefined> {
+    const result = await this.db.query<{
+      policy_version_id: string;
+      policy_tenant_id: string;
+      policy_application_asset_id: string;
+      supply_mode: 'manual' | 'dedicated';
+      provider_type: 'internal_ca' | 'acme' | null;
+      provider_id: string | null;
+      certificate_asset_id: string | null;
+      dns_provider_id: string | null;
+      credential_ref: string | null;
+      asset_tenant_id: string | null;
+      asset_application_asset_id: string | null;
+    }>(
+      `select v.id as policy_version_id,
+              v.tenant_id as policy_tenant_id,
+              v.application_asset_id as policy_application_asset_id,
+              v.supply_mode,
+              v.provider_type,
+              v.provider_id,
+              v.certificate_asset_id,
+              v.dns_provider_id,
+              v.credential_ref,
+              a.tenant_id as asset_tenant_id,
+              a.application_asset_id as asset_application_asset_id
+         from pg_application_certificate_policy_versions v
+         left join pg_certificate_assets a
+           on a.tenant_id = v.tenant_id
+          and a.id = v.certificate_asset_id
+        where v.tenant_id = $1 and v.id = $2`,
+      [tenantId, policyVersionId],
+    );
+    const row = result.rows[0];
+    if (!row) return undefined;
+    return {
+      policyVersionId: row.policy_version_id,
+      tenantId: row.policy_tenant_id,
+      applicationAssetId: row.policy_application_asset_id,
+      supplyMode: row.supply_mode,
+      ...(row.provider_type ? { providerType: row.provider_type } : {}),
+      ...(row.provider_id ? { providerId: row.provider_id } : {}),
+      ...(row.certificate_asset_id ? { certificateAssetId: row.certificate_asset_id } : {}),
+      ...(row.dns_provider_id ? { dnsProviderId: row.dns_provider_id } : {}),
+      ...(row.credential_ref ? { credentialRef: row.credential_ref } : {}),
+      ...(row.asset_tenant_id ? { assetTenantId: row.asset_tenant_id } : {}),
+      ...(row.asset_application_asset_id ? { assetApplicationAssetId: row.asset_application_asset_id } : {}),
+    };
+  }
 
   saveProvider(entity: CaProviderEntity): Promise<CaProviderEntity> {
     return this.upsert('pg_ca_providers', entity.id, entity, {
@@ -409,7 +479,7 @@ export class InternalCaRepository {
   saveRequest(entity: CertificateRequestEntity): Promise<CertificateRequestEntity> {
     return this.upsert('pg_certificate_requests', entity.id, entity, {
       tenant_id: entity.tenantId,
-      application_asset_id: entity.applicationAssetId,
+      application_asset_id: entity.applicationAssetId ?? null,
       certificate_asset_id: entity.certificateAssetId ?? null,
       application_certificate_policy_version_id: entity.applicationCertificatePolicyVersionId ?? null,
       ca_id: entity.caId,
@@ -434,7 +504,7 @@ export class InternalCaRepository {
 
   async getRequest(tenantId: string, id: string): Promise<CertificateRequestEntity | undefined> {
     const result = await this.db.query<RequestRow>(
-      `select payload, certificate_asset_id, application_certificate_policy_version_id
+      `select payload, certificate_asset_id, application_certificate_policy_version_id, application_asset_id
          from pg_certificate_requests
         where tenant_id = $1 and id = $2`,
       [tenantId, id],
@@ -444,7 +514,7 @@ export class InternalCaRepository {
 
   async getRequestByIdempotencyKey(tenantId: string, idempotencyKey: string): Promise<CertificateRequestEntity | undefined> {
     const result = await this.db.query<RequestRow>(
-      'select payload, certificate_asset_id, application_certificate_policy_version_id from pg_certificate_requests where tenant_id = $1 and idempotency_key = $2',
+      'select payload, certificate_asset_id, application_certificate_policy_version_id, application_asset_id from pg_certificate_requests where tenant_id = $1 and idempotency_key = $2',
       [tenantId, idempotencyKey],
     );
     return result.rows[0] ? requestFromRow(result.rows[0]) : undefined;
@@ -452,7 +522,7 @@ export class InternalCaRepository {
 
   async listRequests(tenantId: string): Promise<CertificateRequestEntity[]> {
     const result = await this.db.query<RequestRow>(
-      `select payload, certificate_asset_id, application_certificate_policy_version_id
+      `select payload, certificate_asset_id, application_certificate_policy_version_id, application_asset_id
          from pg_certificate_requests
         where tenant_id = $1
         order by created_at desc`,
@@ -612,6 +682,7 @@ interface RequestRow {
   payload?: unknown;
   certificate_asset_id?: string | null;
   application_certificate_policy_version_id?: string | null;
+  application_asset_id?: string | null;
 }
 
 function requestFromRow(row: RequestRow): CertificateRequestEntity {
@@ -620,6 +691,9 @@ function requestFromRow(row: RequestRow): CertificateRequestEntity {
     : {} as CertificateRequestEntity;
   return {
     ...payload,
+    // 递增迁移会把历史全局 ACME 的错误列值清空；列值优先于旧 payload，
+    // 防止再次把 CertificateAsset.id 当成 ApplicationAsset.id。
+    applicationAssetId: row.application_asset_id ?? undefined,
     ...(row.certificate_asset_id ? { certificateAssetId: row.certificate_asset_id } : {}),
     ...(row.application_certificate_policy_version_id
       ? { applicationCertificatePolicyVersionId: row.application_certificate_policy_version_id }

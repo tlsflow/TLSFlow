@@ -100,3 +100,31 @@ test('lego 将 DNS-01 标志放在 run 子命令之后，兼容 v5 命令行解�
   assert.equal(capturedArgs?.at(-2), '--dns.propagation.wait');
   assert.equal(capturedArgs?.at(-1), '60s');
 });
+
+test('专属策略可直接用 DNS SecretRef，且不读取旧 Credential 明文', async () => {
+  let credentialLookups = 0;
+  let resolvedSecretRef: string | undefined;
+  const issuer = new LegoDnsIssuer({
+    credentials: {
+      get: async () => { credentialLookups += 1; throw new Error('不应读取历史 Credential'); },
+    } as never,
+    secrets: {
+      resolveForService: async (input: { secretRef: string }) => { resolvedSecretRef = input.secretRef; return { plainText: 'ALICLOUD_ACCESS_KEY=test' }; },
+    } as never,
+    runner: {
+      run: async () => { throw new Error('DNS API 返回 403'); },
+    },
+  });
+  await assert.rejects(() => issuer.issue({
+    tenantId: 'tenant-acme',
+    jobId: 'acmerenew-secret-ref',
+    request: { csrPem: 'csr', subjectCommonName: 'app.example.com', sans: [] },
+    provider: { endpoint: 'https://acme.example.test/directory' },
+    dnsProviderId: 'alidns',
+    dnsCredentialRef: 'secret://password/dns-acme#current',
+    contactEmail: 'admin@example.com',
+    actorId: 'system:test',
+  }), (error: unknown) => error instanceof AppError && error.errorCode === 'ACME_RENEWAL_FAILED');
+  assert.equal(credentialLookups, 0);
+  assert.equal(resolvedSecretRef, 'secret://password/dns-acme#current');
+});

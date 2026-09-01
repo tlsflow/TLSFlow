@@ -40,11 +40,26 @@ export interface LegoDnsIssueInput {
   request: Pick<CertificateRequestEntity, 'csrPem' | 'subjectCommonName' | 'sans'>;
   provider: Pick<CaProviderEntity, 'endpoint'>;
   dnsProviderId: string;
-  dnsCredentialId: string;
+  dnsCredentialId?: string;
+  /** 应用专属策略直接保存的 DNS SecretRef；优先于历史 Credential ID。 */
+  dnsCredentialRef?: string;
   contactEmail: string;
   propagationSeconds?: number;
   actorId: string;
   signal?: AbortSignal;
+}
+
+/**
+ * 在创建 ACME Order 前校验 DNS Provider SecretRef 的内容形状。
+ * 这里只检查已解析 Secret 的键和值，不执行 DNS 写操作；真正的域名控制权
+ * 仍由 lego 的 DNS-01 流程和 ACME CA 回执确认。
+ */
+export function validateLegoCredentialPayload(providerId: string, plainText: string): void {
+  const definition = findAcmeDnsProvider(providerId);
+  if (!definition) {
+    throw new AppError('ACME_PROVIDER_CONFIG_INVALID', 'DNS Provider 未注册', { providerId });
+  }
+  parseLegoEnvironmentFile(plainText, definition.credentialKeys, definition.credentialTemplate);
 }
 
 /**
@@ -80,17 +95,21 @@ export class LegoDnsIssuer {
       throw new AppError('VALIDATION_FAILED', 'lego 申请缺少联系邮箱');
     }
 
-    const credential = await this.dependencies.credentials.get(input.tenantId, input.dnsCredentialId);
-    if (credential.kind !== 'DNS_PROVIDER' || credential.status !== 'active') {
-      throw new AppError('VALIDATION_FAILED', 'DNS 凭据不存在或未启用', { credentialId: input.dnsCredentialId });
+    let credentialRef = input.dnsCredentialRef;
+    if (!credentialRef) {
+      if (!input.dnsCredentialId) throw new AppError('VALIDATION_FAILED', 'DNS 凭据缺少 Credential ID 或 SecretRef');
+      const credential = await this.dependencies.credentials.get(input.tenantId, input.dnsCredentialId);
+      if (credential.kind !== 'DNS_PROVIDER' || credential.status !== 'active') {
+        throw new AppError('VALIDATION_FAILED', 'DNS 凭据不存在或未启用', { credentialId: input.dnsCredentialId });
+      }
+      if (credential.metadata.providerId !== input.dnsProviderId) {
+        throw new AppError('VALIDATION_FAILED', 'DNS 凭据与 Provider 不匹配', {
+          credentialId: input.dnsCredentialId,
+          providerId: input.dnsProviderId,
+        });
+      }
+      credentialRef = credential.secretSlots.config;
     }
-    if (credential.metadata.providerId !== input.dnsProviderId) {
-      throw new AppError('VALIDATION_FAILED', 'DNS 凭据与 Provider 不匹配', {
-        credentialId: input.dnsCredentialId,
-        providerId: input.dnsProviderId,
-      });
-    }
-    const credentialRef = credential.secretSlots.config;
     if (!credentialRef) throw new AppError('VALIDATION_FAILED', 'DNS 凭据缺少配置内容');
     const resolvedCredential = await this.dependencies.secrets.resolveForService({
       secretRef: credentialRef,

@@ -19,10 +19,18 @@ const passwordCredentialMigrationFile = '20260826100000_password_credential.sql'
 const repairAdcsAgentHostAssociationsMigrationFile = '20260826110000_repair_adcs_agent_host_associations.sql';
 const cloudFrameworkSiteOwnerMigrationFile = '20260826120000_cloud_resource_framework_site_owner.sql';
 const automationExternalApiMigrationFile = '20260827120000_automation_external_api.sql';
+const applicationCertificateSupplyMigrationFile = '20260827130000_application_certificate_supply.sql';
+const cloudFrameworkSiteServiceOwnerMigrationFile = '20260827140000_cloud_resource_framework_site_service_owner.sql';
+const managedTargetServiceAssetOwnerMigrationFile = '20260827150000_managed_target_service_asset_owner.sql';
+const certificateRequestApplicationBindingMigrationFile = '20260827160000_certificate_request_application_binding.sql';
+const acmeApplicationPolicyBindingMigrationFile = '20260828000000_acme_application_policy_binding.sql';
+const dedicatedAssetActiveUniquenessMigrationFile = '20260828010000_dedicated_asset_active_uniqueness.sql';
+const tenantScopedCertificateBindingsMigrationFile = '20260828020000_tenant_scoped_certificate_bindings.sql';
+const legacyAcmeRequestApplicationNullableMigrationFile = '20260828030000_legacy_acme_request_application_nullable.sql';
 
 test('活动迁移目录包含统一 baseline、凭据健康和 CA 生命周期递增迁移，空 PGlite 可直接建立当前结构', async () => {
   const files = (await readdir(activeMigrationDirectory)).filter((file) => file.endsWith('.sql')).sort();
-  assert.deepEqual(files, [baselineFile, healthMigrationFile, caLifecycleMigrationFile, caCrlMigrationFile, certificateRotationMigrationFile, credentialHealthSelectionMigrationFile, cloudManagedTargetOwnerMigrationFile, passwordCredentialMigrationFile, repairAdcsAgentHostAssociationsMigrationFile, cloudFrameworkSiteOwnerMigrationFile, automationExternalApiMigrationFile]);
+  assert.deepEqual(files, [baselineFile, healthMigrationFile, caLifecycleMigrationFile, caCrlMigrationFile, certificateRotationMigrationFile, credentialHealthSelectionMigrationFile, cloudManagedTargetOwnerMigrationFile, passwordCredentialMigrationFile, repairAdcsAgentHostAssociationsMigrationFile, cloudFrameworkSiteOwnerMigrationFile, automationExternalApiMigrationFile, applicationCertificateSupplyMigrationFile, cloudFrameworkSiteServiceOwnerMigrationFile, managedTargetServiceAssetOwnerMigrationFile, certificateRequestApplicationBindingMigrationFile, acmeApplicationPolicyBindingMigrationFile, dedicatedAssetActiveUniquenessMigrationFile, tenantScopedCertificateBindingsMigrationFile, legacyAcmeRequestApplicationNullableMigrationFile]);
 
   const db = new PgliteDatabase();
   try {
@@ -41,6 +49,14 @@ test('活动迁移目录包含统一 baseline、凭据健康和 CA 生命周期�
         { version: '20260826110000', status: 'APPLIED' },
         { version: '20260826120000', status: 'APPLIED' },
         { version: '20260827120000', status: 'APPLIED' },
+        { version: '20260827130000', status: 'APPLIED' },
+        { version: '20260827140000', status: 'APPLIED' },
+        { version: '20260827150000', status: 'APPLIED' },
+        { version: '20260827160000', status: 'APPLIED' },
+        { version: '20260828000000', status: 'APPLIED' },
+        { version: '20260828010000', status: 'APPLIED' },
+        { version: '20260828020000', status: 'APPLIED' },
+        { version: '20260828030000', status: 'APPLIED' },
       ],
     );
     const requiredTables = (await db.query<{ table_name: string }>(

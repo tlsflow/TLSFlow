@@ -63,3 +63,29 @@ test('地址已变更但历史派生 SNI 未变时，保存资产会修复历史
   assert.equal(updated.metadata.accessDomain, 'cns.example.com');
   assert.equal(updated.verifyUrl, 'https://cns.example.com:8443');
 });
+
+test('应用资产域名变化通知证书供应策略', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const service = new AssetsApplicationService(new PgAssetsRepository(database));
+  const notifications: Array<{ assetId: string; domain: string; actorId?: string }> = [];
+  service.setApplicationCertificateDomainChangePort({
+    onApplicationDomainChanged: async (_tenantId, assetId, domain, actorId) => {
+      notifications.push({ assetId, domain, actorId });
+    },
+  });
+
+  const application = await service.createServiceAsset('tenant-domain-notify', {
+    address: 'old.example.com',
+    port: 443,
+    protocol: 'HTTPS',
+  });
+  const updated = await service.updateServiceAsset(
+    'tenant-domain-notify',
+    application.id,
+    { address: 'new.example.com' },
+    'operator',
+  );
+  assert.equal(updated.address, 'new.example.com');
+  assert.deepEqual(notifications, [{ assetId: application.id, domain: 'new.example.com', actorId: 'operator' }]);
+});

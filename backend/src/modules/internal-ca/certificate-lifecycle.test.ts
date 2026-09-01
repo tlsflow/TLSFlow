@@ -170,7 +170,7 @@ test('本机 Agent 轮换在 CSR 尚未回传时保持可恢复状态', async ()
 });
 
 test('本机持钥控制面贯通 pending_key、CSR 回执、签发和证书安装任务', async () => {
-  const { db, internalCa, certificates, lifecycle } = await fixture();
+    const { db, internalCa, certificates, lifecycle } = await fixture();
   try {
     const tenantId = 'tenant-local-agent-e2e';
     const provider = await internalCa.createProvider(tenantId, {
@@ -185,6 +185,10 @@ test('本机持钥控制面贯通 pending_key、CSR 回执、签发和证书安�
     const profile = await internalCa.createProfile(tenantId, { name: '本机持钥闭环 Profile', securityDomain: 'production', actorId: 'admin' });
     const agent = createLifecycleAgentStub();
     lifecycle.setAgentKeyCustody(agent.adapter);
+    const policyUpdates: Array<Record<string, unknown>> = [];
+    lifecycle.setApplicationPolicyStatusUpdater(async (tenantId, applicationAssetId, status, certificateVersionId) => {
+      policyUpdates.push({ tenantId, applicationAssetId, status, certificateVersionId });
+    });
     internalCa.setLocalAgentIssuedHandler((input) => lifecycle.enqueueIssuedCertificateInstall(input).then(() => undefined));
 
     const request = await internalCa.createCertificateRequest(tenantId, {
@@ -239,6 +243,10 @@ test('本机持钥控制面贯通 pending_key、CSR 回执、签发和证书安�
       },
     });
     assert.equal(active.status, 'active');
+    await lifecycle.reconcileCertificateInstallResult({ tenantId, requestId: request.id, status: 'SUCCESS' });
+    assert.deepEqual(policyUpdates.at(-1), {
+      tenantId, applicationAssetId: 'local-agent-app', status: 'deployed', certificateVersionId: completed.certificateVersionId,
+    });
   } finally {
     await db.close();
   }
@@ -271,6 +279,10 @@ test('轮换计划固定使用新证书版本，执行未知或失败会回写�
         } as never;
       },
     });
+    const policyUpdates: Array<Record<string, unknown>> = [];
+    lifecycle.setApplicationPolicyStatusUpdater(async (tenantId, applicationAssetId, status, certificateVersionId) => {
+      policyUpdates.push({ tenantId, applicationAssetId, status, certificateVersionId });
+    });
     const rotation = await lifecycle.createRotation({
       tenantId, applicationAssetId: 'rotation-plan-app', sourceCertificateVersionId: issued.certificateVersionId!,
       custodyMode: 'managed_secret', idempotencyKey: 'rotation-plan-reconcile-once', actorId: 'admin',
@@ -280,15 +292,29 @@ test('轮换计划固定使用新证书版本，执行未知或失败会回写�
     assert.equal(capturedPlanInput?.reuseDraft, false);
     assert.equal(rotation.evidence.deploymentPlanId, 'plan-rotation-reconcile');
 
+    const deployed = await lifecycle.reconcileDeploymentPlanResult({
+      tenantId, deploymentPlanId: 'plan-rotation-reconcile', status: 'SUCCESS', executionStatus: 'SUCCESS', actorId: 'admin',
+    });
+    assert.equal(deployed?.status, 'deploying');
+    assert.deepEqual(policyUpdates.at(-1), {
+      tenantId, applicationAssetId: 'rotation-plan-app', status: 'deployed', certificateVersionId: rotation.targetCertificateVersionId,
+    });
+
     const unknown = await lifecycle.reconcileDeploymentPlanResult({
       tenantId, deploymentPlanId: 'plan-rotation-reconcile', status: 'UNKNOWN', executionStatus: 'UNKNOWN', actorId: 'admin',
     });
     assert.equal(unknown?.status, 'unknown');
+    assert.deepEqual(policyUpdates.at(-1), {
+      tenantId, applicationAssetId: 'rotation-plan-app', status: 'needs_attention', certificateVersionId: rotation.targetCertificateVersionId,
+    });
     const failed = await lifecycle.reconcileDeploymentPlanResult({
       tenantId, deploymentPlanId: 'plan-rotation-reconcile', status: 'FAILED', executionStatus: 'FAILED', actorId: 'admin',
     });
     assert.equal(failed?.status, 'failed');
     assert.equal(failed?.evidence.rollbackRequired, true);
+    assert.deepEqual(policyUpdates.at(-1), {
+      tenantId, applicationAssetId: 'rotation-plan-app', status: 'needs_attention', certificateVersionId: rotation.targetCertificateVersionId,
+    });
   } finally {
     await db.close();
   }

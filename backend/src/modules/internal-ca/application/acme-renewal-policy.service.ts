@@ -11,6 +11,8 @@ import type {
 export interface CreateAcmeRenewalPolicyInput {
   tenantId: string;
   certificateAssetId?: string;
+  applicationAssetId?: string;
+  applicationCertificatePolicyVersionId?: string;
   bindingId?: string;
   providerId: string;
   accountId: string;
@@ -21,6 +23,7 @@ export interface CreateAcmeRenewalPolicyInput {
   maxAttempts?: number;
   backoffSeconds?: number;
   maintenanceWindow?: Record<string, unknown>;
+  dnsCredentialRef?: string;
   actorId: string;
 }
 
@@ -33,6 +36,12 @@ export class AcmeRenewalPolicyService {
   ) {}
 
   async create(input: CreateAcmeRenewalPolicyInput): Promise<AcmeRenewalPolicyEntity> {
+    if (input.applicationCertificatePolicyVersionId && !input.applicationAssetId) {
+      throw new AppError('APPLICATION_CERTIFICATE_POLICY_INVALID', 'ACME 应用策略版本必须绑定 applicationAssetId');
+    }
+    if (input.dnsCredentialRef && !input.dnsCredentialRef.startsWith('secret://')) {
+      throw new AppError('SECRET_REF_INVALID', 'DNS 凭据必须使用 SecretRef');
+    }
     const provider = await this.caRepository.getProvider(input.tenantId, input.providerId);
     if (!provider || provider.type !== 'acme') throw new AppError('RESOURCE_NOT_FOUND', 'ACME Provider 不存在');
     const account = await this.repository.getAccount(input.tenantId, input.accountId);
@@ -43,6 +52,8 @@ export class AcmeRenewalPolicyService {
       id: newId('acmepolicy'),
       tenantId: input.tenantId,
       certificateAssetId: input.certificateAssetId,
+      applicationAssetId: input.applicationAssetId,
+      applicationCertificatePolicyVersionId: input.applicationCertificatePolicyVersionId,
       bindingId: input.bindingId,
       providerId: input.providerId,
       accountId: input.accountId,
@@ -55,6 +66,7 @@ export class AcmeRenewalPolicyService {
       maxAttempts: input.maxAttempts ?? 5,
       backoffSeconds: input.backoffSeconds ?? 300,
       maintenanceWindow: input.maintenanceWindow,
+      dnsCredentialRef: input.dnsCredentialRef,
       status: input.enabled === false ? 'disabled' : 'active',
       version: 1,
       createdBy: input.actorId,
@@ -82,6 +94,12 @@ export class AcmeRenewalPolicyService {
       status: policyPatch.enabled === false ? 'disabled' : policyPatch.enabled === true ? 'active' : current.status,
       updatedAt: new Date().toISOString(),
     };
+    if (next.applicationCertificatePolicyVersionId && !next.applicationAssetId) {
+      throw new AppError('APPLICATION_CERTIFICATE_POLICY_INVALID', 'ACME 应用策略版本必须绑定 applicationAssetId');
+    }
+    if (next.dnsCredentialRef && !next.dnsCredentialRef.startsWith('secret://')) {
+      throw new AppError('SECRET_REF_INVALID', 'DNS 凭据必须使用 SecretRef');
+    }
     const provider = await this.caRepository.getProvider(tenantId, next.providerId);
     if (!provider || provider.type !== 'acme') throw new AppError('RESOURCE_NOT_FOUND', 'ACME Provider 不存在');
     const account = await this.repository.getAccount(tenantId, next.accountId);

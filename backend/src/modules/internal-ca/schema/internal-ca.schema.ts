@@ -358,7 +358,8 @@ export interface EffectiveCertificatePolicySnapshot {
 export interface CertificateRequestEntity {
   id: string;
   tenantId: string;
-  applicationAssetId: string;
+  /** 全局历史 ACME 申请没有应用归属；专属申请和所有应用级申请必须填写。 */
+  applicationAssetId?: string;
   /** 证书资产 ID，与应用资产 ID 严格分离；专属申请必须显式绑定。 */
   certificateAssetId?: string;
   /** 应用证书供应策略版本 ID，用于把申请固定到不可变策略快照。 */

@@ -81,12 +81,16 @@ export class AcmeRenewalScheduler {
           renewalWindowKey,
           status: 'scheduled',
           policyId: policy.id,
+          applicationAssetId: policy.applicationAssetId,
+          applicationCertificatePolicyVersionId: policy.applicationCertificatePolicyVersionId,
           promotionStatus: 'not_required',
           attemptCount: 0,
           taskGeneration: 0,
           policySnapshot: {
             providerId: policy.providerId,
             accountId: policy.accountId,
+            ...(policy.applicationAssetId ? { applicationAssetId: policy.applicationAssetId } : {}),
+            ...(policy.applicationCertificatePolicyVersionId ? { applicationCertificatePolicyVersionId: policy.applicationCertificatePolicyVersionId } : {}),
             challengeType: policy.challengeType,
             rotateKeyOnRenewal: policy.rotateKeyOnRenewal,
             maxAttempts: policy.maxAttempts,
@@ -179,12 +183,16 @@ export class AcmeRenewalScheduler {
       renewalWindowKey,
       status: 'scheduled',
       policyId: policy.id,
+      applicationAssetId: policy.applicationAssetId,
+      applicationCertificatePolicyVersionId: policy.applicationCertificatePolicyVersionId,
       promotionStatus: 'not_required',
       attemptCount: 0,
       taskGeneration: 0,
       policySnapshot: {
         providerId: policy.providerId,
         accountId: policy.accountId,
+        ...(policy.applicationAssetId ? { applicationAssetId: policy.applicationAssetId } : {}),
+        ...(policy.applicationCertificatePolicyVersionId ? { applicationCertificatePolicyVersionId: policy.applicationCertificatePolicyVersionId } : {}),
         challengeType: policy.challengeType,
         rotateKeyOnRenewal: policy.rotateKeyOnRenewal,
         maxAttempts: policy.maxAttempts,
@@ -202,6 +210,19 @@ export class AcmeRenewalScheduler {
       if (raced) return raced;
       throw new AppError('ACME_RENEWAL_FAILED', '手动续签任务创建失败', { certificateAssetId });
     }
+  }
+
+  /**
+   * 专属 ACME provisioning 完成后立即创建首次 RenewalJob。
+   * 任务仍由同一个调度器和 Worker 执行，后台扫描只是兜底补偿。
+   */
+  async scheduleInitialIssuance(tenantId: string, certificateAssetId: string, now = new Date()): Promise<AcmeRenewalJobEntity | undefined> {
+    const policy = (await this.repository.listPolicies(tenantId))
+      .find((item) => item.certificateAssetId === certificateAssetId && item.enabled && item.status === 'active');
+    if (!policy) throw new AppError('RESOURCE_NOT_FOUND', '证书没有关联的活动 ACME 续签策略', { certificateAssetId });
+    const job = await this.scheduleMissingInitialIssuance(policy, now);
+    if (job) await this.ensureRenewalTask(job);
+    return job;
   }
 
   private async scheduleMissingInitialIssuance(
@@ -226,7 +247,12 @@ export class AcmeRenewalScheduler {
 
   private async findExecutableInitialRequest(tenantId: string, certificateAssetId: string): Promise<CertificateRequestEntity | undefined> {
     const request = await this.issuance?.getRequestByIdempotencyKey(tenantId, `acme-initial-request:${certificateAssetId}`);
-    return request && request.applicationAssetId === certificateAssetId
+    // 新记录必须使用结构化 certificateAssetId 归属；只有历史记录没有该列时，
+    // 才允许使用旧的 applicationAssetId=证书资产 ID 兼容回退。
+    const belongsToAsset = request
+      ? (request.certificateAssetId ? request.certificateAssetId === certificateAssetId : request.applicationAssetId === certificateAssetId)
+      : false;
+    return request && belongsToAsset
       && ['approved', 'issuing', 'issue_failed', 'issued', 'deploying', 'active'].includes(request.status)
       ? request
       : undefined;
@@ -236,7 +262,10 @@ export class AcmeRenewalScheduler {
     const issuanceContext = await this.issuance!.ensureAcmeIssuanceContext(policy.tenantId, policy.providerId, policy.createdBy);
     try {
       return await this.issuance!.createCertificateRequest(policy.tenantId, {
-        applicationAssetId: asset.id,
+        applicationAssetId: policy.applicationAssetId ?? asset.id,
+        ...(policy.applicationCertificatePolicyVersionId && policy.certificateAssetId
+          ? { certificateAssetId: policy.certificateAssetId, applicationCertificatePolicyVersionId: policy.applicationCertificatePolicyVersionId }
+          : {}),
         caId: issuanceContext.caId,
         trustDomainId: issuanceContext.trustDomainId,
         profileVersionId: issuanceContext.profileVersionId,
@@ -272,12 +301,16 @@ export class AcmeRenewalScheduler {
       status: 'scheduled',
       certificateRequestId,
       policyId: policy.id,
+      applicationAssetId: policy.applicationAssetId,
+      applicationCertificatePolicyVersionId: policy.applicationCertificatePolicyVersionId,
       promotionStatus: 'not_required',
       attemptCount: 0,
       taskGeneration: 0,
       policySnapshot: {
         providerId: policy.providerId,
         accountId: policy.accountId,
+        ...(policy.applicationAssetId ? { applicationAssetId: policy.applicationAssetId } : {}),
+        ...(policy.applicationCertificatePolicyVersionId ? { applicationCertificatePolicyVersionId: policy.applicationCertificatePolicyVersionId } : {}),
         challengeType: policy.challengeType,
         rotateKeyOnRenewal: policy.rotateKeyOnRenewal,
         maxAttempts: policy.maxAttempts,

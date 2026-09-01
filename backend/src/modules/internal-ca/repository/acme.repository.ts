@@ -234,12 +234,15 @@ export class AcmeRepository {
   async savePolicy(entity: AcmeRenewalPolicyEntity): Promise<AcmeRenewalPolicyEntity> {
     await this.db.query(
       `insert into pg_acme_renewal_policies (
-         id, tenant_id, certificate_asset_id, binding_id, provider_id, account_id, enabled,
+         id, tenant_id, certificate_asset_id, application_asset_id, application_certificate_policy_version_id, dns_credential_ref, binding_id, provider_id, account_id, enabled,
          renewal_window_days, challenge_type, rotate_key_on_renewal, deployment_mode, max_attempts,
          backoff_seconds, maintenance_window, status, version, created_by, payload, created_at, updated_at
-       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15,$16,$17,$18::jsonb,$19,$20)
+       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19,$20,$21::jsonb,$22,$23)
        on conflict (id) do update set
          certificate_asset_id = excluded.certificate_asset_id, binding_id = excluded.binding_id,
+         application_asset_id = excluded.application_asset_id,
+         application_certificate_policy_version_id = excluded.application_certificate_policy_version_id,
+         dns_credential_ref = excluded.dns_credential_ref,
          provider_id = excluded.provider_id, account_id = excluded.account_id, enabled = excluded.enabled,
          renewal_window_days = excluded.renewal_window_days, challenge_type = excluded.challenge_type,
          rotate_key_on_renewal = excluded.rotate_key_on_renewal, deployment_mode = excluded.deployment_mode,
@@ -247,7 +250,8 @@ export class AcmeRepository {
          maintenance_window = excluded.maintenance_window, status = excluded.status, version = excluded.version,
          payload = excluded.payload, updated_at = excluded.updated_at`,
       [
-        entity.id, entity.tenantId, entity.certificateAssetId ?? null, entity.bindingId ?? null,
+        entity.id, entity.tenantId, entity.certificateAssetId ?? null, entity.applicationAssetId ?? null,
+        entity.applicationCertificatePolicyVersionId ?? null, entity.dnsCredentialRef ?? null, entity.bindingId ?? null,
         entity.providerId, entity.accountId, entity.enabled, entity.renewalWindowDays, entity.challengeType,
         entity.rotateKeyOnRenewal, entity.deploymentMode, entity.maxAttempts, entity.backoffSeconds,
         entity.maintenanceWindow ? JSON.stringify(entity.maintenanceWindow) : null, entity.status, entity.version,
@@ -296,13 +300,16 @@ export class AcmeRepository {
     const result = await this.db.query<Record<string, unknown>>(
       `insert into pg_certificate_renewal_jobs (
          id, tenant_id, certificate_version_id, renewal_window_key, status, certificate_request_id,
+         application_asset_id, application_certificate_policy_version_id,
          policy_id, source_certificate_version_id, acme_order_id, deployment_plan_id, execution_run_id,
          promotion_status, attempt_count, next_attempt_at, lease_owner, lease_expires_at, failure_code,
          failure_message, policy_snapshot, payload, scheduled_at, created_at, updated_at
-       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb,$20::jsonb,$21,$22,$23)
+       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21::jsonb,$22::jsonb,$23,$24,$25)
        on conflict (id) do update set
          certificate_version_id = excluded.certificate_version_id,
          status = excluded.status, certificate_request_id = excluded.certificate_request_id,
+         application_asset_id = excluded.application_asset_id,
+         application_certificate_policy_version_id = excluded.application_certificate_policy_version_id,
          policy_id = excluded.policy_id, source_certificate_version_id = excluded.source_certificate_version_id,
          acme_order_id = excluded.acme_order_id, deployment_plan_id = excluded.deployment_plan_id,
          execution_run_id = excluded.execution_run_id, promotion_status = excluded.promotion_status,
@@ -315,7 +322,8 @@ export class AcmeRepository {
        returning *`,
       [
         entity.id, entity.tenantId, entity.certificateVersionId ?? null, entity.renewalWindowKey, entity.status,
-        entity.certificateRequestId ?? null, entity.policyId ?? null, entity.sourceCertificateVersionId ?? null,
+        entity.certificateRequestId ?? null, entity.applicationAssetId ?? null, entity.applicationCertificatePolicyVersionId ?? null,
+        entity.policyId ?? null, entity.sourceCertificateVersionId ?? null,
         entity.acmeOrderId ?? null, entity.deploymentPlanId ?? null, entity.executionRunId ?? null,
         entity.promotionStatus, entity.attemptCount, entity.nextAttemptAt ?? null, entity.leaseOwner ?? null,
         entity.leaseExpiresAt ?? null, entity.failureCode ?? null, entity.failureMessage ?? null,
@@ -563,6 +571,9 @@ function policyFromRow(row: Record<string, unknown>): AcmeRenewalPolicyEntity {
     id: String(row.id),
     tenantId: String(row.tenant_id),
     certificateAssetId: optionalString(row.certificate_asset_id),
+    applicationAssetId: optionalString(row.application_asset_id),
+    applicationCertificatePolicyVersionId: optionalString(row.application_certificate_policy_version_id),
+    dnsCredentialRef: optionalString(row.dns_credential_ref),
     bindingId: optionalString(row.binding_id),
     providerId: String(row.provider_id),
     accountId: String(row.account_id),
@@ -593,6 +604,8 @@ function renewalJobFromRow(row: Record<string, unknown>): AcmeRenewalJobEntity {
     renewalWindowKey: String(row.renewal_window_key),
     status: row.status as AcmeRenewalJobEntity['status'],
     certificateRequestId: optionalString(row.certificate_request_id),
+    applicationAssetId: optionalString(row.application_asset_id),
+    applicationCertificatePolicyVersionId: optionalString(row.application_certificate_policy_version_id),
     policyId: optionalString(row.policy_id),
     acmeOrderId: optionalString(row.acme_order_id),
     deploymentPlanId: optionalString(row.deployment_plan_id),

@@ -12,6 +12,8 @@ import type {
 import type { CertificateRequestEntity, CaProviderEntity } from '../schema/internal-ca.schema.js';
 import { AcmeProviderAdapter, type AcmeCertificateMaterial, type AcmeOrderSnapshot } from '../providers/acme-provider.js';
 import { hashAcmeMaterial } from './acme-account.service.js';
+import type { SecretService } from '../../secrets/secret.service.js';
+import { validateLegoCredentialPayload } from '../providers/lego-dns-issuer.js';
 
 export interface CreateAcmeOrderServiceInput {
   tenantId: string;
@@ -56,6 +58,7 @@ export class AcmeOrderService {
     private readonly repository: AcmeRepository,
     private readonly caRepository: InternalCaRepository,
     private readonly adapter: AcmeProviderAdapter,
+    private readonly secrets?: Pick<SecretService, 'resolveForService'>,
   ) {}
 
   async create(input: CreateAcmeOrderServiceInput): Promise<AcmeOrderView> {
@@ -70,6 +73,8 @@ export class AcmeOrderService {
     if (!['approved', 'issuing', 'issue_failed'].includes(request.status)) {
       throw new AppError('ACME_ORDER_CONFLICT', '证书申请当前不允许创建 ACME Order', { status: request.status });
     }
+
+    await this.assertDedicatedAcmeBinding(input, request);
 
     const existing = await this.repository.getOrderByRequest(input.tenantId, request.id, true);
     if (existing) return this.toView(existing);
@@ -119,6 +124,59 @@ export class AcmeOrderService {
       updatedAt: now,
     });
     return this.toView(saved);
+  }
+
+  /**
+   * 专属 ACME 必须先通过应用策略和 DNS 凭据门禁，再允许触碰外部 Order。
+   * 历史全局 ACME 申请没有策略版本，继续沿用原有流程。
+   */
+  private async assertDedicatedAcmeBinding(
+    input: CreateAcmeOrderServiceInput,
+    request: CertificateRequestEntity,
+  ): Promise<void> {
+    if (!request.applicationCertificatePolicyVersionId) return;
+    const binding = await this.caRepository.getApplicationCertificatePolicyBinding(
+      input.tenantId,
+      request.applicationCertificatePolicyVersionId,
+    );
+    const valid = Boolean(
+      binding
+      && binding.tenantId === input.tenantId
+      && binding.applicationAssetId === request.applicationAssetId
+      && binding.supplyMode === 'dedicated'
+      && binding.providerType === 'acme'
+      && binding.providerId === input.providerId
+      && binding.certificateAssetId
+      && binding.certificateAssetId === request.certificateAssetId
+      && binding.assetTenantId === input.tenantId
+      && binding.assetApplicationAssetId === request.applicationAssetId,
+    );
+    if (!valid) {
+      throw new AppError('DEDICATED_CERTIFICATE_OWNERSHIP_CONFLICT', 'ACME Order 的应用、策略版本和证书资产归属不一致', {
+        applicationAssetId: request.applicationAssetId,
+        certificateAssetId: request.certificateAssetId,
+        applicationCertificatePolicyVersionId: request.applicationCertificatePolicyVersionId,
+      });
+    }
+
+    if (!binding?.dnsProviderId || !binding.credentialRef || !this.secrets) {
+      throw new AppError('ACME_DNS_AUTHORIZATION_REQUIRED', '专属 ACME 申请必须配置 DNS Provider 和凭据 SecretRef');
+    }
+    try {
+      const resolved = await this.secrets.resolveForService({
+        secretRef: binding.credentialRef,
+        tenantId: input.tenantId,
+        expectedType: 'password',
+        purpose: 'acme.lego.dns_credentials',
+        actorId: input.actorId,
+      });
+      validateLegoCredentialPayload(binding.dnsProviderId, resolved.plainText);
+    } catch (error) {
+      if (error instanceof AppError && error.errorCode === 'ACME_DNS_AUTHORIZATION_REQUIRED') throw error;
+      throw new AppError('ACME_DNS_AUTHORIZATION_REQUIRED', '专属 ACME 的 DNS 凭据不可用或内容不完整', {
+        dnsProviderId: binding.dnsProviderId,
+      });
+    }
   }
 
   async reconcile(tenantId: string, orderId: string, actorId: string): Promise<AcmeOrderView> {

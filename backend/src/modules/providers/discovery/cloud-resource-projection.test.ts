@@ -39,6 +39,33 @@ function context(tenantId = 'tenant-projection', assetId = 'caa_projection') {
   } as const;
 }
 
+function serviceAssetContext(tenantId = 'tenant-service-asset', assetId = 'service-asset-projection') {
+  return {
+    tenantId,
+    serviceAssetId: assetId,
+    pluginId: 'cloud.aliyun',
+    pluginVersionId: 'cloud.aliyun:2.0.1',
+    provider: 'cloud.aliyun',
+    discoveryProviderKey: 'cloud.aliyun:2.0.1:discover',
+    discoveredAt: '2026-08-16T00:00:00.000Z',
+  } as const;
+}
+
+test('标准 ServiceAsset 所有者不会把 assetId 写入 Framework 元数据', () => {
+  const projection = new CloudResourceProjectionService().project(serviceAssetContext(), resourceWithCertificateEndpoint);
+  assert.equal(projection.framework.serviceAssetId, 'service-asset-projection');
+  assert.equal(projection.framework.assetId, undefined);
+  assert.equal(projection.framework.rawFacts.assetId, undefined);
+  assert.equal(projection.framework.rawFacts.serviceAssetId, 'service-asset-projection');
+});
+
+test('投影上下文禁止同时传入 ServiceAsset 和历史 CloudAccountAsset 所有者', () => {
+  assert.throws(() => new CloudResourceProjectionService().project({
+    ...serviceAssetContext(),
+    cloudAccountAssetId: 'legacy-cloud-account',
+  }, resource), /必须二选一/);
+});
+
 test('普通 Cloud Resource 只生成 Framework/Site，不默认伪造 ManagedTarget', () => {
   const service = new CloudResourceProjectionService();
   const first = service.project(context(), resource);

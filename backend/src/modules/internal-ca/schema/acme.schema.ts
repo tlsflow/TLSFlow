@@ -129,6 +129,10 @@ export interface AcmeRenewalPolicyEntity {
   id: string;
   tenantId: string;
   certificateAssetId?: string;
+  /** 专属证书策略固定的应用资产 ID；历史全局 ACME 策略可为空。 */
+  applicationAssetId?: string;
+  /** 专属证书策略版本 ID，禁止续期时按域名猜测归属。 */
+  applicationCertificatePolicyVersionId?: string;
   bindingId?: string;
   providerId: string;
   accountId: string;
@@ -140,6 +144,8 @@ export interface AcmeRenewalPolicyEntity {
   maxAttempts: number;
   backoffSeconds: number;
   maintenanceWindow?: Record<string, unknown>;
+  /** DNS 凭据 SecretRef；只保存引用，不保存明文。 */
+  dnsCredentialRef?: string;
   status: AcmeRenewalPolicyStatus;
   version: number;
   createdBy: string;
@@ -155,6 +161,8 @@ export interface AcmeRenewalJobEntity extends Omit<CertificateRenewalJobEntity, 
   /** Worker 首次领取任务的时间；历史任务缺少该字段时回退到 scheduledAt。 */
   startedAt?: string;
   policyId?: string;
+  applicationAssetId?: string;
+  applicationCertificatePolicyVersionId?: string;
   sourceCertificateVersionId?: string;
   acmeOrderId?: string;
   deploymentPlanId?: string;

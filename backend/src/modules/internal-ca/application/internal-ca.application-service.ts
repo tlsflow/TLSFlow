@@ -179,7 +179,8 @@ export interface CreateProfileInput {
 }
 
 export interface CreateCertificateRequestInput {
-  applicationAssetId: string;
+  /** 全局历史 ACME 申请可为空；专属申请必须绑定真实应用资产。 */
+  applicationAssetId?: string;
   certificateAssetId?: string;
   applicationCertificatePolicyVersionId?: string;
   caId: string;
@@ -1612,6 +1613,9 @@ export class InternalCaApplicationService {
     if (input.certificateAssetId && input.certificateAssetId === input.applicationAssetId) {
       throw new AppError('APPLICATION_CERTIFICATE_POLICY_INVALID', 'applicationAssetId 与 certificateAssetId 语义不能相同');
     }
+    if (input.applicationCertificatePolicyVersionId) {
+      await this.assertApplicationCertificatePolicyBinding(tenantId, input);
+    }
     const authority = await this.requireAuthority(tenantId, input.caId);
     if (authority.status !== 'active') throw new AppError('CA_PROVIDER_UNAVAILABLE', '证书机构当前不可签发', { caId: authority.id, status: authority.status });
     const profileVersion = await this.repository.getProfileVersion(input.profileVersionId);
@@ -1620,6 +1624,9 @@ export class InternalCaApplicationService {
     if (!profile) throw new AppError('RESOURCE_NOT_FOUND', '证书 Profile 不存在', { profileId: profileVersion.profileId });
     validateProfile(input, profileVersion.rules);
     const provider = await this.requireProvider(tenantId, authority.providerId);
+    if (!input.applicationAssetId && provider.type !== 'acme') {
+      throw new AppError('APPLICATION_CERTIFICATE_POLICY_INVALID', '非 ACME 证书申请必须绑定 applicationAssetId');
+    }
     const providerActionBinding = provider.type === 'plugin'
       ? await this.requireProviderActionBinding(tenantId, provider.id)
       : undefined;
@@ -1663,7 +1670,7 @@ export class InternalCaApplicationService {
     const request: CertificateRequestEntity = {
       id: requestId,
       tenantId,
-      applicationAssetId: requiredText(input.applicationAssetId, 'applicationAssetId'),
+      ...(input.applicationAssetId ? { applicationAssetId: requiredText(input.applicationAssetId, 'applicationAssetId') } : {}),
       ...(input.certificateAssetId ? { certificateAssetId: input.certificateAssetId } : {}),
       ...(input.applicationCertificatePolicyVersionId ? { applicationCertificatePolicyVersionId: input.applicationCertificatePolicyVersionId } : {}),
       caId: authority.id,
@@ -1698,6 +1705,53 @@ export class InternalCaApplicationService {
     return this.issueRequest(tenantId, request.id, input.actorId, context);
   }
 
+  /**
+   * 专属申请的归属门禁。不能只相信 DTO 中的三个 ID，否则任意调用方都能把
+   * 其他应用的证书资产挂到当前申请；这里直接读取持久化关系并在写入前拒绝。
+   * 历史策略版本允许继续完成原快照，但必须仍属于同一租户和应用。
+   */
+  private async assertApplicationCertificatePolicyBinding(
+    tenantId: string,
+    input: Pick<CreateCertificateRequestInput, 'applicationAssetId' | 'certificateAssetId' | 'applicationCertificatePolicyVersionId'>,
+  ): Promise<void> {
+    const row = (await this.dependencies.db.query<{
+      policy_tenant_id: string;
+      policy_application_asset_id: string;
+      policy_supply_mode: string;
+      policy_certificate_asset_id: string | null;
+      asset_tenant_id: string | null;
+      asset_application_asset_id: string | null;
+    }>(
+      `select v.tenant_id as policy_tenant_id,
+              v.application_asset_id as policy_application_asset_id,
+              v.supply_mode as policy_supply_mode,
+              v.certificate_asset_id as policy_certificate_asset_id,
+              a.tenant_id as asset_tenant_id,
+              a.application_asset_id as asset_application_asset_id
+         from pg_application_certificate_policy_versions v
+         left join pg_certificate_assets a on a.id = v.certificate_asset_id
+        where v.id = $1`,
+      [input.applicationCertificatePolicyVersionId],
+    )).rows[0];
+    const valid = Boolean(
+      row
+      && row.policy_tenant_id === tenantId
+      && row.policy_application_asset_id === input.applicationAssetId
+      && row.policy_supply_mode === 'dedicated'
+      && row.policy_certificate_asset_id
+      && row.policy_certificate_asset_id === input.certificateAssetId
+      && row.asset_tenant_id === tenantId
+      && row.asset_application_asset_id === input.applicationAssetId,
+    );
+    if (!valid) {
+      throw new AppError('DEDICATED_CERTIFICATE_OWNERSHIP_CONFLICT', '证书申请的应用、策略版本和专属证书资产归属不一致', {
+        applicationAssetId: input.applicationAssetId,
+        certificateAssetId: input.certificateAssetId,
+        applicationCertificatePolicyVersionId: input.applicationCertificatePolicyVersionId,
+      });
+    }
+  }
+
   /** 创建等待 Agent 生成本机密钥/CSR 的证书申请。 */
   private async createPendingLocalAgentRequest(
     tenantId: string,
@@ -1708,12 +1762,14 @@ export class InternalCaApplicationService {
     idempotencyKey: string,
     context?: RequestContext,
   ): Promise<CertificateRequestEntity> {
+    if (!input.applicationAssetId) throw new AppError('APPLICATION_CERTIFICATE_POLICY_INVALID', '本机 Agent 证书申请必须绑定 applicationAssetId');
+    const applicationAssetId = requiredText(input.applicationAssetId, 'applicationAssetId');
     const now = new Date().toISOString();
     const keyReference = await this.repository.saveKeyReference({
       id: newId('keyref'),
       tenantId,
       ownerType: 'application_certificate',
-      ownerId: requiredText(input.applicationAssetId, 'applicationAssetId'),
+      ownerId: applicationAssetId,
       custodyMode: 'local_agent',
       backendType: input.keyBackend ?? 'file',
       publicKeyFingerprintSha256: '0'.repeat(64),
@@ -1727,7 +1783,7 @@ export class InternalCaApplicationService {
     const request: CertificateRequestEntity = {
       id: newId('certreq'),
       tenantId,
-      applicationAssetId: requiredText(input.applicationAssetId, 'applicationAssetId'),
+      applicationAssetId,
       ...(input.certificateAssetId ? { certificateAssetId: input.certificateAssetId } : {}),
       ...(input.applicationCertificatePolicyVersionId ? { applicationCertificatePolicyVersionId: input.applicationCertificatePolicyVersionId } : {}),
       caId: authority.id,
@@ -2046,6 +2102,8 @@ export class InternalCaApplicationService {
     actorId: string;
     context?: RequestContext;
   }): Promise<CertificateRequestEntity> {
+    // 全局历史 ACME 申请没有应用资产，不能误建应用级部署计划或策略状态。
+    if (!input.request.applicationAssetId) return input.request;
     const handler = input.keyCustodyMode === 'local_agent'
       ? this.localAgentIssuedHandler
       : input.keyCustodyMode === 'managed_secret'
@@ -2191,12 +2249,20 @@ export class InternalCaApplicationService {
     return this.repository.listRevocations(tenantId);
   }
 
-  async approveRevocation(tenantId: string, revocationId: string, _approvalId: string, _actorId: string): Promise<CertificateRevocationEntity> {
+  async approveRevocation(tenantId: string, revocationId: string, approvalId: string, actorId: string): Promise<CertificateRevocationEntity> {
     const revocation = (await this.repository.listRevocations(tenantId)).find((item) => item.id === revocationId);
     if (!revocation) throw new AppError('RESOURCE_NOT_FOUND', '证书吊销任务不存在', { revocationId });
+    if (revocation.status !== 'pending_approval') throw new AppError('RESOURCE_VERSION_CONFLICT', '证书吊销任务当前不在待审批状态', { status: revocation.status });
+    if (!revocation.approvalId || revocation.approvalId !== approvalId) throw new AppError('DEPLOYMENT_APPROVAL_REQUIRED', '证书吊销任务需要匹配的审批单');
     const version = await this.dependencies.certificates.getRepository().getVersion(revocation.certificateVersionId, tenantId);
     if (!version) throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: revocation.certificateVersionId });
-    return this.executeRevocation(revocation, version.serialNumber, _actorId);
+    await this.dependencies.approvals?.consume(approvalId, {
+      certificateVersionId: revocation.certificateVersionId,
+      caId: revocation.caId,
+      serialNumber: version.serialNumber,
+      reason: revocation.reason,
+    }, tenantId);
+    return this.executeRevocation({ ...revocation, status: 'approved' }, version.serialNumber, actorId);
   }
 
   async publishCrl(tenantId: string, caId: string, actorId: string): Promise<CaCrlPublicationEntity> {
@@ -2349,13 +2415,17 @@ export class InternalCaApplicationService {
         scopeType: 'global',
         plainText: generated.privateKeyPem,
         createdBy: input.actorId,
-        metadata: { ownerType: 'application_certificate', applicationAssetId: input.applicationAssetId },
+        metadata: {
+          ownerType: 'application_certificate',
+          ...(input.applicationAssetId ? { applicationAssetId: input.applicationAssetId } : {}),
+          ...(input.certificateAssetId ? { certificateAssetId: input.certificateAssetId } : {}),
+        },
       }, context);
       const keyReference = await this.repository.saveKeyReference({
         id: newId('keyref'),
         tenantId,
         ownerType: 'application_certificate',
-        ownerId: input.applicationAssetId,
+        ownerId: keyOwnerId(input),
         custodyMode: 'managed_secret',
         backendType: 'secret',
         secretRef: secret.secretRef,
@@ -2378,7 +2448,7 @@ export class InternalCaApplicationService {
       id: newId('keyref'),
       tenantId,
       ownerType: 'application_certificate',
-      ownerId: input.applicationAssetId,
+      ownerId: keyOwnerId(input),
       custodyMode: input.custodyMode,
       backendType,
       opaqueReference: input.opaqueKeyReference,
@@ -2612,9 +2682,21 @@ export class InternalCaApplicationService {
   async createTrustDistribution(tenantId: string, caId: string, targetScope: Record<string, unknown>, actorId: string, context?: RequestContext): Promise<TrustDistributionEntity> {
     const authority = await this.requireAuthority(tenantId, caId);
     const now = new Date().toISOString();
+    const id = newId('catrust');
+    const approval = this.dependencies.approvals
+      ? await this.dependencies.approvals.create({
+        tenantId,
+        operationType: 'trust_distribution.publish',
+        resourceRefs: [{ type: 'trust_distribution', id }],
+        riskLevel: 'high',
+        parameters: { distributionId: id, caId: authority.id, targetScope },
+        requestedBy: actorId,
+      }, context)
+      : undefined;
     const entity = await this.repository.saveTrustDistribution({
-      id: newId('catrust'), tenantId, caId: authority.id, trustDomainId: authority.trustDomainId,
-      targetScope: structuredClone(targetScope), status: 'pending_approval', requestedBy: actorId,
+      id, tenantId, caId: authority.id, trustDomainId: authority.trustDomainId,
+      targetScope: structuredClone(targetScope), status: approval ? 'pending_approval' : 'approved', requestedBy: actorId,
+      approvalId: approval?.id,
       createdAt: now, updatedAt: now,
     });
     await this.audit('internal_ca.trust_distribution.created', actorId, 'trust_distribution.create', 'trust_distribution', entity.id, 'high', context, {});
@@ -2625,9 +2707,16 @@ export class InternalCaApplicationService {
     return this.repository.listTrustDistributions(tenantId);
   }
 
-  async approveTrustDistribution(tenantId: string, distributionId: string, _approvalId: string): Promise<TrustDistributionEntity> {
+  async approveTrustDistribution(tenantId: string, distributionId: string, approvalId: string): Promise<TrustDistributionEntity> {
     const current = (await this.repository.listTrustDistributions(tenantId)).find((item) => item.id === distributionId);
     if (!current) throw new AppError('RESOURCE_NOT_FOUND', '信任分发任务不存在', { distributionId });
+    if (current.status !== 'pending_approval') throw new AppError('RESOURCE_VERSION_CONFLICT', '信任分发任务当前不在待审批状态', { status: current.status });
+    if (!current.approvalId || current.approvalId !== approvalId) throw new AppError('DEPLOYMENT_APPROVAL_REQUIRED', '信任分发任务需要匹配的审批单');
+    await this.dependencies.approvals?.consume(approvalId, {
+      distributionId: current.id,
+      caId: current.caId,
+      targetScope: current.targetScope,
+    }, tenantId);
     return this.repository.saveTrustDistribution({ ...current, status: 'approved', updatedAt: new Date().toISOString() });
   }
 
@@ -3143,6 +3232,13 @@ function normalizeExportability(backend: KeyBackendType, requested?: KeyExportab
   if (backend === 'file' || backend === 'secret') return 'exportable';
   if (['hsm', 'kms', 'tpm', 'pkcs11'].includes(backend)) return requested === 'exportable' ? 'unknown' : 'non_exportable';
   return requested ?? 'unknown';
+}
+
+function keyOwnerId(input: Pick<CreateCertificateRequestInput, 'applicationAssetId' | 'certificateAssetId' | 'idempotencyKey' | 'commonName'>): string {
+  if (input.applicationAssetId) return input.applicationAssetId;
+  // 全局历史 ACME 没有应用资产；为其托管密钥使用独立命名空间，
+  // 不把证书资产 ID 冒充为应用 ID。
+  return `legacy-acme:${input.certificateAssetId ?? input.idempotencyKey ?? input.commonName}`;
 }
 
 function normalizeFingerprint(value: string): string {

@@ -65,6 +65,7 @@ export interface ApplicationCertificateSupplyRepositoryPort {
   listCertificateCandidates(tenantId: string): Promise<CertificateSupplyCandidateDto[]>;
   saveVersion(tenantId: string, applicationAssetId: string, primaryDomain: string, version: Omit<ApplicationCertificatePolicyVersionEntity, 'id' | 'policyId' | 'tenantId' | 'applicationAssetId' | 'versionNo' | 'isActive' | 'primaryDomain' | 'createdAt' | 'updatedAt'>): Promise<{ policy: ApplicationCertificatePolicyEntity; currentVersion: ApplicationCertificatePolicyVersionEntity }>;
   bindVersionCertificate(tenantId: string, applicationAssetId: string, policyVersionId: string, certificateAssetId: string): Promise<ApplicationCertificatePolicyVersionEntity>;
+  updateCurrentVersionStatus?(tenantId: string, applicationAssetId: string, status: ApplicationCertificatePolicyVersionEntity['status'], certificateVersionId?: string): Promise<void>;
 }
 
 export class ApplicationCertificateSupplyRepository implements ApplicationCertificateSupplyRepositoryPort {
@@ -133,6 +134,7 @@ export class ApplicationCertificateSupplyRepository implements ApplicationCertif
           and v.certificate_asset_id = a.id
           and v.status <> 'deleted'
         where a.tenant_id = $1 and a.status <> 'deleted'
+          and a.application_asset_id is null
         order by a.created_at asc, a.id asc, (v.id = a.current_version_id) desc,
                  v.version_no desc, v.created_at desc`,
       [tenantId],
@@ -237,22 +239,46 @@ export class ApplicationCertificateSupplyRepository implements ApplicationCertif
 
   async bindVersionCertificate(tenantId: string, applicationAssetId: string, policyVersionId: string, certificateAssetId: string): Promise<ApplicationCertificatePolicyVersionEntity> {
     const now = new Date().toISOString();
-    const result = await this.db.query<VersionRow>(
-      `update pg_application_certificate_policy_versions
-          set certificate_asset_id = $4, updated_at = $5::timestamptz
-        where tenant_id = $1 and application_asset_id = $2 and id = $3
-        returning *`,
-      [tenantId, applicationAssetId, policyVersionId, certificateAssetId, now],
-    );
-    const row = result.rows[0];
-    if (!row) throw new AppError('RESOURCE_NOT_FOUND', '应用证书策略版本不存在', { policyVersionId });
+    return this.db.transaction(async (tx) => {
+      const asset = (await tx.query<{ id: string; application_asset_id?: string | null }>(
+        `select id, application_asset_id
+           from pg_certificate_assets
+          where tenant_id = $1 and id = $2 and status <> 'deleted'`,
+        [tenantId, certificateAssetId],
+      )).rows[0];
+      if (!asset || asset.application_asset_id !== applicationAssetId) {
+        throw new AppError('DEDICATED_CERTIFICATE_OWNERSHIP_CONFLICT', '证书资产不属于当前应用，禁止绑定', { certificateAssetId, applicationAssetId });
+      }
+      const result = await tx.query<VersionRow>(
+        `update pg_application_certificate_policy_versions
+            set certificate_asset_id = $4, updated_at = $5::timestamptz
+          where tenant_id = $1 and application_asset_id = $2 and id = $3
+            and is_active = true and supply_mode = 'dedicated'
+          returning *`,
+        [tenantId, applicationAssetId, policyVersionId, certificateAssetId, now],
+      );
+      const row = result.rows[0];
+      if (!row) throw new AppError('RESOURCE_NOT_FOUND', '应用证书策略版本不存在或不是活动专属版本', { policyVersionId });
+      await tx.query(
+        `update pg_application_certificate_policies
+            set current_dedicated_certificate_asset_id = $3, updated_at = $4::timestamptz
+          where tenant_id = $1 and application_asset_id = $2 and current_version_id = $5`,
+        [tenantId, applicationAssetId, certificateAssetId, now, policyVersionId],
+      );
+      return toVersion(row);
+    });
+  }
+
+  async updateCurrentVersionStatus(tenantId: string, applicationAssetId: string, status: ApplicationCertificatePolicyVersionEntity['status'], certificateVersionId?: string): Promise<void> {
+    const now = new Date().toISOString();
     await this.db.query(
-      `update pg_application_certificate_policies
-          set current_dedicated_certificate_asset_id = $3, updated_at = $4::timestamptz
-        where tenant_id = $1 and application_asset_id = $2 and current_version_id = $5`,
-      [tenantId, applicationAssetId, certificateAssetId, now, policyVersionId],
+      `update pg_application_certificate_policy_versions
+          set status = $3,
+              certificate_version_id = coalesce($4, certificate_version_id),
+              updated_at = $5::timestamptz
+        where tenant_id = $1 and application_asset_id = $2 and is_active = true and supply_mode = 'dedicated'`,
+      [tenantId, applicationAssetId, status, certificateVersionId ?? null, now],
     );
-    return toVersion(row);
   }
 }
 

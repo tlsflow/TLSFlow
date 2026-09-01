@@ -136,8 +136,7 @@ import {
 } from './persistence/core-persistence.js';
 import { PgDocumentRepository } from './persistence/repositories/pg-document-repository.js';
 import { createDeploymentPersistenceRepositories, type DeploymentPersistenceOptions } from './persistence/repositories/deployment-persistence-factory.js';
-import { AutomationsApplicationService, AutomationApprovalOrchestrator, AutomationConfiguredActionExecutor, AutomationDeploymentActionService, AutomationEventDeliveryService, AutomationExternalApiKeyRepository, AutomationExternalApiService, AutomationFilterEvaluator, AutomationNotificationActionService, AutomationRunCoordinator, AutomationScheduler, AutomationTargetResolverRegistry, AutomationTriggerRegistry, AutomationsController, AutomationsRepository, CertificateVersionTargetResolver, DeferredCertificateVersionEventPublisher, DeploymentPlansAutomationAdapter, DeferredNotificationPort, getAutomationRouteContracts, AllowAllAutomationTargetAccess } from './modules/automations/index.js';
-import { buildAutomationTaskResourceSummary } from './modules/automations/application/automation-task-progress.js';
+import { AutomationsApplicationService, AutomationConfiguredActionExecutor, AutomationDeploymentActionService, AutomationEventDeliveryService, AutomationExternalApiKeyRepository, AutomationExternalApiService, AutomationFilterEvaluator, AutomationNotificationActionService, AutomationRunCoordinator, AutomationScheduler, AutomationTargetResolverRegistry, AutomationTriggerRegistry, AutomationsController, AutomationsRepository, CertificateVersionTargetResolver, DeferredCertificateVersionEventPublisher, DeploymentPlansAutomationAdapter, DeferredNotificationPort, getAutomationRouteContracts, AllowAllAutomationTargetAccess } from './modules/automations/index.js';
 import { getEditionLicensingRouteContracts, registerEditionLicensing } from './edition/licensing.js';
 import { BrowserRuntimeClient } from './modules/browser-runtime/browser-runtime.client.js';
 import { BrowserCredentialSessionRepository } from './modules/browser-runtime/browser-credential-session.repository.js';
@@ -304,6 +303,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     acmeRepository,
     internalCaService.getRepository(),
     acmeProvider,
+    security.secrets,
   );
   const acmeChallengeService = new AcmeChallengeService({
     repository: acmeRepository,
@@ -666,12 +666,18 @@ export function createApp(dependencies: AppDependencies = {}): App {
     const operation = typeof task.payload.operation === 'string' ? task.payload.operation : undefined;
     if (!requestId || !operation) return;
     if (operation === 'certificate.install_issued') {
-      await internalCaService.markLocalAgentCertificateInstall(
+      const installResult = await internalCaService.markLocalAgentCertificateInstall(
         task.tenantId,
         requestId,
         status === 'SUCCESS' ? 'SUCCESS' : status === 'UNKNOWN' ? 'UNKNOWN' : 'FAILED',
         { detail, errorCode, errorMessage },
       );
+      await certificateLifecycleService.reconcileCertificateInstallResult({
+        tenantId: task.tenantId,
+        requestId,
+        // 只有公开证据校验通过后申请才会进入 active；不能直接信任 Agent 的 SUCCESS。
+        status: installResult.status === 'active' ? 'SUCCESS' : status === 'UNKNOWN' ? 'UNKNOWN' : 'FAILED',
+      });
       return;
     }
     if (operation !== 'key.generate_csr') return;
@@ -1200,10 +1206,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
     assetsService.getRepository(),
     new AllowAllAutomationTargetAccess(),
   ));
-  const automationApprovalOrchestrator = new AutomationApprovalOrchestrator(
-    security.approvals,
-    automationsRepository,
-  );
   const automationsService = new AutomationsApplicationService(
     automationsRepository,
     undefined,
@@ -1212,7 +1214,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
       triggerRegistry: automationTriggerRegistry,
       filterEvaluator: automationFilterEvaluator,
       resolverRegistry: automationResolverRegistry,
-      approvalOrchestrator: automationApprovalOrchestrator,
       tasks: tasksService,
     },
   );
@@ -1230,110 +1231,9 @@ export function createApp(dependencies: AppDependencies = {}): App {
     automationsRepository,
     new AutomationConfiguredActionExecutor(automationDeployment, automationNotifications),
     undefined,
-    automationApprovalOrchestrator,
   );
   const automationScheduler = new AutomationScheduler(automationsRepository, automationsService, automationCoordinator, undefined, undefined);
   const automationExternalApi = new AutomationExternalApiService(new AutomationExternalApiKeyRepository(appDb));
-  security.approvals.setDecisionListener(async (approval) => {
-    if (approval.operationType === 'deployment.execute') {
-      const planRef = approval.resourceRefs.find((ref) => ref.type === 'deploymentPlan');
-      if (!planRef || !approval.tenantId) return;
-      const deploymentService = deploymentPlans.getApplicationService();
-      const plan = await deploymentService.get(planRef.id, approval.tenantId);
-      const decision = approval.status === 'approved' ? 'approved' : approval.status === 'rejected' ? 'rejected' : undefined;
-      if (!decision) return;
-      if (decision === 'approved') {
-        try {
-          const execution = await deploymentService.execute({
-            planId: plan.id,
-            tenantId: approval.tenantId,
-            actorId: approval.requestedBy,
-            approvalId: approval.id,
-            // 中文说明：同一审批只允许发起一个正式执行 Run，监听器重放也不会重复部署。
-            idempotencyKey: `deployment-approval:${approval.id}`,
-          });
-          await tasksService.resolveApprovalTask(
-            approval.tenantId,
-            'deploymentPlan',
-            plan.id,
-            {
-              resourceName: plan.name,
-              deploymentPlanId: plan.id,
-              approvalId: approval.id,
-              approvalStatus: decision,
-              approvalPending: false,
-              status: 'approved',
-              executionRunId: execution.run.id,
-              executionTaskId: execution.jobId,
-            },
-            decision,
-          );
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : '未知错误';
-          await tasksService.resolveApprovalTask(
-            approval.tenantId,
-            'deploymentPlan',
-            plan.id,
-            {
-              resourceName: plan.name,
-              deploymentPlanId: plan.id,
-              approvalId: approval.id,
-              approvalStatus: decision,
-              approvalPending: false,
-              status: 'execution_enqueue_failed',
-            },
-            decision,
-            {
-              errorCode: error instanceof AppError ? error.errorCode : 'DEPLOYMENT_EXECUTION_ENQUEUE_FAILED',
-              errorMessage: `审批已通过，但未能创建证书部署任务：${errorMessage}`,
-            },
-          );
-        }
-        return;
-      }
-      await tasksService.resolveApprovalTask(
-        approval.tenantId,
-        'deploymentPlan',
-        plan.id,
-        {
-          resourceName: plan.name,
-          deploymentPlanId: plan.id,
-          approvalId: approval.id,
-          approvalStatus: decision,
-          approvalPending: false,
-          status: decision,
-        },
-        decision,
-      );
-      return;
-    }
-    if (approval.operationType !== 'automation.run.approve') return;
-    const runRef = approval.resourceRefs.find((ref) => ref.type === 'automationRun');
-    if (!runRef || !approval.tenantId) return;
-    const synchronized = await automationApprovalOrchestrator.synchronizeRun(runRef.id, approval.tenantId);
-    if (synchronized.status === 'pending') return;
-    const run = await automationsRepository.getRun(runRef.id, approval.tenantId);
-    if (!run) return;
-    const resourceSummary = buildAutomationTaskResourceSummary(run);
-    const task = await tasksService.resolveAutomationRunTask(approval.tenantId, run.id, resourceSummary, synchronized.status);
-    if (task) return;
-    if (synchronized.status === 'approved') {
-      await tasksService.enqueue({
-        tenantId: run.tenantId,
-        taskType: 'AUTOMATION_RUN',
-        requestedBy: run.createdBy,
-        triggerSource: 'approval.decision',
-        idempotencyKey: `automation-run:${run.id}`,
-        resourceSummary,
-        payload: {
-          runId: run.id,
-          automationId: run.automationId,
-          automationName: run.automationNameSnapshot,
-        },
-        resourceRefs: [{ resourceType: 'automationRun', resourceId: run.id }],
-      });
-    }
-  });
   app.setResource('automationScheduler', automationScheduler);
   app.setResource('automationEventDelivery', automationEventDelivery);
   new AssetsController(security, assetsService, new ApplicationAssetExecutionService(appDb)).register(app.router);
@@ -1342,7 +1242,10 @@ export function createApp(dependencies: AppDependencies = {}): App {
     internalCaService,
     certificateServices.certificates,
     internalCaService,
+    security.secrets,
   );
+  assetsService.setApplicationCertificateDomainChangePort(applicationCertificateSupplyService);
+  certificateLifecycleService.setApplicationPolicyStatusUpdater((tenantId, applicationAssetId, status, certificateVersionId) => applicationCertificateSupplyService.updateLifecycleStatus(tenantId, applicationAssetId, status, certificateVersionId));
   app.setResource('applicationCertificateSupplyService', applicationCertificateSupplyService);
   new ApplicationCertificateSupplyController(security, applicationCertificateSupplyService).register(app.router);
   const bindingsController = new BindingsController(assetsService, bindingsService, security);
@@ -1422,6 +1325,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     scheduler: acmeRenewalScheduler,
     worker: acmeRenewalWorker,
   };
+  applicationCertificateSupplyService.setAcmeRenewalIntegration(acmeRenewalPolicyService, acmeRepository, acmeRenewalScheduler);
   app.setResource('acmeRenewalWorker', acmeRenewalWorker);
   new InternalCaController(internalCaService, security, acmeServices, tasksService, certificateLifecycleService).register(app.router);
   new DeviceAssetsController(deviceAssetsService, new SecurityServicesDeviceAssetPort(security)).register(app.router);

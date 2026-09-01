@@ -346,7 +346,7 @@ export class AssetsController {
     const subject = this.subjectFromRequest(request);
     await this.assertCan(subject, 'service_asset.manage', 'service_asset', request, id);
     return this.service.getRepository().getServiceAsset(tenantId(request), id).then((before) =>
-      this.service.updateServiceAsset(tenantId(request), id, patch).then((updated) => {
+      this.service.updateServiceAsset(tenantId(request), id, patch, subject.id).then((updated) => {
         this.audit(request, subject, 'service_asset.updated', 'service_asset.manage', 'service_asset', id, before, updated);
         return updated;
       }),

@@ -8,6 +8,7 @@ import type { InternalCaRepository } from '../repository/internal-ca.repository.
 import type { CertificateRotationEntity } from '../schema/internal-ca.schema.js';
 import { ManagedKeyCustodyAdapter } from './managed-key-custody.adapter.js';
 import { AgentKeyCustodyAdapter, type AgentKeyCsrTaskInput } from './agent-key-custody.adapter.js';
+import { DeviceLocalKeyCustodyAdapter, type DeviceLocalActionReceipt } from './device-local-key-custody.adapter.js';
 import type { DeploymentPlanDto, CreateDeploymentPlanFromApplicationAssetInput } from '../../deployment-plans/dto/deployment-plans.dto.js';
 
 export interface CreateCertificateRotationInput {
@@ -43,6 +44,8 @@ export interface CreateCertificateRotationInput {
 export class CertificateLifecycleService {
   private readonly managedKeyCustody: ManagedKeyCustodyAdapter;
   private agentKeyCustody?: AgentKeyCustodyAdapter;
+  private deviceLocalKeyCustody?: DeviceLocalKeyCustodyAdapter;
+  private applicationPolicyStatusUpdater?: (tenantId: string, applicationAssetId: string, status: 'issued' | 'ready_to_deploy' | 'deployed' | 'tls_verified' | 'needs_attention' | 'renewing', certificateVersionId?: string) => Promise<void>;
   private deploymentPlans?: {
     createFromApplicationAsset(input: CreateDeploymentPlanFromApplicationAssetInput, context?: RequestContext): Promise<DeploymentPlanDto>;
   };
@@ -54,10 +57,12 @@ export class CertificateLifecycleService {
       repository: InternalCaRepository;
       managedKeyCustody?: ManagedKeyCustodyAdapter;
       agentKeyCustody?: AgentKeyCustodyAdapter;
+      deviceLocalKeyCustody?: DeviceLocalKeyCustodyAdapter;
     },
   ) {
     this.managedKeyCustody = dependencies.managedKeyCustody ?? new ManagedKeyCustodyAdapter(dependencies.internalCa);
     this.agentKeyCustody = dependencies.agentKeyCustody;
+    this.deviceLocalKeyCustody = dependencies.deviceLocalKeyCustody;
   }
 
   /** 在部署计划服务完成装配后接入，避免生命周期与部署模块形成构造循环。 */
@@ -67,6 +72,58 @@ export class CertificateLifecycleService {
 
   setAgentKeyCustody(adapter?: AgentKeyCustodyAdapter): void {
     this.agentKeyCustody = adapter;
+  }
+
+  setDeviceLocalKeyCustody(adapter?: DeviceLocalKeyCustodyAdapter): void {
+    this.deviceLocalKeyCustody = adapter;
+  }
+
+  setApplicationPolicyStatusUpdater(updater?: CertificateLifecycleService['applicationPolicyStatusUpdater']): void {
+    this.applicationPolicyStatusUpdater = updater;
+  }
+
+  /** 为 Citrix/F5 等设备生成 CSR；设备适配器不得退化为通用 Shell。 */
+  async generateDeviceCsr(input: {
+    tenantId: string;
+    certificateRequestId: string;
+    deviceId: string;
+    pluginId: string;
+    pluginVersionId: string;
+    commonName: string;
+    sans: string[];
+    algorithm: 'rsa' | 'ec';
+    idempotencyKey: string;
+  }): Promise<DeviceLocalActionReceipt> {
+    if (!this.deviceLocalKeyCustody) throw new AppError('EXECUTION_TARGET_UNAVAILABLE', '网关本机持钥适配器未配置', { fallback: false });
+    const request = (await this.dependencies.internalCa.listRequests(input.tenantId)).find((item) => item.id === input.certificateRequestId);
+    if (!request) throw new AppError('RESOURCE_NOT_FOUND', '证书申请不存在', { certificateRequestId: input.certificateRequestId });
+    if (!['pending_key', 'pending_csr'].includes(request.status)) throw new AppError('RESOURCE_VERSION_CONFLICT', '证书申请当前不等待设备 CSR', { status: request.status });
+    const key = await this.dependencies.repository.getKeyReference(input.tenantId, request.keyReferenceId);
+    if (key?.custodyMode !== 'device_local') throw new AppError('RESOURCE_VERSION_CONFLICT', '证书申请的密钥托管模式不是设备本机');
+    return this.deviceLocalKeyCustody.generateCsr(input);
+  }
+
+  /** 设备导入已签发证书；证书公钥和 localKeyRef 由设备适配器/回执校验。 */
+  async installDeviceIssued(input: {
+    tenantId: string;
+    certificateRequestId: string;
+    deviceId: string;
+    pluginId: string;
+    pluginVersionId: string;
+    localKeyRef: string;
+    expectedPublicKeyFingerprintSha256: string;
+    certificatePem: string;
+    certificateChainPem: string;
+    idempotencyKey: string;
+  }): Promise<DeviceLocalActionReceipt> {
+    if (!this.deviceLocalKeyCustody) throw new AppError('EXECUTION_TARGET_UNAVAILABLE', '网关本机持钥适配器未配置', { fallback: false });
+    const request = (await this.dependencies.internalCa.listRequests(input.tenantId)).find((item) => item.id === input.certificateRequestId);
+    if (!request) throw new AppError('RESOURCE_NOT_FOUND', '证书申请不存在', { certificateRequestId: input.certificateRequestId });
+    if (!request.certificateVersionId) throw new AppError('RESOURCE_VERSION_CONFLICT', '证书申请尚未签发');
+    const key = await this.dependencies.repository.getKeyReference(input.tenantId, request.keyReferenceId);
+    if (key?.custodyMode !== 'device_local') throw new AppError('RESOURCE_VERSION_CONFLICT', '证书申请的密钥托管模式不是设备本机');
+    if (key.publicKeyFingerprintSha256.toLowerCase() !== input.expectedPublicKeyFingerprintSha256.toLowerCase()) throw new AppError('PUBLIC_KEY_MISMATCH', '设备本机密钥公钥指纹不匹配');
+    return this.deviceLocalKeyCustody.installIssued(input);
   }
 
   /** 为已经落库的 pending_key 申请生成本机 CSR 任务。 */
@@ -119,31 +176,56 @@ export class CertificateLifecycleService {
 
   /** 签发成功后生成同一申请的 certificate.install_issued Agent 任务。 */
   async enqueueIssuedCertificateInstall(input: { tenantId: string; request: import('../schema/internal-ca.schema.js').CertificateRequestEntity; actorId: string }): Promise<Record<string, unknown> | undefined> {
+    if (!input.request.applicationAssetId || !input.request.certificateVersionId) return undefined;
+    // CA 已返回可验证证书；应用策略先进入 issued，待 Agent 公开回执后再进入 deployed。
+    await this.updateApplicationPolicyStatus(input.tenantId, input.request.applicationAssetId, 'issued', input.request.certificateVersionId);
     if (!this.agentKeyCustody || input.request.keyReferenceId === undefined || !input.request.agentContext) return undefined;
     const key = await this.dependencies.repository.getKeyReference(input.tenantId, input.request.keyReferenceId);
     if (!key?.opaqueReference) return undefined;
-    if (!input.request.certificateVersionId) return undefined;
-    const material = await this.dependencies.certificates.getPublicVersionMaterial(input.tenantId, input.request.certificateVersionId);
-    const context = input.request.agentContext;
-    const task = await this.agentKeyCustody.installIssuedCertificate(input.tenantId, {
-      certificateRequestId: input.request.id,
-      agentId: context.agentId,
-      targetId: context.targetId,
-      keyPath: context.keyPath,
-      certificatePath: context.certificatePath,
-      ...(context.configPath ? { configPath: context.configPath } : {}),
-      localKeyRef: key.opaqueReference,
-      expectedPublicKeyFingerprintSha256: key.publicKeyFingerprintSha256,
-      certificatePem: material.certificatePem,
-      certificateChainPem: material.certificateChainPem,
-      format: context.format,
-      storageMode: context.storageMode,
-      alias: context.alias,
-      idempotencyKey: `certificate-request:${input.request.id}:certificate-install`,
-      pluginId: context.pluginId,
-      pluginVersionId: context.pluginVersionId,
-    });
-    return { taskId: task.id, idempotencyKey: task.idempotencyKey, certificateVersionId: input.request.certificateVersionId };
+    try {
+      const material = await this.dependencies.certificates.getPublicVersionMaterial(input.tenantId, input.request.certificateVersionId);
+      const context = input.request.agentContext;
+      const task = await this.agentKeyCustody.installIssuedCertificate(input.tenantId, {
+        certificateRequestId: input.request.id,
+        agentId: context.agentId,
+        targetId: context.targetId,
+        keyPath: context.keyPath,
+        certificatePath: context.certificatePath,
+        ...(context.configPath ? { configPath: context.configPath } : {}),
+        localKeyRef: key.opaqueReference,
+        expectedPublicKeyFingerprintSha256: key.publicKeyFingerprintSha256,
+        certificatePem: material.certificatePem,
+        certificateChainPem: material.certificateChainPem,
+        format: context.format,
+        storageMode: context.storageMode,
+        alias: context.alias,
+        idempotencyKey: `certificate-request:${input.request.id}:certificate-install`,
+        pluginId: context.pluginId,
+        pluginVersionId: context.pluginVersionId,
+      });
+      // 任务已提交但尚未收到目标回执；策略只能进入待部署，不能提前宣称已部署。
+      await this.updateApplicationPolicyStatus(input.tenantId, input.request.applicationAssetId, 'ready_to_deploy', input.request.certificateVersionId);
+      return { taskId: task.id, idempotencyKey: task.idempotencyKey, certificateVersionId: input.request.certificateVersionId };
+    } catch (error) {
+      await this.updateApplicationPolicyStatus(input.tenantId, input.request.applicationAssetId, 'needs_attention', input.request.certificateVersionId);
+      throw error;
+    }
+  }
+
+  /** 由 Agent 回执同步服务调用，安装成功后才把应用策略标记为已部署。 */
+  async reconcileCertificateInstallResult(input: {
+    tenantId: string;
+    requestId: string;
+    status: 'SUCCESS' | 'FAILED' | 'UNKNOWN';
+  }): Promise<void> {
+    const request = (await this.dependencies.internalCa.listRequests(input.tenantId)).find((item) => item.id === input.requestId);
+    if (!request?.applicationAssetId) return;
+    await this.updateApplicationPolicyStatus(
+      input.tenantId,
+      request.applicationAssetId,
+      input.status === 'SUCCESS' ? 'deployed' : 'needs_attention',
+      request.certificateVersionId,
+    );
   }
 
   /**
@@ -157,9 +239,15 @@ export class CertificateLifecycleService {
     context?: RequestContext;
   }): Promise<IssuedCertificateLifecycleResult> {
     const request = input.request;
+    if (!request.applicationAssetId) {
+      return { deploymentPlanStatus: 'not_required' };
+    }
     if (!request.certificateVersionId) {
+      await this.updateApplicationPolicyStatus(input.tenantId, request.applicationAssetId, 'needs_attention');
       return { deploymentPlanStatus: 'blocked', deploymentWarnings: ['证书申请尚未生成证书版本'] };
     }
+    // CA 已签发，部署计划创建前的策略状态必须可观察。
+    await this.updateApplicationPolicyStatus(input.tenantId, request.applicationAssetId, 'issued', request.certificateVersionId);
     if (request.deploymentPlanId) {
       return {
         deploymentPlanId: request.deploymentPlanId,
@@ -169,6 +257,7 @@ export class CertificateLifecycleService {
       };
     }
     if (!this.deploymentPlans) {
+      await this.updateApplicationPolicyStatus(input.tenantId, request.applicationAssetId, 'needs_attention');
       return { deploymentPlanStatus: 'blocked', deploymentWarnings: ['部署计划服务未接入'] };
     }
     try {
@@ -189,6 +278,7 @@ export class CertificateLifecycleService {
           actualCertificateVersionId: plan.certificateVersionId,
         });
       }
+      await this.updateApplicationPolicyStatus(input.tenantId, request.applicationAssetId, 'ready_to_deploy', request.certificateVersionId);
       return {
         deploymentPlanId: plan.id,
         deploymentPlanStatus: plan.status,
@@ -197,6 +287,7 @@ export class CertificateLifecycleService {
     } catch (error) {
       // 只保存脱敏错误摘要；任何私钥/密码不得随申请事实持久化。
       const warning = redactLifecycleError(error);
+      await this.updateApplicationPolicyStatus(input.tenantId, request.applicationAssetId, 'needs_attention', request.certificateVersionId);
       return { deploymentPlanStatus: 'blocked', deploymentWarnings: [warning] };
     }
   }
@@ -210,7 +301,8 @@ export class CertificateLifecycleService {
       : undefined;
     const sourceBelongsToApplication = sourceRequest
       ? sourceRequest.applicationAssetId === input.applicationAssetId
-      : source.certificateAssetId === input.applicationAssetId;
+        && (!sourceRequest.certificateAssetId || sourceRequest.certificateAssetId === source.certificateAssetId)
+      : (await this.dependencies.certificates.getRepository().getAsset(source.certificateAssetId, input.tenantId))?.applicationAssetId === input.applicationAssetId;
     if (!sourceBelongsToApplication) throw new AppError('TENANT_SCOPE_DENIED', '轮换源证书不属于指定应用资产');
     if (!source.issuingCaId || !source.certificateProfileVersionId) throw new AppError('RESOURCE_VERSION_CONFLICT', '源证书缺少签发 CA 或 Profile 版本，不能自动轮换');
     const sourceKey = source.keyReferenceId ? await this.dependencies.repository.getKeyReference(input.tenantId, source.keyReferenceId) : undefined;
@@ -230,6 +322,10 @@ export class CertificateLifecycleService {
       }
       const requestInput: CreateCertificateRequestInput = {
         applicationAssetId: input.applicationAssetId,
+        ...(source.certificateAssetId ? { certificateAssetId: source.certificateAssetId } : {}),
+        ...(sourceRequest?.applicationCertificatePolicyVersionId
+          ? { applicationCertificatePolicyVersionId: sourceRequest.applicationCertificatePolicyVersionId }
+          : {}),
         caId: source.issuingCaId,
         profileVersionId: source.certificateProfileVersionId,
         commonName: source.commonName ?? source.subject.commonName ?? input.applicationAssetId,
@@ -274,7 +370,8 @@ export class CertificateLifecycleService {
       const status: CertificateRotationEntity['status'] = request.status === 'issued' ? 'install_pending' : request.status === 'issuing' ? 'issuing' : 'key_csr_pending';
       let completed = await this.dependencies.repository.saveRotation({
         ...rotation, status, targetKeyReferenceId: request.keyReferenceId, targetCertificateRequestId: request.id,
-        policyVersionId: request.certificatePolicyVersionId, targetCertificateVersionId: request.certificateVersionId,
+        policyVersionId: request.applicationCertificatePolicyVersionId ?? request.certificatePolicyVersionId,
+        targetCertificateVersionId: request.certificateVersionId,
         evidence: { ...rotation.evidence, targetPublicKeyFingerprintSha256: targetKey?.publicKeyFingerprintSha256, targetRequestStatus: request.status }, updatedAt: new Date().toISOString(),
       });
       if (request.status === 'issued' && request.certificateVersionId) {
@@ -389,6 +486,8 @@ export class CertificateLifecycleService {
     } catch (error) {
       next = await this.dependencies.repository.saveRotation({ ...next, status: 'revoke_pending', warnings: [...next.warnings, error instanceof Error ? error.message : String(error)], updatedAt: new Date().toISOString() });
     }
+    // 新证书已经完成 TLS 终验，应用切换事实由策略版本记录；旧证书撤销是独立事实。
+    await this.updateApplicationPolicyStatus(input.tenantId, rotation.applicationAssetId, 'tls_verified', target.id);
     return next;
   }
 
@@ -417,6 +516,7 @@ export class CertificateLifecycleService {
     };
     if (rotation.status === 'completed') return rotation;
     if (input.status === 'UNKNOWN') {
+      await this.updateApplicationPolicyStatus(input.tenantId, rotation.applicationAssetId, 'needs_attention', rotation.targetCertificateVersionId);
       return this.dependencies.repository.saveRotation({
         ...rotation,
         status: 'unknown',
@@ -426,6 +526,7 @@ export class CertificateLifecycleService {
       });
     }
     if (input.status === 'FAILED' || input.status === 'TIMEOUT') {
+      await this.updateApplicationPolicyStatus(input.tenantId, rotation.applicationAssetId, 'needs_attention', rotation.targetCertificateVersionId);
       return this.dependencies.repository.saveRotation({
         ...rotation,
         status: 'failed',
@@ -439,10 +540,12 @@ export class CertificateLifecycleService {
     }
     const tlsEvidence = readTlsEvidence(input.evidence);
     if (!tlsEvidence) {
+      // 计划执行成功只证明证书已部署；TLS 终验仍是独立步骤，完成后再进入 tls_verified。
+      await this.updateApplicationPolicyStatus(input.tenantId, rotation.applicationAssetId, 'deployed', rotation.targetCertificateVersionId);
       return this.dependencies.repository.saveRotation({
         ...rotation,
-        status: 'install_pending',
-        evidence: { ...evidence, tlsVerification: 'pending' },
+        status: 'deploying',
+        evidence: { ...evidence, tlsVerification: 'pending', deploymentCompleted: true },
         updatedAt: new Date().toISOString(),
       });
     }
@@ -460,6 +563,22 @@ export class CertificateLifecycleService {
     const version = await this.dependencies.certificates.getRepository().getVersion(id, tenantId);
     if (!version) throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: id });
     return version;
+  }
+
+  private async updateApplicationPolicyStatus(tenantId: string, applicationAssetId: string, status: 'issued' | 'ready_to_deploy' | 'deployed' | 'tls_verified' | 'needs_attention' | 'renewing', certificateVersionId?: string): Promise<void> {
+    if (!this.applicationPolicyStatusUpdater) return;
+    try {
+      await this.applicationPolicyStatusUpdater(tenantId, applicationAssetId, status, certificateVersionId);
+    } catch (error) {
+      // 策略回写是派生视图；不得让它的瞬时故障破坏已完成的签发、部署或 TLS 事实。
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn('[certificate-lifecycle] application policy status update failed', {
+        tenantId,
+        applicationAssetId,
+        status,
+        error: redactLifecycleError(new Error(message)),
+      });
+    }
   }
 }
 

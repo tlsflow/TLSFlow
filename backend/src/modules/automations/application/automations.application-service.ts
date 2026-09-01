@@ -9,14 +9,12 @@ import type { AutomationEntity, AutomationVersionEntity } from '../schema/automa
 import { AutomationFilterEvaluator } from './automation-filter-evaluator.js';
 import { AutomationTargetResolverRegistry, type AutomationTargetResolverInput } from './automation-target-resolver.registry.js';
 import { AutomationTriggerRegistry } from './automation-trigger-registry.js';
-import { AutomationApprovalOrchestrator } from './automation-approval-orchestrator.js';
 import { buildAutomationTaskResourceSummary } from './automation-task-progress.js';
 
 export interface AutomationsApplicationOptions {
   triggerRegistry?: AutomationTriggerRegistry;
   filterEvaluator?: AutomationFilterEvaluator;
   resolverRegistry?: AutomationTargetResolverRegistry;
-  approvalOrchestrator?: AutomationApprovalOrchestrator;
   tasks?: TaskEnqueuer;
 }
 
@@ -24,7 +22,6 @@ export class AutomationsApplicationService {
   private readonly triggerRegistry: AutomationTriggerRegistry;
   private readonly filterEvaluator: AutomationFilterEvaluator;
   private readonly resolverRegistry: AutomationTargetResolverRegistry;
-  private readonly approvalOrchestrator?: AutomationApprovalOrchestrator;
   private readonly tasks?: TaskEnqueuer;
 
   constructor(
@@ -36,7 +33,6 @@ export class AutomationsApplicationService {
     this.triggerRegistry = options.triggerRegistry ?? new AutomationTriggerRegistry();
     this.filterEvaluator = options.filterEvaluator ?? new AutomationFilterEvaluator();
     this.resolverRegistry = options.resolverRegistry ?? new AutomationTargetResolverRegistry();
-    this.approvalOrchestrator = options.approvalOrchestrator;
     this.tasks = options.tasks;
   }
 
@@ -128,13 +124,9 @@ export class AutomationsApplicationService {
       throw new AppError('VALIDATION_FAILED', '证书有效期降级必须二次确认', { executableDowngradeCount });
     }
     const externalExecutionMode = options.externalExecutionMode;
-    const executionVersion = externalExecutionMode
-      ? {
-        ...version,
-        approvalStage: externalExecutionMode === 'approval' ? version.approvalStage : undefined,
-        guardrails: { ...version.guardrails, requireApproval: externalExecutionMode === 'approval' },
-      }
-      : version;
+    // 中文说明：executionMode=approval 仅作为历史配置兼容字段读取；企业审批在外部系统完成，
+    // 自动化运行本身永远以直接执行方式落库，不再创建内部 Approval。
+    const executionVersion = { ...version, guardrails: { ...version.guardrails, requireApproval: false }, approvalStage: undefined };
     const run = await this.persistRunFromTargets({
       tenantId,
       actorId,
@@ -488,23 +480,6 @@ export class AutomationsApplicationService {
         updatedAt: now,
       })));
     });
-    if (this.approvalOrchestrator?.requiresApproval(input.version)) {
-      const targets = await this.repository.listRunTargets(run.id, input.tenantId);
-      const approvalId = await this.approvalOrchestrator.ensureApproval({
-        runId: run.id,
-        tenantId: input.tenantId,
-        automationId: input.automation.id,
-        automationVersion: input.version.version,
-        actorId: input.actorId,
-        version: input.version,
-        targets,
-        deliveryId: input.deliveryId,
-      });
-      return this.repository.updateRun(run.id, input.tenantId, {
-        approvalId,
-        status: approvalId ? 'waiting_approval' : run.status,
-      });
-    }
     return run;
   }
 

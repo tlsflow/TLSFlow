@@ -135,9 +135,18 @@ export class CertificatesApplicationService {
     const existing = input.applicationAssetId
       ? await this.repository.findAssetByApplicationAssetId?.(input.applicationAssetId, input.tenantId)
       : await this.repository.findAssetByPrimaryDomain(primaryDomain, input.tenantId);
-    if (existing) {
+    if (existing && input.applicationAssetId
+      && normalizeCertificateDomain(existing.primaryDomain) !== primaryDomain) {
+      // 应用主域名发生变化时不能覆盖旧专属资产。先归档旧资产，再创建
+      // 新的活动资产；历史版本仍可供审计和回滚查询。
+      await this.repository.updateAsset(existing.id, {
+        status: 'archived',
+        updatedAt: now,
+      }, input.tenantId);
+    } else if (existing) {
       const updated = await this.repository.updateAsset(existing.id, {
         name: existing.name || input.name || primaryDomain,
+        sourceType: input.sourceType ?? existing.sourceType,
         sans: uniqueStrings([...existing.sans, ...(input.sans ?? []).map(normalizeCertificateDomain)]),
         tags: uniqueStrings([...existing.tags, ...(input.tags ?? [])]),
         updatedAt: now,

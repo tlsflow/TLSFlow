@@ -1511,7 +1511,6 @@ export class DeploymentPlansApplicationService {
     const settings = await this.getDeploymentTaskSettings(input.tenantId);
     await this.assertPersistedDeploymentExecutors(storedPlan.id, input.tenantId, 'submit');
     const plan = await this.synchronizeApprovalState(storedPlan);
-    const automationApproval = await this.resolveAutomationApproval(input.executionSource, input.tenantId);
     if (plan.status === 'READY') return this.toDto(plan);
     if (settings.dryRunEnabled) {
       const preflightTargets = (await this.repository.listTargetsByPlan(plan.id, input.tenantId))
@@ -1520,13 +1519,6 @@ export class DeploymentPlansApplicationService {
     }
 
     if (plan.status === 'PENDING_APPROVAL') {
-      if (automationApproval) {
-        const ready = await this.transitionPlan(plan, 'READY', input.actorId, 'automation.approval.applied', {
-          approvalStatus: 'NOT_REQUIRED',
-          approvalId: undefined,
-        });
-        return this.toDto(ready);
-      }
       if (!(await this.requiresApproval(plan, settings))) {
         const ready = await this.transitionPlan(plan, 'READY', input.actorId, 'approval.disabled', {
           approvalStatus: 'NOT_REQUIRED',
@@ -1534,51 +1526,11 @@ export class DeploymentPlansApplicationService {
         });
         return this.toDto(ready);
       }
-      if (!input.approvalId) return this.toDto(plan);
-      await this.approval.consume(input.approvalId, await this.approvalParameters(plan));
-      const ready = await this.transitionPlan(plan, 'READY', input.actorId, 'approval.approved', { approvalStatus: 'APPROVED', approvalId: input.approvalId });
-      return this.toDto(ready);
+      return this.toDto(plan);
     }
 
     if (plan.status !== 'DRAFT') {
       throw new AppError('DEPLOYMENT_INVALID_STATE', '只有 DRAFT 或 PENDING_APPROVAL 计划允许提交', { planId: plan.id, status: plan.status });
-    }
-
-    if (await this.requiresApproval(plan, settings)) {
-      if (automationApproval) {
-        const ready = await this.transitionPlan(plan, 'READY', input.actorId, 'automation.approval.applied', {
-          approvalStatus: 'NOT_REQUIRED',
-          approvalId: undefined,
-        });
-        return this.toDto(ready);
-      }
-      if (input.approvalId) {
-        await this.approval.consume(input.approvalId, await this.approvalParameters(plan));
-        const ready = await this.transitionPlan(plan, 'READY', input.actorId, 'approval.approved', { approvalStatus: 'APPROVED', approvalId: input.approvalId });
-        return this.toDto(ready);
-      }
-      const approval = await this.approval.create({
-        operationType: 'deployment.execute',
-        resourceRefs: [{ type: 'deploymentPlan', id: plan.id }],
-        riskLevel: this.approvalRiskLevel(plan.policy.riskLevel),
-        parameters: await this.approvalParameters(plan),
-        requestedBy: input.actorId,
-      }, context);
-      const pending = await this.transitionPlan(plan, 'PENDING_APPROVAL', input.actorId, 'approval.requested', { approvalStatus: 'PENDING', approvalId: approval.id });
-      await this.enqueueDeploymentApprovalTask(plan, approval.id, input.actorId);
-      await this.audit.write({
-        eventType: AUDIT_EVENT_TYPES.APPROVAL_CREATED,
-        actorType: 'user',
-        actorId: input.actorId,
-        action: 'deployment_plan.submit',
-        resourceType: 'deploymentPlan',
-        resourceId: plan.id,
-        result: 'success',
-        riskLevel: this.approvalRiskLevel(plan.policy.riskLevel),
-        context,
-        detail: { approvalId: approval.id },
-      });
-      return this.toDto(pending);
     }
 
     const ready = await this.transitionPlan(plan, 'READY', input.actorId, 'plan.ready', { approvalStatus: 'NOT_REQUIRED' });
@@ -1602,52 +1554,12 @@ export class DeploymentPlansApplicationService {
     const settings = await this.getDeploymentTaskSettings(input.tenantId);
     await this.assertPersistedDeploymentExecutors(storedPlan.id, input.tenantId, 'execute');
     let plan = await this.synchronizeApprovalState(storedPlan);
-    const automationApproval = await this.resolveAutomationApproval(input.executionSource, input.tenantId);
-    let executionApprovalId = plan.approvalId;
-    let executionApproved = plan.approvalStatus === 'APPROVED';
-    if (automationApproval) {
-      executionApprovalId = automationApproval.id;
-      executionApproved = true;
-      if (plan.status === 'DRAFT' || plan.status === 'PENDING_APPROVAL') {
-        plan = await this.transitionPlan(plan, 'READY', input.actorId, 'automation.approval.applied', {
-          approvalStatus: 'NOT_REQUIRED',
-          approvalId: undefined,
-        });
-      }
-    } else if (plan.status === 'PENDING_APPROVAL' && !(await this.requiresApproval(plan, settings))) {
+    const executionApproved = false;
+    if (plan.status === 'PENDING_APPROVAL' && !(await this.requiresApproval(plan, settings))) {
       plan = await this.transitionPlan(plan, 'READY', input.actorId, 'approval.disabled', {
         approvalStatus: 'NOT_REQUIRED',
         approvalId: undefined,
       });
-    } else if (await this.requiresApproval(plan, settings)) {
-      executionApprovalId = input.approvalId ?? plan.approvalId;
-      if (!executionApprovalId) {
-        await this.auditDenied(plan, input.actorId, 'deployment_plan.execute', context, 'missing approval');
-        throw new AppError('DEPLOYMENT_APPROVAL_REQUIRED', '高风险部署执行必须提供已批准审批单', { planId: plan.id });
-      }
-      try {
-        await this.approval.consume(executionApprovalId, await this.approvalParameters(plan));
-      } catch (error) {
-        await this.auditDenied(plan, input.actorId, 'deployment_plan.execute', context, 'approval invalid');
-        throw error;
-      }
-      // 审批消费是本次正式执行的授权事实。不能只在 DRAFT/PENDING_APPROVAL
-      // 状态转换时回写，否则 READY/历史结束计划会继续携带 NOT_REQUIRED，
-      // 进而让本次正式执行的审批事实与计划状态脱节。
-      executionApproved = true;
-      if (plan.status === 'DRAFT' || plan.status === 'PENDING_APPROVAL') {
-        plan = await this.transitionPlan(plan, 'READY', input.actorId, 'approval.approved', {
-          approvalStatus: 'APPROVED',
-          approvalId: executionApprovalId,
-        });
-      } else if (plan.approvalStatus !== 'APPROVED' || plan.approvalId !== executionApprovalId) {
-        plan = await this.repository.updatePlan(plan.id, {
-          approvalStatus: 'APPROVED',
-          approvalId: executionApprovalId,
-          updatedAt: new Date().toISOString(),
-          updatedBy: input.actorId,
-        });
-      }
     }
 
     if (!['READY', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK'].includes(plan.status)) {
@@ -1684,7 +1596,8 @@ export class DeploymentPlansApplicationService {
           tenantId: plan.tenantId,
           planId: plan.id,
           targetId,
-          approvalId: executionApprovalId,
+          // 中文说明：旧审批号不再作为部署授权传入执行层；企业授权由外部 API 负责。
+          approvalId: undefined,
           workflowVersionId,
           snapshotHash: plan.snapshotHash,
           approved: executionApproved,
@@ -3096,36 +3009,8 @@ export class DeploymentPlansApplicationService {
    * 每次进入部署计划边界时读取关联审批单，确保审批通过后计划能从等待状态恢复为可执行状态。
    */
   private async synchronizeApprovalState(plan: DeploymentPlanEntity, knownApproval?: ApprovalRequestEntity): Promise<DeploymentPlanEntity> {
-    if (!plan.approvalId || plan.approvalStatus === 'APPROVED' || plan.approvalStatus === 'NOT_REQUIRED') {
-      return plan;
-    }
-
-    const approval = knownApproval ?? await this.approval.get(plan.approvalId);
-    if (!approval) return plan;
-
-    const actorId = approval.approvedBy ?? 'system';
-    if (approval.status === 'approved') {
-      if (plan.status === 'PENDING_APPROVAL') {
-        return this.transitionPlan(plan, 'READY', actorId, 'approval.approved', {
-          approvalStatus: 'APPROVED',
-          approvalId: plan.approvalId,
-        });
-      }
-      return this.repository.updatePlan(plan.id, {
-        approvalStatus: 'APPROVED',
-        updatedAt: new Date().toISOString(),
-        updatedBy: actorId,
-      });
-    }
-
-    if (approval.status === 'rejected' && plan.approvalStatus !== 'REJECTED') {
-      return this.repository.updatePlan(plan.id, {
-        approvalStatus: 'REJECTED',
-        updatedAt: new Date().toISOString(),
-        updatedBy: actorId,
-      });
-    }
-
+    // 中文说明：部署审批已冻结。关联 Approval 仅作为历史只读数据展示，不能再
+    // 通过查询触发状态迁移或消费审批，避免旧审批重新驱动部署执行。
     return plan;
   }
 
@@ -3186,69 +3071,13 @@ export class DeploymentPlansApplicationService {
   }
 
   private async requiresApproval(plan: DeploymentPlanEntity, settings?: DeploymentTaskSettings): Promise<boolean> {
-    const resolvedSettings = settings ?? await this.getDeploymentTaskSettings(plan.tenantId);
-    return resolvedSettings.approvalEnabled || plan.policy.approvalRequired === true;
+    // 中文说明：企业授权由外部 API 完成，部署计划不再创建或消费内部审批。
+    return false;
   }
 
   private async getDeploymentTaskSettings(tenantId?: string): Promise<DeploymentTaskSettings> {
     if (!tenantId || !this.tenantHierarchy) return { ...DEFAULT_DEPLOYMENT_TASK_SETTINGS };
     return this.tenantHierarchy.getDeploymentTaskSettings(tenantId);
-  }
-
-  private async enqueueDeploymentApprovalTask(
-    plan: DeploymentPlanEntity,
-    approvalId: string,
-    actorId: string,
-  ): Promise<void> {
-    if (!this.tasks || !plan.tenantId) return;
-    const summary = {
-      resourceName: plan.name,
-      deploymentPlanId: plan.id,
-      approvalId,
-      approvalStatus: 'pending',
-      approvalPending: true,
-      status: 'waiting_approval',
-      executionType: 'approval',
-    };
-    await this.tasks.enqueue({
-      tenantId: plan.tenantId,
-      // 中文说明：审批本身不是部署执行，必须使用独立任务类型，避免审批通过被误报为部署成功。
-      taskType: 'DEPLOYMENT_APPROVAL',
-      requestedBy: actorId,
-      triggerSource: 'deployment.approval.requested',
-      idempotencyKey: `deployment-approval:${approvalId}`,
-      resourceSummary: summary,
-      initialProgress: summary,
-      // 中文说明：审批占位任务不能进入 Worker 队列，审批决定后由监听器直接收敛任务状态。
-      initialStatus: 'RETRY_WAITING',
-      availableAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-      payload: {
-        planId: plan.id,
-        deploymentPlanId: plan.id,
-        approvalId,
-        executionType: 'approval',
-      },
-      resourceRefs: [
-        { resourceType: 'deploymentPlan', resourceId: plan.id, displayKey: plan.name },
-        { resourceType: 'approval', resourceId: approvalId },
-      ],
-    });
-  }
-
-  private async resolveAutomationApproval(
-    source: import('../../executions/dto/executions.dto.js').ExecutionSourceDto | undefined,
-    tenantId?: string,
-  ): Promise<ApprovalRequestEntity | undefined> {
-    if (source?.type !== 'automation' || !source.approvalId || !source.automationRunId) return undefined;
-    const approval = await this.approval.get(source.approvalId, tenantId);
-    const isBoundToRun = approval?.resourceRefs.some((ref) => ref.type === 'automationRun' && ref.id === source.automationRunId);
-    if (!approval || !isBoundToRun || !['approved', 'consumed'].includes(approval.status)) {
-      throw new AppError('DEPLOYMENT_APPROVAL_REQUIRED', '自动化运行审批无效，不能作为部署授权', {
-        approvalId: source.approvalId,
-        automationRunId: source.automationRunId,
-      });
-    }
-    return approval;
   }
 
   private approvalRiskLevel(riskLevel: RiskLevel | undefined): RiskLevel {
@@ -3257,72 +3086,6 @@ export class DeploymentPlansApplicationService {
 
   private async writeBackgroundAudit(input: WriteAuditInput): Promise<void> {
     await this.audit.write(input).catch(() => undefined);
-  }
-
-  private async approvalParameters(plan: DeploymentPlanEntity): Promise<Record<string, unknown>> {
-    const targets = await this.repository.listTargetsByPlan(plan.id, plan.tenantId);
-    const scopes = await Promise.all(targets.map(async (target) => {
-      const strategyPayload = target.strategyPayload ?? {};
-      const workflowRequest = readRecord(strategyPayload.workflowRequest);
-      const workflowVersionId = readOptionalString(workflowRequest?.workflowVersionId);
-      const inputBindings = readRecord(workflowRequest?.inputBindings);
-      const bindingVariables = readRecord(inputBindings?.variables);
-      const snapshotRef = readRecord(strategyPayload.deploymentInputSnapshotRef);
-      const snapshot = plan.tenantId && this.deploymentInputSnapshots && typeof snapshotRef?.snapshotId === 'string'
-        ? await this.deploymentInputSnapshots.get(plan.tenantId, snapshotRef.snapshotId)
-        : undefined;
-      const snapshotInput = readRecord(snapshot?.snapshot.input);
-      const snapshotVariables = readRecord(snapshotInput?.variables);
-      const snapshotConnections = readRecord(snapshotInput?.connections);
-      const managementConnection = readRecord(snapshotConnections?.management)
-        ?? readRecord(readRecord(inputBindings?.connections)?.management);
-      const tls = readRecord(managementConnection?.tls) ?? {};
-      const allowInsecureTls = snapshotVariables?.allowInsecureTls === true || bindingVariables?.allowInsecureTls === true;
-      let stepIds: string[] = [];
-      if (workflowVersionId && this.workflows) {
-        try {
-          const version = await this.workflows.getVersion(workflowVersionId);
-          stepIds = [
-            ...version.content.steps.map((step) => step.name),
-            ...(version.content.rollback?.map((step) => step.name) ?? []),
-          ];
-        } catch {
-          stepIds = [];
-        }
-      }
-      return {
-        targetId: target.id,
-        workflowVersionId,
-        stepIds,
-        allowInsecureTls,
-        connectionTlsFingerprint: createHash('sha256').update(canonicalize(tls)).digest('hex'),
-      };
-    }));
-    return {
-      planId: plan.id,
-      snapshotHash: plan.snapshotHash,
-      action: 'deployment.execute',
-      targetIds: targets.map((target) => target.id).sort(),
-      workflowVersionIds: [...new Set(scopes.map((scope) => scope.workflowVersionId).filter((value): value is string => Boolean(value)))].sort(),
-      stepIds: [...new Set(scopes.flatMap((scope) => scope.stepIds))].sort(),
-      tlsScopes: scopes.sort((left, right) => left.targetId.localeCompare(right.targetId)),
-    };
-  }
-
-  private async auditDenied(plan: DeploymentPlanEntity, actorId: string, action: string, context: RequestContext, reason: string): Promise<void> {
-    await this.audit.write({
-      eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_EXECUTED,
-      actorType: 'user',
-      actorId,
-      action,
-      resourceType: 'deploymentPlan',
-      resourceId: plan.id,
-      result: 'denied',
-      riskLevel: this.approvalRiskLevel(plan.policy.riskLevel),
-      context,
-      failClosed: true,
-      detail: { reason },
-    });
   }
 
   private async recordTransition(

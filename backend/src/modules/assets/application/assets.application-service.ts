@@ -55,6 +55,17 @@ import {
 } from './deployment-strategy.service.js';
 import type { ManagedTargetContextResolver } from './managed-target-context.resolver.js';
 import type { PluginAgentLinkageService } from '../../plugins/application/plugin-agent-linkage.service.js';
+
+/** 应用主域名变更后的证书供应策略同步端口。 */
+export interface ApplicationCertificateDomainChangePort {
+  onApplicationDomainChanged(
+    tenantId: string,
+    applicationAssetId: string,
+    primaryDomain: string,
+    actorId?: string,
+  ): Promise<unknown>;
+}
+
 export interface ApplicationAssetQuotaPort {
   requireApplicationAssetQuota(nextCount: number): Promise<void>;
 }
@@ -72,10 +83,15 @@ export class AssetsApplicationService {
     private certificatesRepository?: CertificatesRepository,
     private monitorsRepository?: MonitorsRepository,
     private linkageService?: PluginAgentLinkageService,
+    private applicationCertificateDomainChange?: ApplicationCertificateDomainChangePort,
   ) {}
 
   setPluginAgentLinkageService(service: PluginAgentLinkageService): void {
     this.linkageService = service;
+  }
+
+  setApplicationCertificateDomainChangePort(port?: ApplicationCertificateDomainChangePort): void {
+    this.applicationCertificateDomainChange = port;
   }
 
   async getApplicationAssetLinkageStatus(tenantId: string, applicationAssetId: string) {
@@ -179,7 +195,7 @@ export class AssetsApplicationService {
     });
   }
 
-  async updateServiceAsset(tenantId: string, serviceAssetId: string, input: UpdateServiceAssetDto): Promise<import('../dto/assets.dto.js').ServiceAssetDto> {
+  async updateServiceAsset(tenantId: string, serviceAssetId: string, input: UpdateServiceAssetDto, actorId?: string): Promise<import('../dto/assets.dto.js').ServiceAssetDto> {
     const normalized = this.domain.normalizeServiceAssetPatch(input);
     const current = await this.repository.getServiceAsset(tenantId, serviceAssetId);
     if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId });
@@ -195,6 +211,17 @@ export class AssetsApplicationService {
     }
     const updated = await this.repository.updateServiceAsset(tenantId, serviceAssetId, synchronized);
     if (!updated) throw new AppError('SYSTEM_INTERNAL_ERROR', '更新 ServiceAsset 后未返回结果');
+    const previousDomain = normalizeApplicationDomain(current.sniName || current.address);
+    const nextDomain = normalizeApplicationDomain(updated.sniName || updated.address);
+    if (previousDomain !== nextDomain && this.applicationCertificateDomainChange) {
+      // 端口内部会先确认 asset_kind=APPLICATION；普通 ServiceAsset 更新不会误建策略。
+      await this.applicationCertificateDomainChange.onApplicationDomainChanged(
+        tenantId,
+        serviceAssetId,
+        nextDomain,
+        actorId,
+      );
+    }
     const hydrated = await this.repository.getServiceAssetIncludingDeleted(tenantId, updated.id);
     if (hydrated) return this.hydrateServiceAssetStrategy(tenantId, hydrated);
     return this.hydrateServiceAssetStrategy(tenantId, updated);
@@ -1003,6 +1030,11 @@ function resolveCurrentCertificateProjection(
   }
 
   return undefined;
+}
+
+/** 应用域名比较只用于变更检测，统一大小写并去掉 DNS 末尾根点。 */
+function normalizeApplicationDomain(value: string | undefined): string {
+  return (value ?? '').trim().toLowerCase().replace(/\.$/, '');
 }
 
 function markCertificateUpdateAvailability(

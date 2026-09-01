@@ -168,7 +168,10 @@ export class AcmeRenewalWorker {
         actorId,
       );
       const request = await this.dependencies.internalCa.createCertificateRequest(job.tenantId, {
-        applicationAssetId: asset.id,
+        ...(policy.applicationAssetId ? { applicationAssetId: policy.applicationAssetId } : {}),
+        ...(policy.applicationCertificatePolicyVersionId && assetId
+          ? { certificateAssetId: assetId, applicationCertificatePolicyVersionId: policy.applicationCertificatePolicyVersionId }
+          : {}),
         caId: issuanceContext.caId,
         trustDomainId: issuanceContext.trustDomainId,
         profileVersionId: issuanceContext.profileVersionId,
@@ -192,7 +195,9 @@ export class AcmeRenewalWorker {
       }
       await this.assertNotCancelled(current);
       const request = await this.dependencies.internalCa.createCertificateRequest(job.tenantId, {
-        applicationAssetId: sourceRequest!.applicationAssetId,
+        ...(sourceRequest!.applicationAssetId ? { applicationAssetId: sourceRequest!.applicationAssetId } : {}),
+        ...(sourceRequest!.certificateAssetId ? { certificateAssetId: sourceRequest!.certificateAssetId } : {}),
+        ...(sourceRequest!.applicationCertificatePolicyVersionId ? { applicationCertificatePolicyVersionId: sourceRequest!.applicationCertificatePolicyVersionId } : {}),
         caId: sourceRequest!.caId,
         trustDomainId: sourceRequest!.trustDomainId,
         profileVersionId: sourceRequest!.profileVersionId,
@@ -223,9 +228,10 @@ export class AcmeRenewalWorker {
         }
         const dnsProvider = textValue(policy.maintenanceWindow?.dnsProvider);
         const dnsCredentialId = textValue(policy.maintenanceWindow?.dnsCredentialId);
+        const dnsCredentialRef = textValue(policy.dnsCredentialRef);
         const contactEmail = textValue(policy.maintenanceWindow?.contactEmail);
         const propagationSeconds = numberValue(policy.maintenanceWindow?.dnsPropagationSeconds);
-        if (!dnsProvider || !dnsCredentialId || !contactEmail) {
+        if (!dnsProvider || (!dnsCredentialId && !dnsCredentialRef) || !contactEmail) {
           throw new AppError('ACME_PROVIDER_CONFIG_INVALID', 'DNS-01 策略缺少 lego 所需配置');
         }
         const provider = await this.dependencies.internalCa.getRepository().getProvider(job.tenantId, policy.providerId);
@@ -245,7 +251,8 @@ export class AcmeRenewalWorker {
             request: issuanceRequest,
             provider,
             dnsProviderId: dnsProvider,
-            dnsCredentialId,
+            ...(dnsCredentialId ? { dnsCredentialId } : {}),
+            ...(dnsCredentialRef ? { dnsCredentialRef } : {}),
             contactEmail,
             ...(propagationSeconds === undefined ? {} : { propagationSeconds }),
             actorId,

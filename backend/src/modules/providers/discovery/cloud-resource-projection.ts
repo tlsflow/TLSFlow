@@ -210,7 +210,7 @@ export class CloudResourceProjectionService {
         const ownerAssetId = projectionOwnerAssetId(context);
         const frameworkId = `fw_${stableId(ownerAssetId, `cloud.region:${region}:framework:${frameworkKey}`)}`;
         const frameworkMetadata = {
-          assetId: ownerAssetId,
+          ...projectionOwnerFields(context),
           ...(context.cloudAccountAssetId ? { cloudAccountAssetId: context.cloudAccountAssetId } : {}),
           pluginId: context.pluginId,
           pluginVersionId: context.pluginVersionId,
@@ -435,7 +435,7 @@ export class CloudResourceProjectionService {
       frameworks: frameworkRows.rows.map((row) => ({
         id: row.id,
         tenantId: row.tenant_id,
-        assetId: row.asset_id ?? row.service_asset_id,
+        ...(row.service_asset_id ? { serviceAssetId: row.service_asset_id } : row.asset_id ? { assetId: row.asset_id } : {}),
         deviceId: row.device_id,
         discoveryProviderKey: row.discovery_provider_key,
         frameworkKey: row.framework_key,
@@ -451,7 +451,7 @@ export class CloudResourceProjectionService {
       sites: siteRows.rows.map((row) => ({
         id: row.id,
         tenantId: row.tenant_id,
-        assetId: row.asset_id ?? row.service_asset_id,
+        ...(row.service_asset_id ? { serviceAssetId: row.service_asset_id } : row.asset_id ? { assetId: row.asset_id } : {}),
         deviceId: row.device_id,
         frameworkInstanceId: row.framework_instance_id,
         discoveryProviderKey: row.discovery_provider_key,
@@ -466,7 +466,7 @@ export class CloudResourceProjectionService {
       managedTargets: managedTargetRows.rows.map((row) => ({
         id: row.id,
         tenantId: row.tenant_id,
-        assetId: row.asset_id ?? row.service_asset_id,
+        ...(row.service_asset_id ? { serviceAssetId: row.service_asset_id } : row.asset_id ? { assetId: row.asset_id } : {}),
         frameworkInstanceId: row.framework_instance_id ?? undefined,
         siteId: row.site_id ?? undefined,
         discoveryProviderKey: row.discovery_provider_key,
@@ -715,8 +715,10 @@ function assertResourceProvenance(resource: CloudServiceResourceV1, context: Clo
 }
 
 function assertContext(context: CloudResourceProjectionContext): void {
-  if (!context.serviceAssetId && !context.cloudAccountAssetId) {
-    throw invalid('serviceAssetId 或 cloudAccountAssetId 至少提供一个');
+  const hasServiceAsset = typeof context.serviceAssetId === 'string' && context.serviceAssetId.trim() !== '';
+  const hasCloudAccountAsset = typeof context.cloudAccountAssetId === 'string' && context.cloudAccountAssetId.trim() !== '';
+  if (hasServiceAsset === hasCloudAccountAsset) {
+    throw invalid('serviceAssetId 与 cloudAccountAssetId 必须二选一');
   }
   for (const [key, value] of Object.entries(context)) {
     if (['tenantId', 'serviceAssetId', 'cloudAccountAssetId', 'pluginId', 'pluginVersionId', 'provider'].includes(key)

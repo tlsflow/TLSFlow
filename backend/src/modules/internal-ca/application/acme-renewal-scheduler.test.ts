@@ -105,6 +105,7 @@ test('自动扫描同样从已批准的首次申请恢复缺失任务', async ()
   const saved: unknown[] = [];
   const enqueued: unknown[] = [];
   const scheduler = new AcmeRenewalScheduler({
+    listPolicies: async () => [policy()],
     listActivePolicies: async () => [policy()],
     getRenewalJobByWindow: async () => undefined,
     saveRenewalJob: async (job: unknown) => {
@@ -143,6 +144,34 @@ test('自动扫描同样从已批准的首次申请恢复缺失任务', async ()
   }]);
 });
 
+test('专属 ACME provisioning 可通过统一 Scheduler 立即创建首次 Job', async () => {
+  const saved: unknown[] = [];
+  const enqueued: unknown[] = [];
+  const scheduler = new AcmeRenewalScheduler({
+    listPolicies: async () => [
+      { ...policy(), applicationAssetId: 'application-acme', applicationCertificatePolicyVersionId: 'acpv-acme' },
+    ],
+    getRenewalJobByWindow: async () => undefined,
+    saveRenewalJob: async (job: unknown) => { saved.push(job); return job; },
+  } as never, {
+    getAsset: async () => asset(),
+  } as never, undefined, {
+    getRequestByIdempotencyKey: async () => approvedInitialRequest(),
+    ensureAcmeIssuanceContext: async () => { throw new Error('已有申请不应再次解析签发上下文'); },
+    createCertificateRequest: async () => { throw new Error('已有申请不应重复创建'); },
+  } as never, {
+    enqueue: async (input: unknown) => { enqueued.push(input); return {}; },
+  } as never);
+
+  const job = await scheduler.scheduleInitialIssuance(tenantId, assetId);
+
+  assert.equal(job?.certificateRequestId, requestId);
+  assert.equal(job?.applicationAssetId, 'application-acme');
+  assert.equal(job?.applicationCertificatePolicyVersionId, 'acpv-acme');
+  assert.equal(saved.length, 1);
+  assert.equal(enqueued.length, 1);
+});
+
 test('已有 ACME 策略的复用资产不因历史来源类型而丢失首次续签上下文', async () => {
   const saved: unknown[] = [];
   const reusedAsset = { ...asset(), sourceType: 'manual' as const };
@@ -170,6 +199,29 @@ test('已有 ACME 策略的复用资产不因历史来源类型而丢失首次�
   assert.equal(jobs.length, 1);
   assert.equal(saved.length, 1);
   assert.equal((jobs[0] as { certificateRequestId?: string }).certificateRequestId, requestId);
+});
+
+test('结构化证书资产归属不匹配时不能复用首次申请', async () => {
+  let createRequestCalls = 0;
+  const scheduler = new AcmeRenewalScheduler({
+    listPolicies: async () => [policy()],
+    listActivePolicies: async () => [policy()],
+    getRenewalJobByWindow: async () => undefined,
+    saveRenewalJob: async (job: unknown) => job,
+  } as never, {
+    getAsset: async () => asset(),
+  } as never, undefined, {
+    getRequestByIdempotencyKey: async () => ({ ...approvedInitialRequest(), certificateAssetId: 'other-certificate-asset' }),
+    ensureAcmeIssuanceContext: async () => ({ caId: 'ca-acme', profileVersionId: 'certprofv-acme', trustDomainId: 'catd-acme' }),
+    createCertificateRequest: async () => {
+      createRequestCalls += 1;
+      return { ...approvedInitialRequest(), id: 'certreq-created', certificateAssetId: assetId };
+    },
+  } as never);
+
+  const job = await scheduler.scheduleManualRenewal(tenantId, assetId, 'user-admin', fixedNow);
+  assert.equal(job.certificateRequestId, 'certreq-created');
+  assert.equal(createRequestCalls, 1);
 });
 
 test('手动续签会重新排队失败的首次申请任务', async () => {

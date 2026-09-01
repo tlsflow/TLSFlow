@@ -175,7 +175,6 @@ export class AcmeCertificateService {
     if (!this.issuance) throw new AppError('CAPABILITY_MISSING', 'ACME 首次申请服务未注册');
     const issuanceContext = await this.issuance.ensureAcmeIssuanceContext(input.tenantId, provider.id, input.actorId);
     const requestInput: CreateCertificateRequestInput = {
-      applicationAssetId: asset.id,
       caId: issuanceContext.caId,
       trustDomainId: issuanceContext.trustDomainId,
       profileVersionId: issuanceContext.profileVersionId,

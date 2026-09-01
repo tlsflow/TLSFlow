@@ -12,6 +12,8 @@ export * from './application/internal-ca.application-service.js';
 export * from './application/certificate-lifecycle.service.js';
 export * from './application/managed-key-custody.adapter.js';
 export * from './application/agent-key-custody.adapter.js';
+export * from './application/device-local-key-custody.adapter.js';
+export * from './application/managed-secret-artifact-slot.js';
 export * from './providers/plugin-ca-action-dispatcher.js';
 export * from './controller/internal-ca.controller.js';
 export * from './schema/acme.schema.js';

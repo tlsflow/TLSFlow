@@ -1,7 +1,6 @@
 import { newId } from '../../../shared/id.js';
 import type { AutomationActionDto, AutomationFailureStage, AutomationRunDto, AutomationRunTargetDto, AutomationTargetSummaryDto } from '../dto/automations.dto.js';
 import { AutomationsRepository } from '../repository/automations.repository.js';
-import type { AutomationApprovalOrchestrator } from './automation-approval-orchestrator.js';
 
 export interface AutomationActionExecutionPort {
   execute(input: {
@@ -59,7 +58,8 @@ export class AutomationRunCoordinator {
     private readonly repository: AutomationsRepository,
     private readonly actions: AutomationActionExecutionPort,
     private readonly clock: () => Date = () => new Date(),
-    private readonly approvals?: AutomationApprovalOrchestrator,
+    /** 中文说明：保留旧构造参数位，兼容历史测试/装配；参数不再参与执行。 */
+    _legacyApprovalOrchestrator?: unknown,
   ) {}
 
   async execute(runId: string, tenantId: string): Promise<AutomationRunDto> {
@@ -67,14 +67,6 @@ export class AutomationRunCoordinator {
     // 中文说明：终态运行是不可变结果。统一任务因租约竞争、重启或补偿再次触发时，
     // 只能读取并返回该结果，不能先把已完成的运行改回 running。
     if (['succeeded', 'partially_succeeded', 'failed', 'needs_attention', 'stopped', 'cancelled'].includes(run.status)) return run;
-    let approvalGranted = run.status !== 'waiting_approval' && Boolean(run.approvalId);
-    if (run.status === 'waiting_approval' && this.approvals) {
-      const approval = await this.approvals.synchronizeRun(run.id, tenantId);
-      if (approval.status === 'pending') return this.requireRun(run.id, tenantId);
-      if (approval.status === 'rejected') return this.requireRun(run.id, tenantId);
-      approvalGranted = approval.status === 'approved';
-      run = await this.requireRun(run.id, tenantId);
-    }
     const version = await this.repository.getVersion(run.automationId, run.automationVersion, tenantId);
     if (!version) throw new Error(`automation version missing: ${run.automationId}@${run.automationVersion}`);
     if (!isWithinMaintenanceWindow(version.guardrails.maintenanceWindow, this.clock())) {
@@ -105,10 +97,9 @@ export class AutomationRunCoordinator {
               run,
               target: (await this.repository.getRunTarget(target.id, tenantId))!,
               action,
-              requireApproval: run.triggerContext?.externalExecutionMode === 'direct'
-                ? false
-                : version.guardrails.requireApproval && !approvalGranted,
-              approvalId: approvalGranted ? run.approvalId : undefined,
+              // 中文说明：审批已移交企业外部系统，自动化执行器不再携带内部审批授权。
+              requireApproval: false,
+              approvalId: undefined,
             });
             terminal = result.status;
             await this.repository.updateActionResult(resultId, tenantId, { status: result.status === 'succeeded' ? 'succeeded' : 'running', externalReferenceType: result.referenceType, externalReferenceId: result.referenceId, finishedAt: result.status === 'succeeded' ? this.clock().toISOString() : undefined });

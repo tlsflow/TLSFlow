@@ -45,6 +45,8 @@ const TENANT_MEMBERSHIP_TYPES = ['owner', 'admin', 'operator', 'auditor', 'membe
 const TENANT_MEMBERSHIP_SUBJECT_TYPES = ['user', 'group', 'external_group'] as const;
 const TENANT_MEMBERSHIP_STATUSES = ['ACTIVE', 'REVOKED', 'EXPIRED'] as const;
 const DEFAULT_USER_PREFERENCES: UserPreferences = { theme: 'light', locale: 'zh-CN', version: 1 };
+// 中文说明：通用审批入口仅作为 Internal CA 的兼容后门，部署、自动化和任务审批一律拒绝。
+const INTERNAL_CA_APPROVAL_OPERATIONS = new Set(['certificate_request.issue', 'certificate.revoke', 'trust_distribution.publish']);
 
 export interface SecurityServices {
   rbac: RBACService;
@@ -809,6 +811,10 @@ export class SecurityController {
     });
     const subject = await this.subjectFromRequest(request);
     const tenantId = requireTenantId(request);
+    const operationType = String(body.operationType);
+    if (!INTERNAL_CA_APPROVAL_OPERATIONS.has(operationType)) {
+      throw new AppError('AUTH_FORBIDDEN', '通用审批已停用，仅 Internal CA 审批操作可用', { operationType });
+    }
     await this.services.rbac.assertCan(subject, 'approval.create', {
       type: 'approval',
       scope: { tenantId, tenantScope: request.context.tenantScope },
@@ -817,7 +823,7 @@ export class SecurityController {
       statusCode: 201,
       body: await this.services.approvals.create({
         tenantId,
-        operationType: String(body.operationType),
+        operationType,
         resourceRefs: body.resourceRefs as Array<{ type: string; id: string }>,
         riskLevel: body.riskLevel as RiskLevel,
         parameters: body.parameters,
@@ -835,6 +841,10 @@ export class SecurityController {
     });
     const subject = await this.subjectFromRequest(request);
     const tenantId = requireTenantId(request);
+    const existing = await this.services.approvals.get(String(body.approvalId), tenantId);
+    if (!existing || !INTERNAL_CA_APPROVAL_OPERATIONS.has(existing.operationType)) {
+      throw new AppError('AUTH_FORBIDDEN', '通用审批已停用，仅 Internal CA 审批操作可用', { approvalId: String(body.approvalId) });
+    }
     await this.services.rbac.assertCan(subject, 'approval.decide', {
       type: 'approval',
       id: String(body.approvalId),

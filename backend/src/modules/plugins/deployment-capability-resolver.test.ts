@@ -144,6 +144,51 @@ test('DeploymentCapabilityResolver 跳过错配应用资产指派并回退到目
   assert.equal(resolved.binding.id, 'binding-target');
 });
 
+test('DeploymentCapabilityResolver 允许应用资产继承设备级 Host Binding', async () => {
+  const deviceAssignment = { ...assignment, ownerType: 'DEVICE', ownerId: 'host-1', precedence: 'DEVICE_DEFAULT' } as const;
+  const deviceBinding = { ...binding, managedContext: { hostId: 'host-1' } } as const;
+  const bindings = {
+    listAssignmentCandidates: async () => [deviceAssignment],
+    getTenantBinding: async () => deviceBinding,
+  } as unknown as PluginBindingsApplicationService;
+
+  const resolved = await new DeploymentCapabilityResolver(bindings, { getVersion: async () => plugin() }).resolve({
+    tenantId: 'tenant-1',
+    capabilityKey: 'certificate.deploy',
+    hostId: 'host-1',
+    managedTargetId: 'target-1',
+    applicationAssetId: 'asset-1',
+    executionLocations: ['CONTROL_PLANE'],
+    compatibility: {},
+  });
+
+  assert.equal(resolved.assignment.ownerType, 'DEVICE');
+  assert.equal(resolved.binding.managedContext?.hostId, 'host-1');
+});
+
+test('DeploymentCapabilityResolver 拒绝明确绑定其他应用资产的继承候选', async () => {
+  const targetBinding = {
+    ...binding,
+    managedContext: { serviceAssetId: 'asset-other', managedTargetId: 'target-1' },
+  } as const;
+  const bindings = {
+    listAssignmentCandidates: async () => [assignment],
+    getTenantBinding: async () => targetBinding,
+  } as unknown as PluginBindingsApplicationService;
+
+  await assert.rejects(
+    new DeploymentCapabilityResolver(bindings, { getVersion: async () => plugin() }).resolve({
+      tenantId: 'tenant-1',
+      capabilityKey: 'certificate.deploy',
+      managedTargetId: 'target-1',
+      applicationAssetId: 'asset-1',
+      executionLocations: ['CONTROL_PLANE'],
+      compatibility: {},
+    }),
+    /没有上下文匹配的插件能力指派/,
+  );
+});
+
 test('DeploymentCapabilityResolver 拒绝插件不支持的执行位置', async () => {
   await assert.rejects(
     resolver({ executionLocations: ['AGENT'] }).resolve({ tenantId: 'tenant-1', capabilityKey: 'certificate.deploy', hostId: 'host-1', managedTargetId: 'target-1', applicationAssetId: 'asset-1', executionLocations: ['CONTROL_PLANE'], compatibility: {} }),

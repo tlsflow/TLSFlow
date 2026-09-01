@@ -118,7 +118,7 @@ test('标准 ServiceAsset 云资源接入会投影 Framework、Site 和真实 Ma
   assert.equal(owner.rows[0]?.metadata.onboardingState, 'ACTIVE');
   assert.equal((await db.query('select id from pg_cloud_account_assets where tenant_id=$1', [tenantId])).rows.length, 0);
   assert.equal((await db.query('select id from pg_hosts where tenant_id=$1', [tenantId])).rows.length, 0);
-  assert.equal((await db.query('select service_asset_id from pg_device_assets where tenant_id=$1', [tenantId])).rows.length, 0);
+  assert.equal((await db.query('select service_asset_id from pg_device_assets where tenant_id=$1 and service_asset_id=$2', [tenantId, result.assetId])).rows.length, 0);
 
   const binding = await db.query<{ managed_context: { serviceAssetId?: string } }>(
     'select managed_context from unified_plugin_bindings where tenant_id=$1 and plugin_version_id=$2',

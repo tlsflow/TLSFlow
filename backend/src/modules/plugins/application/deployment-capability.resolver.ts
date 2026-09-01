@@ -119,7 +119,10 @@ function isBindingInTargetContext(
   if (!context) return false;
   if (input.hostId && context.hostId !== input.hostId) return false;
   if (input.cloudAccountAssetId && context.cloudAccountAssetId !== input.cloudAccountAssetId) return false;
-  if (input.applicationAssetId && (context.serviceAssetId ?? context.assetId) !== input.applicationAssetId) return false;
+  // 应用资产可以继承设备或受管目标级 Binding；只有 Binding 明确声明
+  // ServiceAsset 所有者时，才需要执行应用资产精确匹配。
+  const bindingApplicationAssetId = context.serviceAssetId ?? context.assetId;
+  if (input.applicationAssetId && bindingApplicationAssetId && bindingApplicationAssetId !== input.applicationAssetId) return false;
   if (!input.hostId && !input.cloudAccountAssetId && !input.applicationAssetId) return false;
   return !context.managedTargetId || context.managedTargetId === input.managedTargetId;
 }

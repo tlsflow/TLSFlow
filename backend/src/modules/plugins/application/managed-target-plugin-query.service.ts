@@ -880,6 +880,7 @@ function summarizeCapability(resolved: ResolvedDeploymentCapability) {
     binding: {
       pluginBindingId: resolved.binding.id,
       hostId: resolved.binding.managedContext?.hostId,
+      serviceAssetId: resolved.binding.managedContext?.serviceAssetId,
       cloudAccountAssetId: resolved.binding.managedContext?.cloudAccountAssetId,
       managedTargetId: resolved.binding.managedContext?.managedTargetId,
       status: resolved.binding.status,

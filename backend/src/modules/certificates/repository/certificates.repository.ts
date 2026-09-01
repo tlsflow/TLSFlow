@@ -140,7 +140,7 @@ export class PgCertificatesRepository implements CertificatesRepository {
     const result = await this.db.query<CertificateAssetRow>(
       `select * from pg_certificate_assets
         where application_asset_id = $1
-          and status <> 'deleted'
+          and status = 'active'
           and ($2::text is null or tenant_id = $2)
         order by created_at asc
         limit 1`,
