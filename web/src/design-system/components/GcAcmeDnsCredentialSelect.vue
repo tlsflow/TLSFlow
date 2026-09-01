@@ -3,7 +3,6 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import { listCredentials, type CredentialProfileDetail, type CredentialProfileSummary } from '@/api/modules/credentials.api'
-import GcButton from './GcButton.vue'
 import GcCredentialCreateModal from './GcCredentialCreateModal.vue'
 
 const model = defineModel<string>({ default: '' })
@@ -16,6 +15,8 @@ const props = withDefaults(defineProps<{
 }>(), { disabled: false, required: false })
 
 const { t } = useI18n()
+const CREATE_OPTION = '__gcac_create_credential__'
+const REFRESH_OPTION = '__gcac_refresh_credentials__'
 const loading = ref(false)
 const createOpen = ref(false)
 const error = ref('')
@@ -58,12 +59,16 @@ function readMetadata(metadata: Record<string, unknown> | undefined, key: string
 }
 
 function onSelection(value: string): void {
-  if (value !== '__gcac_create_credential__') {
-    model.value = value
+  if (value === CREATE_OPTION) {
+    model.value = ''
+    createOpen.value = true
     return
   }
-  model.value = ''
-  createOpen.value = true
+  if (value === REFRESH_OPTION) {
+    void load()
+    return
+  }
+  model.value = value
 }
 
 function onCreated(credential: CredentialProfileDetail): void {
@@ -80,13 +85,11 @@ function onCreated(credential: CredentialProfileDetail): void {
           <span>{{ t('acme.create.fields.dnsCredential') }}</span>
           <div class="gc-acme-dns-credential__select-wrap">
             <select :value="model" :disabled="disabled || loading || createOpen" :required="required" @change="onSelection(($event.target as HTMLSelectElement).value)">
-              <option value="__gcac_create_credential__">{{ t('credentials.actions.create') }}</option>
+              <option :value="CREATE_OPTION">{{ t('credentials.actions.create') }}</option>
+              <option :value="REFRESH_OPTION">{{ t('credentials.actions.refresh') }}</option>
               <option value="">{{ loading ? t('common.loading') : t('acme.create.placeholders.dnsCredential') }}</option>
               <option v-for="item in filtered" :key="item.id" :value="item.id">{{ item.name }}</option>
             </select>
-            <GcButton class="gc-acme-dns-credential__refresh" variant="icon" :aria-label="t('credentials.actions.refresh')" :title="t('credentials.actions.refresh')" :disabled="disabled || loading || !providerId" @click="load">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0 1 4M20 5v6h-6" /></svg>
-            </GcButton>
           </div>
         </label>
       </div>
@@ -103,9 +106,7 @@ function onCreated(credential: CredentialProfileDetail): void {
 .gc-acme-dns-credential__controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: var(--gc-space-3); min-width: 0; }
 .gc-acme-dns-credential__controls :deep(.gc-button) { height: var(--gc-control-height-md); min-height: var(--gc-control-height-md); }
 .gc-acme-dns-credential__select-wrap { position: relative; min-width: 0; }
-.gc-acme-dns-credential__select-wrap select { box-sizing: border-box; width: 100%; padding-right: var(--gc-space-10); }
-.gc-acme-dns-credential__refresh { position: absolute; top: 50%; right: var(--gc-space-1); width: var(--gc-control-height-sm); height: var(--gc-control-height-sm); min-height: var(--gc-control-height-sm); transform: translateY(-50%); }
-.gc-acme-dns-credential__refresh svg { width: var(--gc-size-icon-sm); height: var(--gc-size-icon-sm); fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.gc-acme-dns-credential__select-wrap select { box-sizing: border-box; width: 100%; }
 .gc-acme-dns-credential__template { box-sizing: border-box; height: var(--gc-control-height-md); max-height: var(--gc-control-height-md); overflow: auto; margin: 0; padding: var(--gc-space-2) var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-sm); background: var(--gc-color-surface-muted); color: var(--gc-color-text-muted); font-family: var(--gc-font-family); font-size: var(--gc-font-size-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
 .gc-acme-dns-credential__error { margin: 0; color: var(--gc-color-danger); }
 @media (max-width: 48rem) { .gc-acme-dns-credential__content, .gc-acme-dns-credential__controls { grid-template-columns: 1fr; } }

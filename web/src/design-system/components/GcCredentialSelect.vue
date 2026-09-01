@@ -2,7 +2,6 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { listCredentials, type CredentialKind, type CredentialProfileDetail, type CredentialProfileSummary } from '@/api/modules/credentials.api'
-import GcButton from './GcButton.vue'
 import GcCredentialCreateModal from './GcCredentialCreateModal.vue'
 
 const model = defineModel<string>({ default: '' })
@@ -30,6 +29,8 @@ const props = withDefaults(defineProps<{
 })
 
 const { t } = useI18n()
+const CREATE_OPTION = '__gcac_create_credential__'
+const REFRESH_OPTION = '__gcac_refresh_credentials__'
 const loading = ref(false)
 const options = ref<CredentialProfileSummary[]>(normalizeOptions(props.options ?? []))
 const createOpen = ref(false)
@@ -85,12 +86,16 @@ watch(() => props.options, () => {
 defineExpose({ reload: () => load(true) })
 
 function onSelection(value: string): void {
-  if (value !== '__gcac_create_credential__') {
-    model.value = value
+  if (value === CREATE_OPTION) {
+    model.value = ''
+    createOpen.value = true
     return
   }
-  model.value = ''
-  createOpen.value = true
+  if (value === REFRESH_OPTION) {
+    void load(true)
+    return
+  }
+  model.value = value
 }
 
 function onCreated(credential: CredentialProfileDetail): void {
@@ -105,15 +110,13 @@ function onCreated(credential: CredentialProfileDetail): void {
     <span>{{ label ?? t('credentials.fields.credential') }}</span>
     <div class="gc-credential-select__control">
       <select :value="model" :disabled="disabled || loading" :required="required" @change="onSelection(($event.target as HTMLSelectElement).value)">
-        <option v-if="createEnabled" value="__gcac_create_credential__">{{ t('credentials.actions.create') }}</option>
+        <option v-if="createEnabled" :value="CREATE_OPTION">{{ t('credentials.actions.create') }}</option>
+        <option :value="REFRESH_OPTION">{{ t('credentials.actions.refresh') }}</option>
         <option value="">{{ loading ? t('common.loading') : t('credentials.placeholders.select') }}</option>
         <option v-for="item in filtered" :key="item.id" :value="item.id">
           {{ item.name }}{{ item.username ? ` · ${item.username}` : '' }}
         </option>
       </select>
-      <GcButton class="gc-credential-select__refresh" variant="icon" :aria-label="t('credentials.actions.refresh')" :title="t('credentials.actions.refresh')" :disabled="disabled || loading" @click="load(true)">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0 1 4M20 5v6h-6" /></svg>
-      </GcButton>
     </div>
     <small v-if="hint">{{ hint }}</small>
   </label>
@@ -123,8 +126,6 @@ function onCreated(credential: CredentialProfileDetail): void {
 <style scoped>
 .gc-credential-select { display: flex; flex-direction: column; gap: var(--gc-space-2); }
 .gc-credential-select__control { position: relative; min-width: 0; }
-.gc-credential-select select { box-sizing: border-box; width: 100%; border: var(--gc-space-hairline) solid var(--gc-color-border); border-radius: var(--gc-radius-sm); padding: var(--gc-space-2) var(--gc-space-10) var(--gc-space-2) var(--gc-space-3); background: var(--gc-color-surface); color: var(--gc-color-text); }
-.gc-credential-select__refresh { position: absolute; top: 50%; right: var(--gc-space-1); width: var(--gc-control-height-sm); height: var(--gc-control-height-sm); min-height: var(--gc-control-height-sm); transform: translateY(-50%); }
-.gc-credential-select__refresh svg { width: var(--gc-size-icon-sm); height: var(--gc-size-icon-sm); fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.gc-credential-select select { box-sizing: border-box; width: 100%; border: var(--gc-space-hairline) solid var(--gc-color-border); border-radius: var(--gc-radius-sm); padding: var(--gc-space-2) var(--gc-space-3); background: var(--gc-color-surface); color: var(--gc-color-text); }
 .gc-credential-select small { color: var(--gc-color-text-muted); }
 </style>
