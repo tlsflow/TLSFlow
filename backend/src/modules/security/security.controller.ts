@@ -442,11 +442,12 @@ export class SecurityController {
     await this.assertSecurityCan(subject, 'settings.write', request, 'settings');
     const body = validateObject(request.body, {
       dryRunEnabled: { type: 'boolean', required: true },
-      approvalEnabled: { type: 'boolean', required: true },
+      // 中文说明：approvalEnabled 仅接受旧客户端请求，不再作为可配置开关。
+      approvalEnabled: { type: 'boolean' },
     });
     const deploymentTasks: Partial<DeploymentTaskSettings> = {
       dryRunEnabled: Boolean(body.dryRunEnabled),
-      approvalEnabled: Boolean(body.approvalEnabled),
+      approvalEnabled: false,
     };
     const tenantId = requireTenantId(request);
     const updated = await this.requireTenantHierarchy().updateDeploymentTaskSettings(

@@ -995,7 +995,7 @@ describe('安全 API 最小闭环', () => {
     }
   });
 
-  it('审批 API 支持创建和他人审批，且无权限审计查询会被拒绝', async () => {
+  it('通用审批 API 停用部署操作，Internal CA 操作仍受权限控制', async () => {
     const security = createSecurityServices();
     await security.rbac.createPolicy({
       subjectType: 'user',
@@ -1015,7 +1015,7 @@ describe('安全 API 最小闭环', () => {
     });
     const app = configureTestAuth(createApp({ security }));
 
-    const created = await app.inject({
+    const rejected = await app.inject({
       method: 'POST',
       path: '/api/v1/approvals',
       headers: testAuthHeaders('requester', 'tenant_1'),
@@ -1026,8 +1026,22 @@ describe('安全 API 最小闭环', () => {
         parameters: { runId: 'run_1', stepId: 'step_1' },
       },
     });
-    assert.equal(created.statusCode, 201);
-    const approvalId = (created.body as { id: string }).id;
+    assert.equal(rejected.statusCode, 403);
+    assert.equal((rejected.body as { errorCode: string }).errorCode, 'AUTH_FORBIDDEN');
+
+    const internal = await app.inject({
+      method: 'POST',
+      path: '/api/v1/approvals',
+      headers: testAuthHeaders('requester', 'tenant_1'),
+      body: {
+        operationType: 'certificate_request.issue',
+        resourceRefs: [{ type: 'certificate_request', id: 'request_1' }],
+        riskLevel: 'high',
+        parameters: { requestId: 'request_1' },
+      },
+    });
+    assert.equal(internal.statusCode, 201);
+    const approvalId = (internal.body as { id: string }).id;
 
     const decided = await app.inject({
       method: 'POST',
