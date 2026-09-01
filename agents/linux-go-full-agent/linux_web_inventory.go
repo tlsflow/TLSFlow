@@ -32,6 +32,7 @@ type linuxWebRuntime struct {
 	displayName       string
 	version           string
 	programPath       string
+	executionPath     string
 	programSha256     string
 	serviceName       string
 	workingDirectory  string
@@ -51,18 +52,9 @@ func collectLinuxAuthoritativeWebInventory() map[string]any {
 	for _, process := range collectLinuxProcesses() {
 		executable, _ := process["executablePath"].(string)
 		commandLine, _ := process["commandLine"].(string)
-		base := strings.ToLower(filepath.Base(executable))
-		kind := ""
-		switch {
-		case base == "apache2" || base == "httpd" || strings.Contains(base, "apache"):
-			kind = "apache"
-		case base == "nginx" || strings.Contains(base, "nginx"):
-			if strings.Contains(strings.ToLower(commandLine), "worker process") && strings.Contains(strings.ToLower(commandLine), "nginx:") {
-				continue
-			}
-			kind = "nginx"
-		case (base == "java" || strings.Contains(base, "java")) && strings.Contains(strings.ToLower(commandLine), "org.apache.catalina"):
-			kind = "tomcat"
+		kind := linuxWebProcessKind(executable, commandLine)
+		if kind == "nginx" && strings.Contains(strings.ToLower(commandLine), "worker process") && strings.Contains(strings.ToLower(commandLine), "nginx:") {
+			continue
 		}
 		if kind == "" || executable == "" {
 			continue
@@ -98,6 +90,30 @@ func collectLinuxAuthoritativeWebInventory() map[string]any {
 		"warnings":         state.warnings,
 		"diagnostics":      map[string]any{"scanner": "linux-runtime-discovery", "source": "runtime-effective-config"},
 	}
+}
+
+func linuxWebProcessKind(executablePath, commandLine string) string {
+	base := strings.ToLower(filepath.Base(strings.TrimSuffix(executablePath, " (deleted)")))
+	switch {
+	case base == "apache2" || strings.HasPrefix(base, "httpd") || strings.Contains(base, "apache"):
+		return "apache"
+	case base == "nginx" || strings.Contains(base, "nginx"):
+		return "nginx"
+	case (base == "java" || strings.Contains(base, "java")) && strings.Contains(strings.ToLower(commandLine), "org.apache.catalina"):
+		return "tomcat"
+	}
+	fields := strings.Fields(commandLine)
+	if len(fields) == 0 {
+		return ""
+	}
+	commandBase := strings.ToLower(filepath.Base(strings.TrimSuffix(fields[0], " (deleted)")))
+	if commandBase == "apache2" || strings.HasPrefix(commandBase, "httpd") || strings.Contains(commandBase, "apache") {
+		return "apache"
+	}
+	if commandBase == "nginx" || strings.Contains(commandBase, "nginx") {
+		return "nginx"
+	}
+	return ""
 }
 
 func discoverLinuxApache(state *linuxWebDiscoveryState, process map[string]any) bool {
@@ -289,10 +305,10 @@ func appendLinuxDiscoveryWarning(state *linuxWebDiscoveryState, code, message, p
 func linuxProcessRuntime(process map[string]any) linuxWebRuntime {
 	executable, _ := process["executablePath"].(string)
 	pid, _ := process["pid"].(int)
-	programPath := executable
-	if !fileExists(programPath) {
+	executionPath := executable
+	if !fileExists(executionPath) {
 		if procPath, ok := process["procExecutablePath"].(string); ok && isLinuxProcExecutablePath(procPath) {
-			programPath = procPath
+			executionPath = procPath
 		}
 	}
 	workingDirectory := ""
@@ -301,8 +317,8 @@ func linuxProcessRuntime(process map[string]any) linuxWebRuntime {
 		workingDirectory, _ = os.Readlink(filepath.Join("/proc", strconv.Itoa(pid), "cwd"))
 		serviceName = linuxServiceNameForPID(pid)
 	}
-	programSha256, _ := sha256FileDigest(programPath)
-	return linuxWebRuntime{programPath: programPath, programSha256: programSha256, workingDirectory: filepath.Clean(workingDirectory), serviceName: serviceName}
+	programSha256, _ := sha256FileDigest(executionPath)
+	return linuxWebRuntime{programPath: executable, executionPath: executionPath, programSha256: programSha256, workingDirectory: filepath.Clean(workingDirectory), serviceName: serviceName}
 }
 
 func linuxServiceNameForPID(pid int) string {
@@ -356,7 +372,7 @@ func linuxApacheRuntime(process map[string]any) (linuxWebRuntime, string, string
 	runtime.frameworkType = "web.apache"
 	runtime.displayName = "Apache"
 	environment := linuxApacheEnv()
-	version, err := runLinuxProgram(runtime.programPath, environment, "-V")
+	version, err := runLinuxProgram(runtime.executionPath, environment, "-V")
 	if err != nil && version == "" {
 		return runtime, "", "", nil, fmt.Sprintf("Apache -V 失败: %v", err)
 	}
@@ -434,7 +450,7 @@ func linuxNginxRuntime(process map[string]any) (linuxWebRuntime, string, string,
 	runtime := linuxProcessRuntime(process)
 	runtime.frameworkType = "web.nginx"
 	runtime.displayName = "NGINX"
-	version, err := runLinuxProgram(runtime.programPath, nil, "-V")
+	version, err := runLinuxProgram(runtime.executionPath, nil, "-V")
 	if err != nil && version == "" {
 		return runtime, "", "", nil, fmt.Sprintf("NGINX -V 失败: %v", err)
 	}
@@ -495,7 +511,7 @@ func linuxTomcatRuntime(process map[string]any) (linuxWebRuntime, string, string
 	if home == "" {
 		home = base
 	}
-	runtime.version = linuxTomcatVersion(runtime.programPath, home)
+	runtime.version = linuxTomcatVersion(runtime.executionPath, home)
 	configPath := filepath.Join(base, "conf", "server.xml")
 	return runtime, filepath.Clean(base), configPath, []string{"-Dcatalina.base=" + filepath.Clean(base), "-Dcatalina.home=" + filepath.Clean(home), "-cp", filepath.Join(filepath.Clean(home), "bin", "bootstrap.jar"), "org.apache.catalina.startup.Bootstrap", "configtest"}, ""
 }

@@ -105,11 +105,25 @@ func TestLinuxProcessRuntimeFallsBackToProcExecutableForDeletedInode(t *testing.
 		"executablePath":     "/path/that/was/replaced/apache2",
 		"procExecutablePath": procPath,
 	})
-	if runtime.programPath != procPath {
-		t.Fatalf("不可用的已删除程序路径必须回退到 procfs: %q", runtime.programPath)
+	if runtime.programPath != "/path/that/was/replaced/apache2" || runtime.executionPath != procPath {
+		t.Fatalf("稳定程序路径不应改写为 procfs: %q", runtime.programPath)
 	}
 	if !isLinuxProcExecutablePath(procPath) || isLinuxProcExecutablePath("/proc/self/exe") {
 		t.Fatal("procfs 可执行入口校验错误")
+	}
+}
+
+func TestLinuxWebProcessCandidateRecognizesApacheVariants(t *testing.T) {
+	for _, executable := range []string{"/usr/sbin/apache2", "/usr/sbin/httpd.worker", "/opt/apache/bin/httpd (deleted)"} {
+		if linuxWebProcessKind(executable, "") != "apache" {
+			t.Fatalf("Apache 进程候选识别失败: %q", executable)
+		}
+	}
+	if linuxWebProcessKind("/usr/bin/java", "java org.apache.catalina.startup.Bootstrap") != "tomcat" {
+		t.Fatal("Tomcat Java 进程候选识别失败")
+	}
+	if linuxWebProcessKind("/usr/bin/python3", "python3 app.py") != "" {
+		t.Fatal("普通进程不应被识别为 Web 候选")
 	}
 }
 
