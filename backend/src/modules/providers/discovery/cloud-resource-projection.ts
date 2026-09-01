@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { DatabasePort } from '../../../database/database-port.js';
+import { resolveCertificateVersionId, normalizeFingerprint } from '../../plugins/discovery/certificate-version-matcher.js';
 
 export interface CloudServiceResourceV1 {
   apiVersion: 'gcac.cloud-service/v1';
@@ -350,6 +351,50 @@ export class CloudResourceProjectionService {
           JSON.stringify(target.metadata),
         ]);
       }
+      // 中文说明：云域名证书事实进入统一 CertificateBinding；证书库只保存项目内匹配到的版本，
+      // 未匹配时保留指纹和厂商证书 ID，前端明确显示“未纳管”，绝不伪造 CertificateVersion。
+      const targetBySiteId = new Map(projection.managedTargets.filter((target) => target.siteId).map((target) => [target.siteId!, target]));
+      for (const site of projection.sites) {
+        const target = targetBySiteId.get(site.id);
+        const certificate = readCloudCertificateFacts(site.metadata);
+        if (!target || !certificate) continue;
+        const certificateVersionId = await resolveCertificateVersionId(tx, context.tenantId, certificate);
+        const bindingId = `bnd_${stableId(projectionOwnerAssetId(context), `${site.siteKey}:certificate`)}`;
+        const bindingMetadata = {
+          ...(certificate.providerCertificateId ? { providerCertificateId: certificate.providerCertificateId } : {}),
+          ...(certificate.providerCertificateName ? { providerCertificateName: certificate.providerCertificateName } : {}),
+          ...(certificate.fingerprintSha256 ? { fingerprintSha256: certificate.fingerprintSha256 } : {}),
+          ...(certificate.subject ? { subject: certificate.subject } : {}),
+          ...(certificate.issuer ? { issuer: certificate.issuer } : {}),
+          ...(certificate.notBefore ? { notBefore: certificate.notBefore } : {}),
+          ...(certificate.notAfter ? { notAfter: certificate.notAfter } : {}),
+          discoveryProviderKey: context.discoveryProviderKey ?? `plugin:${context.pluginId}`,
+          discoveryStatus: 'ACTIVE',
+          targetType: target.targetType,
+          targetKey: target.targetKey,
+        };
+        const fingerprint = normalizeFingerprint(certificate.fingerprintSha256) ?? null;
+        await tx.query(`insert into pg_certificate_bindings (
+          id, tenant_id, service_asset_id, site_asset_id, managed_target_id, service_instance_id, host_id,
+          domain_name, domain, port, protocol, binding_key, binding_type, certificate_version_id,
+          observed_fingerprint_sha256, unmanaged_certificate_fingerprint, discovery_source, verify_method,
+          remote_status, status, metadata, created_at, updated_at, version
+        ) values ($1,$2,$3,$4,$5,$6,null,$7,$7,$8,$9,$10,'CUSTOM',$11,$12,$13,'PROVIDER','CUSTOM','unknown',$14,$15::jsonb,$16,$16,1)
+        on conflict (id) do update set service_asset_id=excluded.service_asset_id, site_asset_id=excluded.site_asset_id,
+          managed_target_id=excluded.managed_target_id, service_instance_id=excluded.service_instance_id, host_id=null,
+          domain_name=excluded.domain_name, domain=excluded.domain, port=excluded.port, protocol=excluded.protocol,
+          certificate_version_id=excluded.certificate_version_id, observed_fingerprint_sha256=excluded.observed_fingerprint_sha256,
+          unmanaged_certificate_fingerprint=excluded.unmanaged_certificate_fingerprint, discovery_source=excluded.discovery_source,
+          verify_method=excluded.verify_method, remote_status=excluded.remote_status,
+          status=case when pg_certificate_bindings.status='MANAGED' then 'MANAGED' else excluded.status end,
+          metadata=pg_certificate_bindings.metadata || excluded.metadata, deleted_at=null, updated_at=excluded.updated_at,
+          version=pg_certificate_bindings.version+1`, [
+          bindingId, context.tenantId, context.serviceAssetId ?? null, site.id, target.id, site.frameworkId,
+          certificate.domainName ?? site.siteName, site.metadata.port ?? null, site.metadata.protocol ?? 'HTTPS',
+          target.bindingKey ?? site.siteKey, certificateVersionId ?? null, fingerprint, certificateVersionId ? null : fingerprint,
+          'DISCOVERED', JSON.stringify(bindingMetadata), now,
+        ]);
+      }
     });
     return projection;
   }
@@ -599,6 +644,39 @@ function readCertificateEndpoints(resource: CloudServiceResourceV1): CloudCertif
     supportedCapabilities: resource.supportedCapabilities ?? ['cloud.resource.discover'],
     executionLocations: resource.executionLocations ?? ['CONTROL_PLANE'],
   }];
+}
+
+interface CloudCertificateFacts {
+  providerCertificateId?: string;
+  providerCertificateName?: string;
+  fingerprintSha256?: string;
+  subject?: string;
+  issuer?: string;
+  notBefore?: string;
+  notAfter?: string;
+  domainName?: string;
+}
+
+function readCloudCertificateFacts(metadata: Record<string, unknown>): CloudCertificateFacts | undefined {
+  const nested = isRecord(metadata.certificate)
+    ? metadata.certificate
+    : isRecord(metadata.remoteCertificate) ? metadata.remoteCertificate : metadata;
+  const value = (...keys: string[]) => keys.map((key) => nested[key]).find((item): item is string => typeof item === 'string' && item.trim() !== '')?.trim();
+  const domainName = value('domainName', 'DomainName') ?? value('certDomainName') ?? value('address') ?? textValue(metadata.domainName);
+  const metadataDomainName = ['domainName', 'DomainName', 'address']
+    .map((key) => metadata[key])
+    .find((item): item is string => typeof item === 'string' && item.trim() !== '')?.trim();
+  const facts: CloudCertificateFacts = {
+    providerCertificateId: value('providerCertificateId', 'certId', 'CertId', 'certificateId', 'CertificateId'),
+    providerCertificateName: value('providerCertificateName', 'certificateName', 'CertName', 'CertificateName', 'certName'),
+    fingerprintSha256: value('fingerprintSha256', 'FingerprintSha256', 'sha256Fingerprint', 'Sha256Fingerprint', 'Fingerprint'),
+    subject: value('subject', 'Subject') ?? (value('certDomainName') ? `CN=${value('certDomainName')}` : undefined),
+    issuer: value('issuer', 'Issuer') ?? value('certOrg'),
+    notBefore: value('notBefore', 'NotBefore', 'certStartTime'),
+    notAfter: value('notAfter', 'NotAfter', 'certExpireTime'),
+    domainName: domainName ?? metadataDomainName,
+  };
+  return Object.values(facts).some(Boolean) ? facts : undefined;
 }
 
 function parseCertificateEndpoint(value: unknown, path: string): CloudCertificateEndpointV1 {

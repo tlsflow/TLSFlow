@@ -215,6 +215,17 @@ export interface ServiceAssetDto {
   status: ServiceAssetStatus;
   tags: string[];
   metadata: Record<string, unknown>;
+  /** 云服务统一资产的展示投影字段；来源分别是插件 Manifest、插件版本和发现事实。 */
+  productFamily?: string;
+  controlVersion?: string;
+  pluginId?: string;
+  pluginVersionId?: string;
+  pluginRuntime?: string;
+  apiVersion?: string;
+  softwareVersion?: string;
+  siteCount?: number;
+  /** 保留旧列表合同，值与 siteCount 一致。 */
+  applicationAssetCount?: number;
   deploymentStrategy?: DeploymentStrategyDto;
   createdAt: string;
   updatedAt: string;

@@ -4,6 +4,10 @@ import { PgliteDatabase } from '../../../database/pglite-database.js';
 import { runMigrations } from '../../../database/migration-runner.js';
 import { CloudResourceProjectionService } from './cloud-resource-projection.js';
 import { CloudAccountAssetsApplicationService } from '../application/cloud-account-assets.application-service.js';
+import { PgAssetsRepository } from '../../assets/repository/assets.repository.js';
+import { PgBindingsRepository } from '../../bindings/repository/bindings.repository.js';
+import { PgCertificatesRepository } from '../../certificates/repository/certificates.repository.js';
+import { AssetsApplicationService } from '../../assets/application/assets.application-service.js';
 
 const resource = {
   apiVersion: 'gcac.cloud-service/v1',
@@ -314,5 +318,143 @@ test('Projection batch persist 重复发现保持单 Framework、多 Site 和 Ma
   );
   assert.equal(targetTopology.rows.length, 2);
   assert.ok(targetTopology.rows.every((row) => row.asset_id === asset.id && row.site_id && row.framework_instance_id));
+  await db.close();
+});
+
+test('云 CDN 证书事实会持久化为 Site 绑定，未匹配证书库时保留未纳管指纹', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db);
+  const assets = new PgAssetsRepository(db);
+  const asset = await assets.createServiceAsset('tenant-projection', {
+    address: 'cloud.aliyun.example', port: 443, protocol: 'HTTPS', assetKind: 'CLOUD_SERVICE', displayName: '证书绑定账号',
+    metadata: { pluginId: 'cloud.aliyun', credentialRef: 'credential://cert' },
+  });
+  const certificateResource = {
+    ...resourceWithCertificateEndpoint,
+    metadata: {
+      domainName: 'example.com',
+      certificate: {
+        providerCertificateId: 'cas-001',
+        fingerprintSha256: 'sha256:' + 'b'.repeat(64),
+        subject: 'CN=example.com',
+        issuer: 'CN=Example CA',
+        notBefore: '2026-01-01T00:00:00Z',
+        notAfter: '2027-01-01T00:00:00Z',
+      },
+    },
+  };
+  const projection = await new CloudResourceProjectionService(db).persist({ ...serviceAssetContext('tenant-projection', asset.id) }, certificateResource);
+  const binding = (await db.query<{ service_asset_id: string; site_asset_id: string; managed_target_id: string; host_id: string | null; certificate_version_id: string | null; unmanaged_certificate_fingerprint: string | null; status: string }>(
+    'select service_asset_id, site_asset_id, managed_target_id, host_id, certificate_version_id, unmanaged_certificate_fingerprint, status from pg_certificate_bindings where tenant_id=$1',
+    ['tenant-projection'],
+  )).rows[0];
+  assert.equal(binding?.service_asset_id, asset.id);
+  assert.equal(binding?.site_asset_id, projection.site.id);
+  assert.equal(binding?.managed_target_id, projection.managedTarget?.id);
+  assert.equal(binding?.host_id, null);
+  assert.equal(binding?.certificate_version_id, null);
+  assert.equal(binding?.unmanaged_certificate_fingerprint, 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB');
+  assert.equal(binding?.status, 'DISCOVERED');
+  await db.close();
+});
+
+test('云 CDN 证书指纹命中项目证书库，并由统一详情返回证书资产和版本关联', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db);
+  const assetsRepository = new PgAssetsRepository(db);
+  const certificatesRepository = new PgCertificatesRepository(db);
+  const asset = await assetsRepository.createServiceAsset('tenant-projection', {
+    address: 'cloud.aliyun.example', port: 443, protocol: 'HTTPS', assetKind: 'CLOUD_SERVICE', displayName: '已纳管证书账号',
+    metadata: { pluginId: 'cloud.aliyun', credentialRef: 'credential://managed-cert' },
+  });
+  const certificateAssetId = 'certasset_cloud_projection_managed';
+  const certificateVersionId = 'certver_cloud_projection_managed';
+  const fingerprint = 'C'.repeat(64);
+  await certificatesRepository.createAsset({
+    id: certificateAssetId,
+    tenantId: 'tenant-projection',
+    name: 'example.com',
+    primaryDomain: 'example.com',
+    sans: ['example.com'],
+    sourceType: 'manual',
+    status: 'active',
+    tags: [],
+    createdBy: 'test',
+    createdAt: '2026-08-16T00:00:00.000Z',
+    updatedAt: '2026-08-16T00:00:00.000Z',
+  });
+  await certificatesRepository.createVersion({
+    id: certificateVersionId,
+    tenantId: 'tenant-projection',
+    certificateAssetId,
+    versionNo: 1,
+    commonName: 'example.com',
+    sans: ['example.com'],
+    issuer: { raw: 'CN=Example CA', commonName: 'Example CA' },
+    subject: { raw: 'CN=example.com', commonName: 'example.com' },
+    serialNumber: 'cloud-projection-managed-serial',
+    notBefore: '2026-01-01T00:00:00.000Z',
+    notAfter: '2027-01-01T00:00:00.000Z',
+    fingerprintSha256: fingerprint,
+    publicKeyAlgorithm: 'RSA',
+    signatureAlgorithm: 'sha256WithRSAEncryption',
+    leafStorageRef: 'artifact://cloud-projection-managed',
+    chainCertificateRefs: [],
+    chainOrder: [],
+    chainDiagnostics: [],
+    chainStatus: 'valid',
+    deployable: true,
+    sourceType: 'manual',
+    status: 'active',
+    createdBy: 'test',
+    createdAt: '2026-08-16T00:00:00.000Z',
+  });
+  const resourceWithManagedCertificate = {
+    ...resourceWithCertificateEndpoint,
+    metadata: {
+      domainName: 'example.com',
+      certificate: {
+        providerCertificateId: 'cas-managed-001',
+      },
+    },
+  };
+  const projection = new CloudResourceProjectionService(db);
+  await projection.persist({ ...serviceAssetContext('tenant-projection', asset.id) }, resourceWithManagedCertificate);
+  const binding = (await db.query<{ certificate_version_id: string | null; unmanaged_certificate_fingerprint: string | null }>(
+    'select certificate_version_id, unmanaged_certificate_fingerprint from pg_certificate_bindings where tenant_id=$1',
+    ['tenant-projection'],
+  )).rows[0];
+  assert.equal(binding?.certificate_version_id, certificateVersionId);
+  assert.equal(binding?.unmanaged_certificate_fingerprint, null);
+
+  const detailService = new AssetsApplicationService(
+    assetsRepository,
+    undefined,
+    new PgBindingsRepository(assetsRepository, db),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    certificatesRepository,
+    undefined,
+    undefined,
+    undefined,
+    projection,
+  );
+  const detail = await detailService.getServiceAssetDetail('tenant-projection', asset.id) as Record<string, any>;
+  const site = detail.sites?.[0];
+  const certificate = site?.bindings?.[0]?.certificate;
+  assert.equal(certificate?.certificateAssetId, certificateAssetId);
+  assert.equal(certificate?.certificateVersionId, certificateVersionId);
+  assert.equal(detail.certificates?.[0]?.certificateAssetId, certificateAssetId);
+  assert.equal(detail.resourceCounts?.certificates, 1);
+
+  // 历史投影可能只有 Site 元数据；详情读取仍需恢复证书卡片并关联证书库版本。
+  await db.query('update pg_certificate_bindings set deleted_at=now() where tenant_id=$1', ['tenant-projection']);
+  const historicalDetail = await detailService.getServiceAssetDetail('tenant-projection', asset.id) as Record<string, any>;
+  const historicalCertificate = historicalDetail.sites?.[0]?.bindings?.[0]?.certificate;
+  assert.equal(historicalCertificate?.certificateAssetId, certificateAssetId);
+  assert.equal(historicalCertificate?.certificateVersionId, certificateVersionId);
   await db.close();
 });

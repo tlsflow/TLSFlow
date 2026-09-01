@@ -170,3 +170,45 @@ test('CDN 域名未声明证书更换端点时不伪造 ManagedTarget', () => {
   const endpoints = result[0]?.metadata?.certificateEndpoints;
   assert.equal(endpoints, undefined);
 });
+
+test('CDN 域名响应中的 CertId 会恢复证书事实和控制面目标', () => {
+  const result = normalizeDiscoveryResponse({
+    Domains: {
+      Domain: [{
+        DomainName: 'bound.example',
+        Coverage: 'domestic',
+        CertId: 'cas-cert-001',
+        CertificateFingerprint: 'sha256:' + 'a'.repeat(64),
+        Subject: 'CN=bound.example',
+        Issuer: 'CN=Example CA',
+        NotBefore: '2026-01-01T00:00:00Z',
+        NotAfter: '2027-01-01T00:00:00Z',
+      }],
+    },
+  }, descriptor);
+  const certificate = result[0]?.metadata?.certificate as Record<string, unknown> | undefined;
+  assert.equal(certificate?.providerCertificateId, 'cas-cert-001');
+  assert.equal(certificate?.fingerprintSha256, 'sha256:' + 'a'.repeat(64));
+  assert.deepEqual(result[0]?.metadata?.certificateEndpoints, [{
+    endpointKey: 'bound.example',
+    targetType: 'cloud.aliyun.cdn.certificate',
+    targetKey: 'bound.example',
+    bindingKey: 'bound.example',
+    supportedCapabilities: ['cloud.service.discover'],
+    executionLocations: ['CONTROL_PLANE'],
+    metadata: { providerCertificateId: 'cas-cert-001' },
+  }]);
+});
+
+test('CDN 域名仅返回 CertId 时仍保留域名证书关联键', () => {
+  const result = normalizeDiscoveryResponse({
+    Domains: {
+      Domain: [{ DomainName: 'cert-only.example', Coverage: 'overseas', CertId: 'cas-cert-only', CertName: 'cert-only.example' }],
+    },
+  }, descriptor);
+  const certificate = result[0]?.metadata?.certificate as Record<string, unknown> | undefined;
+  assert.equal(certificate?.providerCertificateId, 'cas-cert-only');
+  assert.equal(certificate?.domainName, 'cert-only.example');
+  const endpoints = result[0]?.metadata?.certificateEndpoints as Array<Record<string, unknown>> | undefined;
+  assert.equal(endpoints?.[0]?.targetKey, 'cert-only.example');
+});

@@ -56,6 +56,7 @@ import {
 import type { ManagedTargetContextResolver } from './managed-target-context.resolver.js';
 import type { PluginAgentLinkageService } from '../../plugins/application/plugin-agent-linkage.service.js';
 import type { CloudResourceProjectionService } from '../../providers/discovery/cloud-resource-projection.js';
+import type { ApplicationExecutionCompatibilityService } from './application-execution-compatibility.service.js';
 
 /** 应用主域名变更后的证书供应策略同步端口。 */
 export interface ApplicationCertificateDomainChangePort {
@@ -71,7 +72,24 @@ export interface ApplicationAssetQuotaPort {
   requireApplicationAssetQuota(nextCount: number): Promise<void>;
 }
 
+/** 云服务资产读取所需的最小插件版本解析能力。 */
+export interface AssetPluginVersionResolver {
+  getVersionForTenant(tenantId: string, pluginVersionId: string): Promise<{
+    id: string;
+    pluginId: string;
+    version: string;
+    runtime: string;
+    manifest: {
+      compatibility?: {
+        productFamilies?: string[];
+      };
+    };
+  }>;
+}
+
 export class AssetsApplicationService {
+  private executionCompatibility?: Pick<ApplicationExecutionCompatibilityService, 'recheckApplication' | 'recheckManagedTarget'>;
+
   constructor(
     private readonly repository: AssetsRepository = new PgAssetsRepository(),
     private readonly domain = new AssetsDomainService(),
@@ -86,6 +104,7 @@ export class AssetsApplicationService {
     private linkageService?: PluginAgentLinkageService,
     private applicationCertificateDomainChange?: ApplicationCertificateDomainChangePort,
     private cloudResourceProjection?: CloudResourceProjectionService,
+    private pluginVersionResolver?: AssetPluginVersionResolver,
   ) {}
 
   setPluginAgentLinkageService(service: PluginAgentLinkageService): void {
@@ -94,6 +113,10 @@ export class AssetsApplicationService {
 
   setApplicationCertificateDomainChangePort(port?: ApplicationCertificateDomainChangePort): void {
     this.applicationCertificateDomainChange = port;
+  }
+
+  setApplicationExecutionCompatibilityService(service?: Pick<ApplicationExecutionCompatibilityService, 'recheckApplication' | 'recheckManagedTarget'>): void {
+    this.executionCompatibility = service;
   }
 
   async getApplicationAssetLinkageStatus(tenantId: string, applicationAssetId: string) {
@@ -140,6 +163,10 @@ export class AssetsApplicationService {
 
   setCloudResourceProjectionService(projection: CloudResourceProjectionService): void {
     this.cloudResourceProjection = projection;
+  }
+
+  setPluginVersionResolver(resolver: AssetPluginVersionResolver): void {
+    this.pluginVersionResolver = resolver;
   }
 
   async createHost(tenantId: string, input: CreateHostDto) {
@@ -217,6 +244,7 @@ export class AssetsApplicationService {
     }
     const updated = await this.repository.updateServiceAsset(tenantId, serviceAssetId, synchronized);
     if (!updated) throw new AppError('SYSTEM_INTERNAL_ERROR', '更新 ServiceAsset 后未返回结果');
+    await this.executionCompatibility?.recheckApplication(tenantId, serviceAssetId);
     const previousDomain = normalizeApplicationDomain(current.sniName || current.address);
     const nextDomain = normalizeApplicationDomain(updated.sniName || updated.address);
     if (previousDomain !== nextDomain && this.applicationCertificateDomainChange) {
@@ -241,7 +269,12 @@ export class AssetsApplicationService {
 
   async listServiceAssets(tenantId: string, query: PageQuery) {
     const result = await this.repository.listServiceAssets(tenantId, query);
-    const hydrated = await Promise.all(result.items.map((item) => this.hydrateServiceAssetStrategy(tenantId, item)));
+    const hydrated = await Promise.all(result.items.map(async (item) => {
+      const strategyHydrated = await this.hydrateServiceAssetStrategy(tenantId, item);
+      return strategyHydrated.assetKind === 'CLOUD_SERVICE'
+        ? this.hydrateCloudServiceAsset(tenantId, strategyHydrated)
+        : strategyHydrated;
+    }));
     return { ...result, items: await this.hydrateCurrentCertificateProjection(tenantId, hydrated) };
   }
 
@@ -260,8 +293,11 @@ export class AssetsApplicationService {
     const detail = await this.repository.getServiceAssetDetail(tenantId, serviceAssetId);
     if (!detail) return detail;
     const hydrated = await this.hydrateServiceAssetStrategy(tenantId, detail);
-    const [withCertificate] = await this.hydrateCurrentCertificateProjection(tenantId, [hydrated]);
-    const contextual = await this.hydrateServiceAssetTargetContext(tenantId, withCertificate ?? hydrated);
+    const cloudHydrated = hydrated.assetKind === 'CLOUD_SERVICE'
+      ? await this.hydrateCloudServiceAsset(tenantId, hydrated)
+      : hydrated;
+    const [withCertificate] = await this.hydrateCurrentCertificateProjection(tenantId, [cloudHydrated]);
+    const contextual = await this.hydrateServiceAssetTargetContext(tenantId, withCertificate ?? cloudHydrated);
     const projected = contextual.assetKind === 'CLOUD_SERVICE'
       ? await this.hydrateCloudServiceDetail(tenantId, contextual)
       : contextual;
@@ -274,11 +310,61 @@ export class AssetsApplicationService {
     }
   }
 
+  /** 中文说明：列表和详情共用云服务资产投影，避免字段来源分叉。 */
+  private async hydrateCloudServiceAsset<T extends ServiceAssetDto>(tenantId: string, asset: T): Promise<T> {
+    const metadata = asRecord(asset.metadata);
+    const pluginVersionId = stringFromRecord(metadata, ['pluginVersionId', 'plugin_version_id']) ?? asset.pluginVersionId;
+    let plugin: Awaited<ReturnType<AssetPluginVersionResolver['getVersionForTenant']>> | undefined;
+    if (pluginVersionId && this.pluginVersionResolver) {
+      try {
+        plugin = await this.pluginVersionResolver.getVersionForTenant(tenantId, pluginVersionId);
+      } catch {
+        // 历史插件版本可能已经不可访问，资产仍应可读并保留原始标识。
+      }
+    }
+    const projection = this.cloudResourceProjection
+      ? await this.cloudResourceProjection.listForAsset(tenantId, asset.id, 'SERVICE_ASSET')
+      : undefined;
+    const productFamily = plugin?.manifest.compatibility?.productFamilies?.find((item) => typeof item === 'string' && item.trim())
+      ?? stringFromRecord(metadata, ['productFamily'])
+      ?? plugin?.pluginId
+      ?? 'cloud.service';
+    const apiVersion = readNestedString(metadata, ['request', 'apiVersion'])
+      ?? stringFromRecord(metadata, ['apiVersion']);
+    // 云服务通常没有可展示的厂商软件版本；此时用实际请求 API 版本作为稳定回退值。
+    const softwareVersion = stringFromRecord(metadata, ['softwareVersion', 'providerVersion', 'sdkVersion']) ?? apiVersion;
+    const siteCount = projection?.sites.length;
+    return {
+      ...asset,
+      productFamily,
+      controlVersion: plugin?.version ?? stringFromRecord(metadata, ['controlVersion']),
+      ...(softwareVersion ? { softwareVersion } : {}),
+      ...(pluginVersionId ? { pluginVersionId } : {}),
+      ...(plugin ? { pluginRuntime: plugin.runtime, pluginId: plugin.pluginId } : {}),
+      ...(apiVersion ? { apiVersion } : {}),
+      ...(siteCount !== undefined ? { siteCount, applicationAssetCount: siteCount } : {}),
+    } as T;
+  }
+
   /** 中文说明：云服务详情复用标准设备详情合同，只读取已持久化的 Framework/Site/ManagedTarget 和既有绑定。 */
   private async hydrateCloudServiceDetail(tenantId: string, asset: ServiceAssetDetailDto): Promise<ServiceAssetDetailDto> {
-    if (!this.cloudResourceProjection) return asset;
-    const projection = await this.cloudResourceProjection.listForAsset(tenantId, asset.id, 'SERVICE_ASSET');
-    const bindings = (await this.bindingsRepository?.listCertificateBindings(tenantId, { page: 1, pageSize: 5000, filter: {} }))?.items ?? [];
+    const projection = this.cloudResourceProjection
+      ? await this.cloudResourceProjection.listForAsset(tenantId, asset.id, 'SERVICE_ASSET')
+      : { frameworks: [], sites: [], managedTargets: [] };
+    const [bindingPage, versionPage, certificateAssetPage] = await Promise.all([
+      this.bindingsRepository?.listCertificateBindings(tenantId, { page: 1, pageSize: 5000, filter: {} }),
+      this.certificatesRepository?.listVersions({ page: 1, pageSize: 5000, filter: {} }, tenantId),
+      this.certificatesRepository?.listAssets({ page: 1, pageSize: 5000, filter: {} }, tenantId),
+    ]);
+    const bindings = bindingPage?.items ?? [];
+    const cloudProductFamily = asset.productFamily
+      ?? stringFromRecord(asset.metadata, ['productFamily'])
+      ?? asset.pluginId
+      ?? stringFromRecord(asset.metadata, ['pluginId'])
+      ?? 'cloud.service';
+    const cloudProvider = asset.pluginId ?? stringFromRecord(asset.metadata, ['provider', 'pluginId']);
+    const versions = new Map((versionPage?.items ?? []).map((version) => [version.id, version]));
+    const certificateAssets = new Map((certificateAssetPage?.items ?? []).map((asset) => [asset.id, asset]));
     const frameworkById = new Map(projection.frameworks.map((framework) => [String(framework.id), framework]));
     const targetBySiteId = new Map<string, Record<string, unknown>>();
     for (const target of projection.managedTargets) {
@@ -289,10 +375,33 @@ export class AssetsApplicationService {
       const siteId = String(site.id);
       const target = targetBySiteId.get(siteId);
       const framework = frameworkById.get(String(site.frameworkInstanceId ?? ''));
-      const siteBindings = bindings
-        .filter((binding) => binding.siteAssetId === siteId || Boolean(target?.id && binding.managedTargetId === target.id))
-        .map((binding) => standardSiteBinding(binding));
       const metadata = asRecord(site.metadata);
+      const siteCertificate = readCloudCertificateMetadata(metadata);
+      const matchedVersion = siteCertificate
+        ? matchCloudCertificateVersion(siteCertificate, [...versions.values()], [...certificateAssets.values()])
+        : undefined;
+      const persistedBindings = bindings
+        .filter((binding) => binding.siteAssetId === siteId
+          || binding.serviceAssetId === asset.id
+          || binding.domainName?.trim().toLowerCase() === String(site.siteName ?? '').trim().toLowerCase()
+          || binding.domain?.trim().toLowerCase() === String(site.siteName ?? '').trim().toLowerCase()
+          || Boolean(target?.id && binding.managedTargetId === target.id))
+        .map((binding) => {
+          if (binding.certificateVersionId || binding.targetCertificateVersionId) return binding;
+          const bindingCertificate = readCloudCertificateMetadata(asRecord(binding.metadata));
+          const bindingVersion = (bindingCertificate
+            ? matchCloudCertificateVersion(bindingCertificate, [...versions.values()], [...certificateAssets.values()])
+            : undefined) ?? matchedVersion;
+          if (!bindingVersion) return binding;
+          return { ...binding, certificateVersionId: bindingVersion.id, targetCertificateVersionId: bindingVersion.id };
+        });
+      // 中文说明：历史投影可能只有 Site 元数据而没有绑定行；只要插件明确返回证书事实，详情仍应恢复标准绑定视图。
+      const siteBindings = (persistedBindings.length > 0
+        ? persistedBindings
+        : siteCertificate
+          ? [cloudCertificateBinding({ id: siteId, siteKey: String(site.siteKey ?? siteId), siteName: String(site.siteName ?? siteId) }, target ?? {}, siteCertificate, matchedVersion)]
+          : [])
+        .map((binding) => standardSiteBinding(binding, versions, certificateAssets));
       return {
         id: siteId,
         siteAssetId: siteId,
@@ -317,7 +426,7 @@ export class AssetsApplicationService {
     return {
       ...asset,
       category: 'CLOUD',
-      productFamily: stringFromRecord(asset.metadata, ['productFamily', 'pluginId']) || 'cloud.service',
+      productFamily: cloudProductFamily,
       managementMethod: 'PLUGIN',
       managementAddress: asset.address,
       livenessStatus: status === 'ACTIVE' ? 'ONLINE' : 'UNKNOWN',
@@ -326,7 +435,7 @@ export class AssetsApplicationService {
         deviceId: asset.id,
         displayName: asset.displayName ?? asset.address,
         deviceType: 'CLOUD',
-        productFamily: stringFromRecord(asset.metadata, ['productFamily', 'pluginId']) || 'cloud.service',
+        productFamily: cloudProductFamily,
         managementMode: 'CONTROL_PLANE',
         status: status === 'ACTIVE' ? 'ONLINE' : 'UNKNOWN',
         updatedAt: asset.updatedAt,
@@ -336,7 +445,20 @@ export class AssetsApplicationService {
         { key: 'managementPort', value: asset.port, valueType: 'NUMBER' },
         { key: 'protocol', value: asset.protocol, valueType: 'TEXT' },
         { key: 'lastDiscoveredAt', value: asset.lastDiscoveredAt ?? null, valueType: 'DATETIME' },
-      ] }],
+      ] }, {
+        key: 'cloudService', fields: [
+          { key: 'provider', value: stringFromRecord(asset.metadata, ['provider']) ?? asset.pluginId ?? null, valueType: 'TEXT' },
+          { key: 'productFamily', value: cloudProductFamily, valueType: 'TEXT' },
+          { key: 'pluginId', value: cloudProvider ?? null, valueType: 'TEXT' },
+          { key: 'pluginVersion', value: asset.controlVersion ?? stringFromRecord(asset.metadata, ['controlVersion']) ?? null, valueType: 'TEXT' },
+          { key: 'pluginRuntime', value: asset.pluginRuntime ?? null, valueType: 'TEXT' },
+          { key: 'apiVersion', value: asset.apiVersion ?? null, valueType: 'TEXT' },
+          { key: 'softwareVersion', value: asset.softwareVersion ?? null, valueType: 'TEXT' },
+          { key: 'discoveryStatus', value: status, valueType: 'STATUS' },
+          { key: 'siteCount', value: sites.length, valueType: 'NUMBER' },
+          { key: 'region', value: stringFromRecord(asset.metadata, ['scopeName', 'region', 'cdnRegionName', 'cdnRegion']) ?? null, valueType: 'TEXT' },
+        ],
+      }],
       frameworks: projection.frameworks.map((framework) => ({
         id: framework.id,
         stableKey: framework.frameworkKey,
@@ -352,7 +474,7 @@ export class AssetsApplicationService {
       resourceCounts: { frameworks: projection.frameworks.length, sites: sites.length, certificates: certificates.length, logs: 0 },
       allowedActions: [],
       extension: { type: 'GENERIC', rawType: 'SERVICE_ASSET' },
-      extensionSummary: { serviceAssetId: asset.id, provider: stringFromRecord(asset.metadata, ['provider', 'pluginId']) },
+      extensionSummary: { serviceAssetId: asset.id, provider: cloudProvider },
     } as ServiceAssetDetailDto;
   }
 
@@ -369,6 +491,7 @@ export class AssetsApplicationService {
       metadata: { ...asset.metadata, deploymentStrategy: normalized },
       deploymentStrategy: normalized,
     });
+    await this.executionCompatibility?.recheckApplication(tenantId, serviceAssetId);
     return this.hydrateServiceAssetStrategy(tenantId, updated);
   }
 
@@ -409,11 +532,15 @@ export class AssetsApplicationService {
   }
 
   async updateManagedTarget(tenantId: string, managedTargetId: string, input: UpdateManagedTargetDto) {
-    return this.repository.updateManagedTarget(tenantId, managedTargetId, this.domain.normalizeManagedTargetPatch(input));
+    const updated = await this.repository.updateManagedTarget(tenantId, managedTargetId, this.domain.normalizeManagedTargetPatch(input));
+    await this.executionCompatibility?.recheckManagedTarget(tenantId, managedTargetId);
+    return updated;
   }
 
   async deleteManagedTarget(tenantId: string, managedTargetId: string) {
-    return this.repository.deleteManagedTarget(tenantId, managedTargetId);
+    const deleted = await this.repository.deleteManagedTarget(tenantId, managedTargetId);
+    await this.executionCompatibility?.recheckManagedTarget(tenantId, managedTargetId);
+    return deleted;
   }
 
   async listManagedTargets(tenantId: string, query: PageQuery) {
@@ -1030,21 +1157,35 @@ export class AssetsApplicationService {
   }
 	}
 
-function standardSiteBinding(binding: CertificateBindingDto): Record<string, unknown> {
+function standardSiteBinding(
+  binding: CertificateBindingDto,
+  versions: ReadonlyMap<string, CertificateVersionEntity> = new Map(),
+  certificateAssets: ReadonlyMap<string, CertificateAssetEntity> = new Map(),
+): Record<string, unknown> {
   const metadata = asRecord(binding.metadata);
   const configured = asRecord(metadata.configuredCertificate);
   const certificateVersionId = binding.certificateVersionId ?? binding.targetCertificateVersionId;
-  const certificate = certificateVersionId || binding.observedFingerprintSha256 || binding.desiredFingerprintSha256
+  const version = certificateVersionId ? versions.get(certificateVersionId) : undefined;
+  const certificateAsset = version ? certificateAssets.get(version.certificateAssetId) : undefined;
+  const cloudFacts = readCloudCertificateMetadata(metadata);
+  const observedFingerprint = binding.observedFingerprintSha256
+    ?? binding.unmanagedCertificateFingerprint
+    ?? stringFromRecord(metadata, ['fingerprintSha256', 'unmanagedCertificateFingerprint'])
+    ?? cloudFacts?.fingerprintSha256;
+  const certificate = certificateVersionId || observedFingerprint || binding.desiredFingerprintSha256 || cloudFacts?.providerCertificateId || cloudFacts?.providerCertificateName
     ? {
         id: certificateVersionId ?? binding.id,
+        certificateAssetId: version?.certificateAssetId,
         certificateVersionId,
-        name: stringFromRecord(configured, ['name', 'commonName']) || binding.domainName || binding.domain,
-        subject: stringFromRecord(configured, ['subject']),
-        issuer: stringFromRecord(configured, ['issuer']),
-        notBefore: stringFromRecord(configured, ['notBefore']),
-        notAfter: stringFromRecord(configured, ['notAfter']),
-        fingerprintSha256: binding.desiredFingerprintSha256 ?? binding.observedFingerprintSha256,
-        status: binding.status,
+        name: version?.commonName || certificateAsset?.name || stringFromRecord(configured, ['name', 'commonName'])
+          || cloudFacts?.providerCertificateName
+          || binding.domainName || binding.domain,
+        subject: version ? distinguishedNameText(version.subject) : stringFromRecord(configured, ['subject', 'Subject']) || cloudFacts?.subject,
+        issuer: version ? distinguishedNameText(version.issuer) : stringFromRecord(configured, ['issuer', 'Issuer']) || cloudFacts?.issuer,
+        notBefore: version?.notBefore || stringFromRecord(configured, ['notBefore', 'NotBefore']) || cloudFacts?.notBefore,
+        notAfter: version?.notAfter || stringFromRecord(configured, ['notAfter', 'NotAfter']) || cloudFacts?.notAfter,
+        fingerprintSha256: version?.fingerprintSha256 || binding.desiredFingerprintSha256 || observedFingerprint,
+        status: version ? version.status : binding.status === 'DISCOVERED' && !certificateVersionId ? 'UNMANAGED' : binding.status,
       }
     : undefined;
   return {
@@ -1059,10 +1200,123 @@ function standardSiteBinding(binding: CertificateBindingDto): Record<string, unk
       targetType: stringFromRecord(metadata, ['targetType']),
       targetKey: stringFromRecord(metadata, ['targetKey']),
     },
+    // 中文说明：保留脱敏后的发现元数据，供统一详情适配器兼容历史云绑定事实。
+    metadata,
     replacement: binding.managedTargetId
       ? { allowed: true, managedTargetId: binding.managedTargetId }
       : { allowed: false, reasonCode: 'MANAGED_TARGET_UNAVAILABLE' },
   };
+}
+
+type CloudCertificateMetadata = {
+  providerCertificateId?: string;
+  providerCertificateName?: string;
+  fingerprintSha256?: string;
+  subject?: string;
+  issuer?: string;
+  notBefore?: string;
+  notAfter?: string;
+  domainName?: string;
+};
+
+function readCloudCertificateMetadata(metadata: Record<string, unknown>): CloudCertificateMetadata | undefined {
+  const nested = asRecord(metadata.certificate ?? metadata.remoteCertificate);
+  const pick = (...keys: string[]) => keys
+    .map((key) => nested[key] ?? metadata[key])
+    .find((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    ?.trim();
+  const domainName = pick('domainName', 'DomainName', 'domain', 'address') || pick('certDomainName');
+  const certificateSubjectName = pick('subject', 'Subject') || pick('certDomainName') || domainName;
+  const certificate = {
+    providerCertificateId: pick('providerCertificateId', 'certId', 'CertId', 'certificateId', 'CertificateId'),
+    providerCertificateName: pick('providerCertificateName', 'certificateName', 'CertName', 'CertificateName', 'certName'),
+    fingerprintSha256: pick('fingerprintSha256', 'FingerprintSha256', 'sha256Fingerprint', 'Fingerprint'),
+    subject: certificateSubjectName ? (certificateSubjectName.startsWith('CN=') ? certificateSubjectName : `CN=${certificateSubjectName}`) : undefined,
+    issuer: pick('issuer', 'Issuer', 'certOrg'),
+    notBefore: pick('notBefore', 'NotBefore', 'certStartTime'),
+    notAfter: pick('notAfter', 'NotAfter', 'certExpireTime'),
+    domainName,
+  } satisfies CloudCertificateMetadata;
+  return Object.values(certificate).some(Boolean) ? certificate : undefined;
+}
+
+function matchCloudCertificateVersion(
+  certificate: CloudCertificateMetadata,
+  versions: readonly CertificateVersionEntity[],
+  assets: readonly CertificateAssetEntity[],
+): CertificateVersionEntity | undefined {
+  const fingerprint = normalizeCertificateFingerprint(certificate.fingerprintSha256);
+  if (fingerprint) {
+    const exact = versions.find((version) => normalizeCertificateFingerprint(version.fingerprintSha256) === fingerprint);
+    if (exact) return exact;
+  }
+  const domain = certificate.domainName?.trim().toLowerCase();
+  if (!domain) return undefined;
+  const assetById = new Map(assets.map((asset) => [asset.id, asset]));
+  const candidates = versions.filter((version) => {
+    if (version.status !== 'active') return false;
+    const asset = assetById.get(version.certificateAssetId);
+    return [version.commonName, asset?.primaryDomain, ...version.sans, ...(asset?.sans ?? [])]
+      .some((value) => typeof value === 'string' && value.trim().toLowerCase() === domain);
+  });
+  if (candidates.length === 1) return candidates[0];
+
+  const subject = certificate.subject?.match(/(?:^|,)\s*CN=([^,]+)/i)?.[1]?.trim() || certificate.subject?.trim();
+  const notBefore = certificate.notBefore ? Date.parse(certificate.notBefore) : Number.NaN;
+  const notAfter = certificate.notAfter ? Date.parse(certificate.notAfter) : Number.NaN;
+  if (!subject || Number.isNaN(notBefore) || Number.isNaN(notAfter)) return undefined;
+  const identityCandidates = versions.filter((version) => version.status === 'active'
+    && version.commonName?.trim().toLowerCase() === subject.toLowerCase()
+    && Date.parse(version.notBefore) === notBefore
+    && Date.parse(version.notAfter) === notAfter);
+  return identityCandidates.length === 1 ? identityCandidates[0] : undefined;
+}
+
+function cloudCertificateBinding(
+  site: { id: string; siteKey: string; siteName: string },
+  target: Record<string, unknown>,
+  certificate: CloudCertificateMetadata,
+  version?: CertificateVersionEntity,
+): CertificateBindingDto {
+  const metadata = {
+    ...(certificate.providerCertificateId ? { providerCertificateId: certificate.providerCertificateId } : {}),
+    ...(certificate.providerCertificateName ? { providerCertificateName: certificate.providerCertificateName } : {}),
+    ...(certificate.fingerprintSha256 ? { fingerprintSha256: certificate.fingerprintSha256 } : {}),
+    ...(certificate.subject ? { subject: certificate.subject } : {}),
+    ...(certificate.issuer ? { issuer: certificate.issuer } : {}),
+    ...(certificate.notBefore ? { notBefore: certificate.notBefore } : {}),
+    ...(certificate.notAfter ? { notAfter: certificate.notAfter } : {}),
+    targetType: target.targetType,
+    targetKey: target.targetKey,
+  };
+  return {
+    id: `cloud-binding:${site.id}`,
+    tenantId: '',
+    serviceInstanceId: String(target.frameworkInstanceId ?? site.id),
+    siteAssetId: site.id,
+    managedTargetId: typeof target.id === 'string' ? target.id : undefined,
+    domainName: certificate.domainName ?? site.siteName,
+    domain: certificate.domainName ?? site.siteName,
+    bindingKey: String(target.bindingKey ?? target.targetKey ?? site.siteKey),
+    bindingType: 'CUSTOM',
+    certificateVersionId: version?.id,
+    targetCertificateVersionId: version?.id,
+    observedFingerprintSha256: certificate.fingerprintSha256,
+    verifyMethod: 'CUSTOM',
+    discoverySource: 'PROVIDER',
+    status: 'DISCOVERED',
+    metadata,
+    createdAt: '',
+    updatedAt: '',
+    version: 1,
+  };
+}
+
+function distinguishedNameText(value: CertificateDistinguishedName | undefined): string | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const commonName = value.commonName;
+  if (typeof commonName === 'string' && commonName.trim()) return `CN=${commonName.trim()}`;
+  return Object.entries(value).filter(([, item]) => typeof item === 'string' && item.trim()).map(([key, item]) => `${key}=${String(item).trim()}`).join(', ') || undefined;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -1087,6 +1341,15 @@ function stringFromRecord(record: Record<string, unknown> | undefined, keys: rea
     if (typeof value === 'string' && value.trim()) return value.trim();
   }
   return undefined;
+}
+
+function readNestedString(record: Record<string, unknown>, path: readonly string[]): string | undefined {
+  let current: unknown = record;
+  for (const key of path) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return typeof current === 'string' && current.trim() ? current.trim() : undefined;
 }
 
 function resolveCurrentCertificateProjection(

@@ -144,12 +144,16 @@ export function normalizeDiscoveryResources(resources, descriptor) {
         ...(resource.metadata ?? {}),
         ...(cdnScope ? { cdnRegion: cdnScope.key, cdnRegionName: cdnScope.name, cdnRegionSource: cdnScope.source } : {}),
       });
+    const certificate = resourceType === 'cdn.domain'
+      ? readCertificateFacts(resource, metadata)
+      : undefined;
+    const certificateMetadata = certificate ? { ...metadata, certificate } : metadata;
     const certificateEndpoints = resourceType === 'cdn.domain'
-      ? declaredCertificateEndpoints(resource, shape, resourceId, metadata)
+      ? declaredCertificateEndpoints(resource, shape, resourceId, certificateMetadata, certificate)
       : undefined;
     const normalizedMetadata = certificateEndpoints && certificateEndpoints.length > 0
-      ? { ...metadata, certificateEndpoints }
-      : metadata;
+      ? { ...certificateMetadata, certificateEndpoints }
+      : certificateMetadata;
     const explicitTarget = readExplicitTarget(resource, resourceId, resourceType);
     return {
       apiVersion: 'gcac.cloud-service/v1',
@@ -168,7 +172,7 @@ export function normalizeDiscoveryResources(resources, descriptor) {
   });
 }
 
-function declaredCertificateEndpoints(resource, shape, resourceId, metadata) {
+function declaredCertificateEndpoints(resource, shape, resourceId, metadata, certificate) {
   const declared = metadata.certificateEndpoints;
   if (Array.isArray(declared) && declared.length > 0) return declared;
   if (resource.targetType !== undefined || resource.targetKey !== undefined) {
@@ -181,8 +185,80 @@ function declaredCertificateEndpoints(resource, shape, resourceId, metadata) {
       executionLocations: resource.executionLocations ?? ['CONTROL_PLANE'],
     }];
   }
+  // 阿里云 CDN 域名响应带有 CertId 时，旧版插件已证明该域名具备控制面证书目标。
+  // 这里仅声明发现到的真实目标，不代表插件已经具备证书写入能力。
+  if (shape === 'aliyun-cdn' && certificate) {
+    return [{
+      endpointKey: resourceId,
+      targetType: 'cloud.aliyun.cdn.certificate',
+      targetKey: resourceId,
+      bindingKey: resourceId,
+      supportedCapabilities: ['cloud.service.discover'],
+      executionLocations: ['CONTROL_PLANE'],
+      metadata: {
+        ...(certificate.providerCertificateId ? { providerCertificateId: certificate.providerCertificateId } : {}),
+      },
+    }];
+  }
   // 发现结果没有明确证书更换端点时，只投影 Framework/Site，禁止凭空制造 ManagedTarget。
   return [];
+}
+
+function readCertificateFacts(resource, metadata) {
+  const nested = resource.certificate ?? resource.Certificate ?? metadata.certificate;
+  const nestedRecord = nested && typeof nested === 'object' && !Array.isArray(nested) ? nested : {};
+  const providerCertificateId = firstString(
+    nestedRecord.providerCertificateId,
+    nestedRecord.certId,
+    nestedRecord.CertId,
+    nestedRecord.certificateId,
+    nestedRecord.CertificateId,
+    resource.CertId,
+    resource.CertificateId,
+    resource.ServerCertificateId,
+  );
+  const providerCertificateName = firstString(
+    nestedRecord.providerCertificateName,
+    nestedRecord.certificateName,
+    nestedRecord.CertName,
+    nestedRecord.CertificateName,
+    resource.CertName,
+    resource.CertificateName,
+  );
+  const fingerprintSha256 = firstString(
+    nestedRecord.fingerprintSha256,
+    nestedRecord.FingerprintSha256,
+    nestedRecord.Sha256Fingerprint,
+    nestedRecord.CertificateFingerprint,
+    nestedRecord.Fingerprint,
+    resource.FingerprintSha256,
+    resource.Sha256Fingerprint,
+    resource.CertificateFingerprint,
+    resource.Fingerprint,
+  );
+  const subject = textOrCommonName(nestedRecord.subject ?? nestedRecord.Subject ?? resource.Subject);
+  const issuer = textOrCommonName(nestedRecord.issuer ?? nestedRecord.Issuer ?? resource.Issuer);
+  const notBefore = firstString(nestedRecord.notBefore, nestedRecord.NotBefore, resource.NotBefore);
+  const notAfter = firstString(nestedRecord.notAfter, nestedRecord.NotAfter, nestedRecord.CertExpireTime, resource.NotAfter, resource.CertExpireTime);
+  const domainName = firstString(
+    nestedRecord.domainName,
+    nestedRecord.DomainName,
+    nestedRecord.CertDomain,
+    resource.DomainName,
+    resource.CertDomain,
+    metadata.domainName,
+  );
+  if (!providerCertificateId && !providerCertificateName && !fingerprintSha256 && !subject && !issuer && !notBefore && !notAfter) return undefined;
+  return compactMetadata({ providerCertificateId, providerCertificateName, fingerprintSha256, subject, issuer, notBefore, notAfter, domainName });
+}
+
+function textOrCommonName(value) {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const commonName = firstString(value.commonName, value.common_name, value.CN);
+    if (commonName) return `CN=${commonName}`;
+  }
+  return '';
 }
 
 function readExplicitTarget(resource, resourceId, resourceType) {

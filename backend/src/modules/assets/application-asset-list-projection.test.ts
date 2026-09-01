@@ -122,6 +122,118 @@ test('应用资产列表投影设备、框架和站点名称', async () => {
   assert.equal(devicePluginResult.items[0]?.targetBinding?.pluginVersionId, devicePluginVersionId);
 });
 
+test('云服务列表投影产品族、插件控制版本和真实站点数量', async () => {
+  const asset = {
+    id: 'cloud-service-asset',
+    tenantId: 'tenant-cloud',
+    assetKind: 'CLOUD_SERVICE',
+    address: 'cdn.aliyuncs.com',
+    addressType: 'HOSTNAME',
+    port: 443,
+    protocol: 'HTTPS',
+    discoverySource: 'PLUGIN',
+    status: 'ACTIVE',
+    tags: [],
+    metadata: {
+      provider: 'cloud.aliyun',
+      pluginId: 'cloud.aliyun',
+      pluginVersionId: 'plugin-version-cloud',
+      request: { apiVersion: '2018-05-10' },
+    },
+    createdAt: '2026-08-30T00:00:00.000Z',
+    updatedAt: '2026-08-30T00:00:00.000Z',
+    version: 1,
+  };
+  const repository = {
+    listServiceAssets: async () => ({ items: [asset], page: 1, pageSize: 20, total: 1 }),
+    getApplicationAssetTargetByApplicationAssetId: async () => undefined,
+  } as any;
+  const projection = {
+    listForAsset: async () => ({ devices: [], frameworks: [], managedTargets: [], sites: [{ id: 'site-1' }, { id: 'site-2' }] }),
+  } as any;
+  const plugins = {
+    getVersionForTenant: async () => ({
+      id: 'plugin-version-cloud',
+      pluginId: 'cloud.aliyun',
+      version: '2.0.26',
+      runtime: 'WORKFLOW_DSL',
+      manifest: { compatibility: { productFamilies: ['cloud.aliyun.cdn'] } },
+    }),
+  } as any;
+  const service = new AssetsApplicationService(repository);
+  service.setCloudResourceProjectionService(projection);
+  service.setPluginVersionResolver(plugins);
+
+  const result = await service.listServiceAssets('tenant-cloud', { page: 1, pageSize: 20, filter: {} });
+  const projected = result.items[0] as typeof asset & Record<string, unknown>;
+  assert.equal(projected.productFamily, 'cloud.aliyun.cdn');
+  assert.equal(projected.controlVersion, '2.0.26');
+  assert.equal(projected.siteCount, 2);
+  assert.equal(projected.applicationAssetCount, 2);
+  assert.equal(projected.softwareVersion, '2018-05-10');
+  assert.equal(projected.apiVersion, '2018-05-10');
+});
+
+test('云服务详情使用统一详情字段并显示厂商或 SDK 版本', async () => {
+  const asset = {
+    id: 'cloud-service-detail',
+    tenantId: 'tenant-cloud-detail',
+    assetKind: 'CLOUD_SERVICE',
+    address: 'cdn.aliyuncs.com',
+    addressType: 'HOSTNAME',
+    port: 443,
+    protocol: 'HTTPS',
+    discoverySource: 'PLUGIN',
+    status: 'ACTIVE',
+    tags: [],
+    metadata: {
+      provider: 'cloud.aliyun',
+      pluginId: 'cloud.aliyun',
+      pluginVersionId: 'plugin-version-detail',
+      sdkVersion: 'aliyun-sdk-cdn/3.7.2',
+      request: { apiVersion: '2018-05-10' },
+    },
+    createdAt: '2026-08-30T00:00:00.000Z',
+    updatedAt: '2026-08-30T00:00:00.000Z',
+    version: 1,
+  } as any;
+  const repository = {
+    getServiceAssetDetail: async () => asset,
+    getApplicationAssetTargetByApplicationAssetId: async () => undefined,
+  } as any;
+  const projection = {
+    listForAsset: async () => ({
+      devices: [],
+      frameworks: [{ id: 'framework-1', frameworkType: 'cloud.resource', frameworkKey: 'cdn', displayName: '阿里云 CDN', frameworkVersion: '2 resources', status: 'ACTIVE', rawFacts: {} }],
+      managedTargets: [],
+      sites: [{ id: 'site-1', siteName: 'example.com', siteKey: 'cloud.aliyun:cdn.domain:example.com', siteType: 'cloud.resource', status: 'ACTIVE', metadata: {} }],
+    }),
+  } as any;
+  const plugins = {
+    getVersionForTenant: async () => ({
+      id: 'plugin-version-detail',
+      pluginId: 'cloud.aliyun',
+      version: '2.0.26',
+      runtime: 'WORKFLOW_DSL',
+      manifest: { compatibility: { productFamilies: ['cloud.aliyun.cdn'] } },
+    }),
+  } as any;
+  const service = new AssetsApplicationService(repository);
+  service.setCloudResourceProjectionService(projection);
+  service.setPluginVersionResolver(plugins);
+
+  const detail = await service.getServiceAssetDetail('tenant-cloud-detail', asset.id) as any;
+  const fields = Object.fromEntries(detail.informationSections.flatMap((section: any) => section.fields.map((field: any) => [field.key, field.value])));
+  assert.equal(detail.productFamily, 'cloud.aliyun.cdn');
+  assert.equal(detail.controlVersion, '2.0.26');
+  assert.equal(detail.siteCount, 1);
+  assert.equal(fields.productFamily, 'cloud.aliyun.cdn');
+  assert.equal(fields.pluginVersion, '2.0.26');
+  assert.equal(fields.softwareVersion, 'aliyun-sdk-cdn/3.7.2');
+  assert.equal(fields.siteCount, 1);
+  assert.equal(fields.apiVersion, '2018-05-10');
+});
+
 test('应用资产卡片为旧设备插件版本选择当前带 Logo 的版本', async () => {
   const database = new PgliteDatabase();
   await runMigrations(database, 'src/database/migrations');

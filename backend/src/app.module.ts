@@ -333,7 +333,19 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const gatewaysService = new GatewaysApplicationService(gatewayPersistence.gateways, gatewayPersistence.targetHistory);
   // Gateway 只通过独立 Relay Agent 提供 TCP 中继；控制面不再装配 GatewayTask 队列、结果 sink 或业务探测。
   const livenessService = new LivenessApplicationService(appDb);
-  const assetsService = dependencies.assets ?? new AssetsApplicationService(new PgAssetsRepository(appDb));
+  const assetsRepository = new PgAssetsRepository(appDb);
+  // 中文说明：统一资产详情必须能读取云服务的 Site 绑定和项目证书库；只注入基础资产仓储会把云证书降级成“未绑定”。
+  const assetsService = dependencies.assets ?? new AssetsApplicationService(
+    assetsRepository,
+    undefined,
+    new PgBindingsRepository(assetsRepository, appDb),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    certificateServices.certificates.getRepository(),
+  );
   app.setResource('assetsService', assetsService);
   const licensingService = app.getResource<LicensingApplicationService>('licensingService');
   if (licensingService && 'setLicensingService' in assetsService && typeof assetsService.setLicensingService === 'function') {
@@ -566,6 +578,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   cloudAccountAssetsService.setBindingProvisioner(new CloudAccountAssetBindingProvisioner(unifiedPluginsService));
   const cloudResourceProjectionService = new CloudResourceProjectionService(appDb);
   assetsService.setCloudResourceProjectionService(cloudResourceProjectionService);
+  assetsService.setPluginVersionResolver(unifiedPluginsService);
   const cloudPluginActionExecutor = new PluginRunnerExecutorAdapter({
     ...(pluginRunnerDependencies ?? {}),
     executionGrants: security.grants,
@@ -1243,6 +1256,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('automationScheduler', automationScheduler);
   app.setResource('automationEventDelivery', automationEventDelivery);
   const applicationExecutionCompatibility = new ApplicationExecutionCompatibilityService(appDb);
+  app.setResource('applicationExecutionCompatibility', applicationExecutionCompatibility);
+  assetsService.setApplicationExecutionCompatibilityService(applicationExecutionCompatibility);
   deploymentPlans.getApplicationService().setApplicationExecutionCompatibilityService(applicationExecutionCompatibility);
   new AssetsController(
     security,
@@ -1375,6 +1390,13 @@ export function createApp(dependencies: AppDependencies = {}): App {
           ? await userPluginDirectoryImporter.importForTenant(tenantId)
           : { versions: [], attempted: 0, imported: 0, skipped: 0, failed: 0 };
         const refreshedVersions = [...versions, ...userPluginRefresh.versions];
+        const changedPluginIds = buildPluginRefreshChanges(
+          beforeVersions.map(toPluginRefreshVersionSnapshot),
+          refreshedVersions.map(toPluginRefreshVersionSnapshot),
+        ).filter((change) => change.changeType !== 'UNCHANGED').map((change) => change.pluginId);
+        for (const pluginId of changedPluginIds) {
+          await applicationExecutionCompatibility.recheckPluginForAssociatedTenants(pluginId, tenantId);
+        }
         const projection = await agentsService.reprojectLatestCapabilitySnapshots(tenantId);
         const afterVersions = refreshedVersions.map(toPluginRefreshVersionSnapshot);
         return {
@@ -1682,8 +1704,21 @@ export async function createAppAsync(
   const unifiedPlugins = app.getResource<UnifiedPluginsApplicationService>('unifiedPluginsService');
   const pluginWorkflowPublisher = app.getResource<PluginWorkflowPublisherService>('pluginWorkflowPublisher');
   const builtinPluginRegistry = app.getResource<BuiltinPluginRegistry>('builtinPluginRegistry');
+  const applicationExecutionCompatibility = app.getResource<ApplicationExecutionCompatibilityService>('applicationExecutionCompatibility');
   if (unifiedPlugins && pluginWorkflowPublisher) {
-    await initializeBuiltinPlugins(unifiedPlugins, pluginWorkflowPublisher, { registry: builtinPluginRegistry });
+    const beforeBuiltinVersions = typeof unifiedPlugins.listBuiltinVersions === 'function'
+      ? await unifiedPlugins.listBuiltinVersions()
+      : [];
+    const installed = await initializeBuiltinPlugins(unifiedPlugins, pluginWorkflowPublisher, { registry: builtinPluginRegistry });
+    if (applicationExecutionCompatibility) {
+      const changedPluginIds = buildPluginRefreshChanges(
+        beforeBuiltinVersions.map(toPluginRefreshVersionSnapshot),
+        installed.map(toPluginRefreshVersionSnapshot),
+      ).filter((change) => change.changeType !== 'UNCHANGED').map((change) => change.pluginId);
+      for (const pluginId of changedPluginIds) {
+        await applicationExecutionCompatibility.recheckPluginForAssociatedTenants(pluginId);
+      }
+    }
   }
   // 每次后端启动时补全宿主默认证书产物配置文件（模板）；幂等且不允许删除。
   const certificateServices = app.getResource<CertificateServices>('certificateServices');
