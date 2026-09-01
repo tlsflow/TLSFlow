@@ -14,6 +14,8 @@ export const caTrustDomainIsolationLevels = ['standard', 'strict', 'regulated'] 
 export const providerActionBindingStatuses = ['draft', 'active', 'revalidation_required', 'disabled'] as const;
 export const providerActionExecutionLocations = ['control_plane', 'agent'] as const;
 export const certificatePolicyStatuses = ['active', 'disabled'] as const;
+export const certificateProfilePurposes = ['https_server'] as const;
+export const certificateProfileProviderTypes = ['acme', 'internal_ca'] as const;
 export const keyCustodyModes = ['local_agent', 'managed_secret', 'external_key', 'device_local'] as const;
 export const keyBackendTypes = ['file', 'secret', 'cng', 'tpm', 'hsm', 'kms', 'pkcs11', 'device'] as const;
 export const keyExportabilities = ['non_exportable', 'exportable', 'unknown'] as const;
@@ -32,6 +34,8 @@ export type CaTrustDomainIsolationLevel = typeof caTrustDomainIsolationLevels[nu
 export type ProviderActionBindingStatus = typeof providerActionBindingStatuses[number];
 export type ProviderActionExecutionLocation = typeof providerActionExecutionLocations[number];
 export type CertificatePolicyStatus = typeof certificatePolicyStatuses[number];
+export type CertificateProfilePurpose = typeof certificateProfilePurposes[number];
+export type CertificateProfileProviderType = typeof certificateProfileProviderTypes[number];
 export type KeyCustodyMode = typeof keyCustodyModes[number];
 export type KeyBackendType = typeof keyBackendTypes[number];
 export type KeyExportability = typeof keyExportabilities[number];
@@ -297,8 +301,28 @@ export interface CertificateProfileEntity {
   id: string;
   tenantId: string;
   name: string;
+  /** 证书用途；首期专注 HTTPS 服务端证书。 */
+  purpose: CertificateProfilePurpose;
+  /** 由后端自动选择的签发来源。 */
+  providerType: CertificateProfileProviderType;
+  providerId?: string;
+  certificateAuthorityId?: string;
+  /** ACME Provider 使用的目录预设，保存到 Profile 选择快照。 */
+  acmeProviderProfileId?: string;
+  /** ACME DNS-01 使用的 DNS Provider。 */
+  dnsProviderId?: string;
+  /** 仅保存 SecretRef，不保存凭据明文。 */
+  credentialRef?: string;
   securityDomain: string;
   trustDomainId?: string;
+  /** 空数组表示匹配所有域名；支持精确域名和 *.example.com。 */
+  domainPatterns: string[];
+  /** 目标必须声明的能力；空数组表示不限制。 */
+  targetCapabilities: string[];
+  /** 无显式 Provider/CA 时，仅默认 Profile 参与自动解析。 */
+  isDefault: boolean;
+  /** 仅用于管理员整理候选，不用于隐式挑选。 */
+  priority: number;
   status: 'active' | 'disabled';
   currentVersion: number;
   createdAt: string;

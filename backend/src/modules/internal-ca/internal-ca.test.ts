@@ -89,6 +89,9 @@ test('通用 CA 路由同时暴露宿主 ACME 生命周期和运营合同', () =
   assert.equal(paths.includes('/api/v1/certificate-rotations'), true);
   assert.equal(paths.includes('/api/v1/certificate-rotations/:id/install-action'), true);
   assert.equal(paths.includes('/api/v1/certificate-rotations/:id/tls-verify'), true);
+  assert.equal(paths.includes('/api/v1/ca-trust-domains/:id'), true);
+  assert.equal(paths.includes('/api/v1/certificate-profiles/:id'), true);
+  assert.equal(routes.some((route) => route.method === 'PATCH' && route.path === '/api/v1/certificate-authorities/:id'), true);
   const publicCrlRoute = routes.find((route) => route.path === '/api/v1/public/ca-crl/:tenantId/:caId');
   assert.equal(publicCrlRoute?.responseContentType, 'application/pkix-crl');
   assert.equal(paths.some((path) => path.includes('certificate-acme')), false);
@@ -243,6 +246,272 @@ test('外部 Provider 可先创建，未绑定固定动作时申请被明确拒�
         && 'errorCode' in error
         && error.errorCode === 'CA_PROVIDER_ACTION_UNBOUND',
     );
+  } finally {
+    await db.close();
+  }
+});
+
+test('证书 Profile 自动解析严格要求唯一匹配，并固定当前版本', async () => {
+  const { db, service } = await createFixture();
+  try {
+    const tenantId = 'tenant-profile-resolution';
+    const provider = await service.createProvider(tenantId, {
+      name: '生产 Internal CA Provider',
+      type: 'gcac_builtin',
+      deploymentMode: 'builtin',
+      runtimePlatform: 'embedded',
+      availabilityMode: 'single',
+    }, 'user-admin');
+    const authorityPreview = service.previewAuthority({
+      topologyMode: 'root_only',
+      deploymentMode: 'builtin',
+      runtimePlatform: 'embedded',
+      availabilityMode: 'single',
+      keyBackend: 'secret',
+    });
+    const authority = await service.createAuthority(tenantId, {
+      providerId: provider.id,
+      name: '生产 Internal CA',
+      commonName: '生产 Internal CA',
+      securityDomain: 'production',
+      topologyMode: 'root_only',
+      deploymentMode: 'builtin',
+      runtimePlatform: 'embedded',
+      availabilityMode: 'single',
+      keyBackend: 'secret',
+      confirmationToken: authorityPreview.confirmationToken,
+      actorId: 'user-admin',
+    });
+    const production = await service.createProfile(tenantId, {
+      name: '生产 Internal CA 默认 Profile',
+      securityDomain: 'production',
+      providerType: 'internal_ca',
+      providerId: provider.id,
+      certificateAuthorityId: authority[0]!.id,
+      domainPatterns: ['*.example.test'],
+      targetCapabilities: ['key.generate_csr', 'certificate.deploy'],
+      isDefault: true,
+      actorId: 'user-admin',
+    });
+    const resolved = await service.resolveCertificateProfile({
+      tenantId,
+      purpose: 'https_server',
+      primaryDomain: 'web.example.test',
+      securityDomain: 'production',
+      targetCapabilities: ['key.generate_csr', 'certificate.deploy'],
+    });
+    assert.equal(resolved.profile.id, production.profile.id);
+    assert.equal(resolved.version.id, production.version.id);
+    assert.equal(resolved.matchedBy.primaryDomain, 'web.example.test');
+
+    await assert.rejects(
+      () => service.resolveCertificateProfile({
+        tenantId,
+        purpose: 'https_server',
+        primaryDomain: 'web.example.test',
+        targetCapabilities: ['key.generate_csr', 'certificate.deploy'],
+      }),
+      (error: unknown) => error instanceof Error && 'errorCode' in error && error.errorCode === 'CERTIFICATE_PROFILE_RESOLUTION_FAILED',
+    );
+
+    await assert.rejects(
+      () => service.resolveCertificateProfile({
+        tenantId,
+        purpose: 'https_server',
+        primaryDomain: 'web.example.test',
+        securityDomain: 'staging',
+        targetCapabilities: ['key.generate_csr', 'certificate.deploy'],
+      }),
+      (error: unknown) => error instanceof Error && 'errorCode' in error && error.errorCode === 'CERTIFICATE_PROFILE_RESOLUTION_FAILED',
+    );
+
+    const second = await service.createProfile(tenantId, {
+      name: '生产 Internal CA 第二默认 Profile',
+      securityDomain: 'production',
+      providerType: 'internal_ca',
+      providerId: provider.id,
+      certificateAuthorityId: authority[0]!.id,
+      domainPatterns: ['*.example.test'],
+      targetCapabilities: ['key.generate_csr', 'certificate.deploy'],
+      isDefault: true,
+      actorId: 'user-admin',
+    });
+    await assert.rejects(
+      () => service.resolveCertificateProfile({
+        tenantId,
+        purpose: 'https_server',
+        primaryDomain: 'web.example.test',
+        securityDomain: 'production',
+        targetCapabilities: ['key.generate_csr', 'certificate.deploy'],
+      }),
+      (error: unknown) => error instanceof Error && 'errorCode' in error && error.errorCode === 'CERTIFICATE_PROFILE_RESOLUTION_FAILED',
+    );
+
+    await db.exec(`update pg_certificate_profiles set status = 'disabled', payload = jsonb_set(payload, '{status}', '"disabled"'::jsonb) where id = '${second.profile.id}'`);
+    await db.exec(`update pg_certificate_profiles set current_version = 9, payload = jsonb_set(payload, '{currentVersion}', '9'::jsonb) where id = '${production.profile.id}'`);
+    await assert.rejects(
+      () => service.resolveCertificateProfile({
+        tenantId,
+        purpose: 'https_server',
+        primaryDomain: 'web.example.test',
+        securityDomain: 'production',
+        targetCapabilities: ['key.generate_csr', 'certificate.deploy'],
+      }),
+      (error: unknown) => error instanceof Error && 'errorCode' in error && error.errorCode === 'CERTIFICATE_PROFILE_RESOLUTION_FAILED',
+    );
+  } finally {
+    await db.close();
+  }
+});
+
+test('删除证书 Profile 和未使用的信任域只停用记录并保留历史版本', async () => {
+  const { db, service } = await createFixture();
+  try {
+    const tenantId = 'tenant-profile-trust-domain-delete';
+    const defaultDomain = await service.createTrustDomain(tenantId, {
+      name: '默认信任域', purpose: 'production_tls', isDefault: true,
+    }, 'user-admin');
+    const deletableDomain = await service.createTrustDomain(tenantId, {
+      name: '待删除信任域', purpose: 'production_tls',
+    }, 'user-admin');
+    const profile = await service.createProfile(tenantId, {
+      name: '待删除 HTTPS Profile',
+      trustDomainId: deletableDomain.id,
+      securityDomain: 'production',
+      actorId: 'user-admin',
+    });
+
+    await assert.rejects(
+      () => service.deleteTrustDomain(tenantId, deletableDomain.id, 'user-admin'),
+      (error: unknown) => error instanceof Error && 'errorCode' in error && error.errorCode === 'RESOURCE_VERSION_CONFLICT',
+    );
+    assert.deepEqual(await service.deleteProfile(tenantId, profile.profile.id, 'user-admin'), { id: profile.profile.id, deleted: true });
+    const savedProfile = (await service.listProfiles(tenantId)).find((entry) => entry.profile.id === profile.profile.id);
+    assert.equal(savedProfile?.profile.status, 'disabled');
+    assert.equal(savedProfile?.versions[0]?.id, profile.version.id);
+    await assert.rejects(
+      () => service.createProfileVersion(tenantId, profile.profile.id, {}, 'user-admin'),
+      (error: unknown) => error instanceof Error && 'errorCode' in error && error.errorCode === 'RESOURCE_VERSION_CONFLICT',
+    );
+
+    assert.deepEqual(await service.deleteTrustDomain(tenantId, deletableDomain.id, 'user-admin'), { id: deletableDomain.id, deleted: true });
+    const savedDomain = (await service.listTrustDomains(tenantId)).find((item) => item.id === deletableDomain.id);
+    assert.equal(savedDomain?.status, 'retired');
+    await assert.rejects(
+      () => service.deleteTrustDomain(tenantId, defaultDomain.id, 'user-admin'),
+      (error: unknown) => error instanceof Error && 'errorCode' in error && error.errorCode === 'CA_TRUST_DOMAIN_STATE_INVALID',
+    );
+  } finally {
+    await db.close();
+  }
+});
+
+test('更新 CA 管理配置会同步关联 Profile 的信任域并保留不可变身份', async () => {
+  const { db, service } = await createFixture();
+  try {
+    const tenantId = 'tenant-authority-management-update';
+    const provider = await service.createProvider(tenantId, {
+      name: 'Internal CA Provider',
+      type: 'gcac_builtin',
+      deploymentMode: 'builtin',
+      runtimePlatform: 'embedded',
+      availabilityMode: 'single',
+    }, 'user-admin');
+    const sourceDomain = await service.createTrustDomain(tenantId, {
+      name: '源信任域', purpose: 'production_tls', isDefault: true,
+    }, 'user-admin');
+    const targetDomain = await service.createTrustDomain(tenantId, {
+      name: '目标信任域', purpose: 'regulated_tls', isolationLevel: 'regulated',
+    }, 'user-admin');
+    const preview = service.previewAuthority({
+      topologyMode: 'root_only',
+      deploymentMode: 'builtin',
+      runtimePlatform: 'embedded',
+      availabilityMode: 'single',
+      keyBackend: 'secret',
+    });
+    const [authority] = await service.createAuthority(tenantId, {
+      providerId: provider.id,
+      trustDomainId: sourceDomain.id,
+      name: '待编辑根 CA',
+      commonName: '待编辑根 CA',
+      securityDomain: 'production',
+      topologyMode: 'root_only',
+      deploymentMode: 'builtin',
+      runtimePlatform: 'embedded',
+      availabilityMode: 'single',
+      keyBackend: 'secret',
+      confirmationToken: preview.confirmationToken,
+      actorId: 'user-admin',
+    });
+    const profile = await service.createProfile(tenantId, {
+      name: '待关联 Internal CA Profile',
+      trustDomainId: sourceDomain.id,
+      securityDomain: 'production',
+      providerType: 'internal_ca',
+      providerId: provider.id,
+      certificateAuthorityId: authority!.id,
+      actorId: 'user-admin',
+    });
+
+    const updated = await service.updateAuthority(tenantId, authority!.id, {
+      name: '已编辑根 CA',
+      trustDomainId: targetDomain.id,
+      securityDomain: 'regulated',
+      certificateProfileId: profile.profile.id,
+    }, 'user-admin', undefined, 'https://gcac.example.test');
+
+    assert.equal(updated.name, '已编辑根 CA');
+    assert.equal(updated.trustDomainId, targetDomain.id);
+    assert.equal(updated.securityDomain, 'regulated');
+    assert.equal(updated.crlDistributionPoint, `https://gcac.example.test/api/v1/public/ca-crl/${tenantId}/${authority!.id}`);
+    assert.equal(updated.providerId, provider.id);
+    assert.equal(updated.role, authority!.role);
+    assert.equal(updated.subjectCommonName, authority!.subjectCommonName);
+    const savedProfile = (await service.listProfiles(tenantId)).find((entry) => entry.profile.id === profile.profile.id)?.profile;
+    assert.equal(savedProfile?.certificateAuthorityId, authority!.id);
+    assert.equal(savedProfile?.trustDomainId, targetDomain.id);
+    const listedAuthority = (await service.listAuthorities(tenantId, 'https://gcac.example.test')).find((item) => item.id === authority!.id);
+    assert.equal(listedAuthority?.crlDistributionPoint, `https://gcac.example.test/api/v1/public/ca-crl/${tenantId}/${authority!.id}`);
+  } finally {
+    await db.close();
+  }
+});
+
+test('外部 CA 也使用 GCAC 托管的公开 CRL 服务地址', async () => {
+  const { db, service } = await createFixture();
+  try {
+    const tenantId = 'tenant-external-authority-public-crl';
+    const provider = await service.createProvider(tenantId, {
+      name: 'External CA Provider',
+      type: 'plugin',
+      deploymentMode: 'external',
+      runtimePlatform: 'external',
+      availabilityMode: 'single',
+      configuration: { providerKind: 'test_external_ca' },
+    }, 'user-admin');
+    const preview = service.previewAuthority({
+      topologyMode: 'external_managed',
+      deploymentMode: 'external',
+      runtimePlatform: 'external',
+      availabilityMode: 'single',
+      keyBackend: 'device',
+    });
+    const [authority] = await service.createAuthority(tenantId, {
+      providerId: provider.id,
+      name: 'External CA',
+      commonName: 'External CA',
+      securityDomain: 'production',
+      topologyMode: 'external_managed',
+      deploymentMode: 'external',
+      runtimePlatform: 'external',
+      availabilityMode: 'single',
+      keyBackend: 'device',
+      confirmationToken: preview.confirmationToken,
+      actorId: 'user-admin',
+    }, undefined, 'https://gcac.example.test');
+
+    assert.equal(authority?.crlDistributionPoint, `https://gcac.example.test/api/v1/public/ca-crl/${tenantId}/${authority!.id}`);
   } finally {
     await db.close();
   }

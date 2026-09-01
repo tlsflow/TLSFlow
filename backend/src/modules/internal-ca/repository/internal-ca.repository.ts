@@ -350,6 +350,15 @@ export class InternalCaRepository {
     });
   }
 
+  /** 同一管理员操作内同步 CA 与 Profile 关联，避免页面编辑留下半完成的签发配置。 */
+  async saveAuthorityWithProfiles(authority: CertificateAuthorityEntity, profiles: CertificateProfileEntity[]): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const repository = new InternalCaRepository(tx);
+      await repository.saveAuthority(authority);
+      for (const profile of profiles) await repository.saveProfile(profile);
+    });
+  }
+
   getAuthority(tenantId: string, id: string): Promise<CertificateAuthorityEntity | undefined> {
     return this.get('pg_certificate_authorities', tenantId, id);
   }
@@ -395,8 +404,19 @@ export class InternalCaRepository {
     return this.upsert('pg_certificate_profiles', entity.id, entity, {
       tenant_id: entity.tenantId,
       name: entity.name,
+      purpose: entity.purpose,
+      provider_type: entity.providerType,
+      provider_id: entity.providerId ?? null,
+      certificate_authority_id: entity.certificateAuthorityId ?? null,
+      acme_provider_profile_id: entity.acmeProviderProfileId ?? null,
+      dns_provider_id: entity.dnsProviderId ?? null,
+      credential_ref: entity.credentialRef ?? null,
       security_domain: entity.securityDomain,
       trust_domain_id: entity.trustDomainId ?? null,
+      domain_patterns: entity.domainPatterns,
+      target_capabilities: entity.targetCapabilities,
+      is_default: entity.isDefault,
+      priority: entity.priority,
       status: entity.status,
       current_version: entity.currentVersion,
     });
@@ -675,7 +695,7 @@ export class InternalCaRepository {
   }
 }
 
-const jsonColumns = new Set(['payload', 'capabilities', 'configuration', 'rules', 'target_scope', 'root_policy', 'trust_policy', 'evidence', 'warnings', 'sans', 'capability_evidence']);
+const jsonColumns = new Set(['payload', 'capabilities', 'configuration', 'rules', 'target_scope', 'root_policy', 'trust_policy', 'evidence', 'warnings', 'sans', 'capability_evidence', 'domain_patterns', 'target_capabilities']);
 
 interface RequestRow {
   [key: string]: unknown;

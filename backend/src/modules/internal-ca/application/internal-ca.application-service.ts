@@ -62,6 +62,8 @@ import {
   type CertificatePolicyVersionEntity,
   type EffectiveCertificatePolicySnapshot,
   type CertificateProfileEntity,
+  type CertificateProfilePurpose,
+  type CertificateProfileProviderType,
   type CertificateProfileRules,
   type CertificateProfileVersionEntity,
   type CertificateRequestEntity,
@@ -170,10 +172,35 @@ export interface CreateAuthorityInput extends PreviewCaInput {
   actorId: string;
 }
 
+/**
+ * CA 证书主题、密钥、层级和 Provider 在创建后不可变；这里只允许修改后续签发使用的管理配置。
+ * certificateProfileIds 表示将活动 Internal CA Profile 关联到当前 CA，未提供时保持原有关联不变。
+ */
+export interface UpdateCertificateAuthorityInput {
+  name?: string;
+  trustDomainId?: string;
+  securityDomain?: string;
+  /** 当前 CA 唯一使用的 Internal CA Profile；传 null 表示清除选择。 */
+  certificateProfileId?: string | null;
+  /** 兼容旧版多 Profile 请求，新调用方应使用 certificateProfileId。 */
+  certificateProfileIds?: string[];
+}
+
 export interface CreateProfileInput {
   name: string;
   securityDomain: string;
   trustDomainId?: string;
+  purpose?: CertificateProfilePurpose;
+  providerType?: CertificateProfileProviderType;
+  providerId?: string;
+  certificateAuthorityId?: string;
+  acmeProviderProfileId?: string;
+  dnsProviderId?: string;
+  credentialRef?: string;
+  domainPatterns?: string[];
+  targetCapabilities?: string[];
+  isDefault?: boolean;
+  priority?: number;
   rules?: Partial<CertificateProfileRules>;
   actorId: string;
 }
@@ -1287,6 +1314,37 @@ export class InternalCaApplicationService {
     return updated;
   }
 
+  async deleteTrustDomain(tenantId: string, id: string, actorId: string, context?: RequestContext): Promise<{ id: string; deleted: true }> {
+    const domain = await this.requireTrustDomain(tenantId, id);
+    if (domain.status === 'retired') return { id: domain.id, deleted: true };
+    if (domain.isDefault) {
+      throw new AppError('CA_TRUST_DOMAIN_STATE_INVALID', '默认 CA 信任域不能直接删除，请先指定其他活动信任域为默认域', { trustDomainId: domain.id });
+    }
+    const [authorities, profiles] = await Promise.all([
+      this.repository.listAuthorities(tenantId),
+      this.repository.listProfiles(tenantId),
+    ]);
+    const authorityIds = authorities
+      .filter((authority) => authority.trustDomainId === domain.id && authority.status !== 'retired')
+      .map((authority) => authority.id);
+    const profileIds = profiles
+      .filter((profile) => profile.trustDomainId === domain.id && profile.status === 'active')
+      .map((profile) => profile.id);
+    if (authorityIds.length > 0 || profileIds.length > 0) {
+      throw new AppError('RESOURCE_VERSION_CONFLICT', 'CA 信任域仍被活动的证书机构或证书 Profile 使用，不能删除', {
+        trustDomainId: domain.id,
+        authorityIds,
+        profileIds,
+      });
+    }
+    const now = new Date().toISOString();
+    await this.repository.saveTrustDomain({ ...domain, status: 'retired', isDefault: false, updatedAt: now });
+    await this.audit('internal_ca.trust_domain.deleted', actorId, 'certificate_authority.delete', 'ca_trust_domain', domain.id, 'critical', context, {
+      softDeleted: true,
+    });
+    return { id: domain.id, deleted: true };
+  }
+
   previewAuthority(input: PreviewCaInput): CaRiskPreview {
     const warnings: string[] = [];
     const blockers: string[] = [];
@@ -1308,7 +1366,12 @@ export class InternalCaApplicationService {
     };
   }
 
-  async createAuthority(tenantId: string, input: CreateAuthorityInput, context?: RequestContext): Promise<Array<Omit<CertificateAuthorityEntity, 'privateKeySecretRef'>>> {
+  async createAuthority(
+    tenantId: string,
+    input: CreateAuthorityInput,
+    context?: RequestContext,
+    publicCrlBaseUrl?: string,
+  ): Promise<Array<Omit<CertificateAuthorityEntity, 'privateKeySecretRef'>>> {
     const commonName = requiredText(input.commonName || input.name, 'commonName');
     const preview = this.previewAuthority(input);
     if (!verifyConfirmation(previewPayload(input), input.confirmationToken)) throw new AppError('CA_RISK_CONFIRMATION_REQUIRED', 'CA 风险确认已失效，请重新预览');
@@ -1357,7 +1420,7 @@ export class InternalCaApplicationService {
       if (parent.trustDomainId !== trustDomain.id || (parent.pathLengthConstraint ?? 0) < 1) {
         throw new AppError('CA_TOPOLOGY_INVALID', '父根 CA 不属于所选信任域或不允许签发中间 CA');
       }
-      const intermediate = await this.createBuiltInIntermediate(tenantId, input, parent, input.name, commonName, context);
+      const intermediate = await this.createBuiltInIntermediate(tenantId, input, parent, input.name, commonName, context, undefined, publicCrlBaseUrl);
       await this.audit('internal_ca.authority.created', input.actorId, 'certificate_authority.create', 'certificate_authority', intermediate.id, 'critical', context, {
         providerId: provider.id,
         trustDomainId: trustDomain.id,
@@ -1368,7 +1431,7 @@ export class InternalCaApplicationService {
       return [sanitizeAuthority(intermediate)];
     }
     if (provider.type !== 'gcac_builtin') {
-      const external = await this.createExternalAuthority(tenantId, input, provider, trustDomain.id);
+      const external = await this.createExternalAuthority(tenantId, input, provider, trustDomain.id, publicCrlBaseUrl);
       await this.audit('internal_ca.authority.connected', input.actorId, 'certificate_authority.create', 'certificate_authority', external.id, 'high', context, {
         providerId: provider.id,
         topologyMode: input.topologyMode,
@@ -1410,7 +1473,7 @@ export class InternalCaApplicationService {
       notBefore: rootMaterial.notBefore,
       notAfter: rootMaterial.notAfter,
       fingerprintSha256: rootMaterial.fingerprintSha256,
-      crlDistributionPoint: optionalText(input.crlDistributionPoint),
+      crlDistributionPoint: resolvePublicCrlDistributionPoint(publicCrlBaseUrl, tenantId, rootId, input.crlDistributionPoint),
       createdAt: now,
       updatedAt: now,
     };
@@ -1425,6 +1488,7 @@ export class InternalCaApplicationService {
         `${commonName} Issuing CA`,
         context,
         rootMaterial.privateKeyPem,
+        publicCrlBaseUrl,
       ));
     }
     await this.audit('internal_ca.authority.created', input.actorId, 'certificate_authority.create', 'certificate_authority', root.id, 'critical', context, {
@@ -1437,8 +1501,115 @@ export class InternalCaApplicationService {
     return authorities.map(sanitizeAuthority);
   }
 
-  async listAuthorities(tenantId: string): Promise<Array<Omit<CertificateAuthorityEntity, 'privateKeySecretRef'>>> {
-    return (await this.repository.listAuthorities(tenantId)).map(sanitizeAuthority);
+  async listAuthorities(tenantId: string, publicCrlBaseUrl?: string): Promise<Array<Omit<CertificateAuthorityEntity, 'privateKeySecretRef'>>> {
+    const authorities = await this.repository.listAuthorities(tenantId);
+    return authorities.map((authority) => {
+      const crlDistributionPoint = resolvePublicCrlDistributionPoint(publicCrlBaseUrl, tenantId, authority.id, authority.crlDistributionPoint);
+      return sanitizeAuthority({ ...authority, ...(crlDistributionPoint ? { crlDistributionPoint } : {}) });
+    });
+  }
+
+  async updateAuthority(
+    tenantId: string,
+    authorityId: string,
+    input: UpdateCertificateAuthorityInput,
+    actorId: string,
+    context?: RequestContext,
+    publicCrlBaseUrl?: string,
+  ): Promise<Omit<CertificateAuthorityEntity, 'privateKeySecretRef'>> {
+    const authority = await this.requireAuthority(tenantId, authorityId);
+    if (authority.status !== 'active') {
+      throw new AppError('RESOURCE_VERSION_CONFLICT', '只有活动中的证书机构可以修改管理配置', { authorityId, status: authority.status });
+    }
+    await this.requireProvider(tenantId, authority.providerId);
+    const trustDomainId = input.trustDomainId === undefined
+      ? authority.trustDomainId
+      : requiredText(input.trustDomainId, 'trustDomainId');
+    if (!trustDomainId) throw new AppError('CA_TRUST_DOMAIN_STATE_INVALID', '证书机构必须关联可用的 CA 信任域', { authorityId });
+    const trustDomain = await this.requireUsableTrustDomain(tenantId, trustDomainId);
+    const authorities = await this.repository.listAuthorities(tenantId);
+    if (authority.trustDomainId !== trustDomain.id) {
+      const activeChildren = authorities.filter((item) => item.parentCaId === authority.id && item.status !== 'retired');
+      if (activeChildren.length > 0) {
+        throw new AppError('CA_TOPOLOGY_INVALID', '存在活动中的下级证书机构，不能修改当前 CA 的信任域', {
+          authorityId,
+          childAuthorityIds: activeChildren.map((item) => item.id),
+        });
+      }
+      if (authority.parentCaId) {
+        const parent = authorities.find((item) => item.id === authority.parentCaId);
+        if (!parent || parent.trustDomainId !== trustDomain.id) {
+          throw new AppError('CA_TOPOLOGY_INVALID', '中间证书机构必须与父根 CA 位于同一信任域', {
+            authorityId,
+            parentCaId: authority.parentCaId,
+            trustDomainId: trustDomain.id,
+          });
+        }
+      }
+    }
+    const now = new Date().toISOString();
+    const updated: CertificateAuthorityEntity = {
+      ...authority,
+      name: input.name === undefined ? authority.name : requiredText(input.name, 'name'),
+      trustDomainId: trustDomain.id,
+      securityDomain: input.securityDomain === undefined ? authority.securityDomain : requiredText(input.securityDomain, 'securityDomain'),
+      crlDistributionPoint: resolvePublicCrlDistributionPoint(publicCrlBaseUrl, tenantId, authority.id, authority.crlDistributionPoint),
+      updatedAt: now,
+    };
+    const profiles = await this.repository.listProfiles(tenantId);
+    const linkedProfiles = profiles.filter((profile) => profile.certificateAuthorityId === authority.id);
+    const profileIds = input.certificateProfileId !== undefined
+      ? (input.certificateProfileId === null || input.certificateProfileId.trim() === ''
+        ? []
+        : [requiredText(input.certificateProfileId, 'certificateProfileId')])
+      : input.certificateProfileIds === undefined
+        ? undefined
+        : [...new Set(input.certificateProfileIds.map((profileId) => requiredText(profileId, 'certificateProfileIds')) )];
+    if (authority.trustDomainId !== trustDomain.id && profileIds === undefined && linkedProfiles.some((profile) => profile.status === 'active')) {
+      throw new AppError('CERTIFICATE_PROFILE_VIOLATION', '修改 CA 信任域时必须同时确认关联的活动证书 Profile', { authorityId });
+    }
+    const profileUpdates: CertificateProfileEntity[] = [];
+    if (profileIds !== undefined) {
+      const selectedProfiles = profileIds.map((profileId) => profiles.find((profile) => profile.id === profileId));
+      if (selectedProfiles.some((profile) => !profile)) {
+        throw new AppError('RESOURCE_NOT_FOUND', '关联的证书 Profile 不存在', {
+          authorityId,
+          profileIds,
+        });
+      }
+      for (const profile of selectedProfiles as CertificateProfileEntity[]) {
+        if (profile.status !== 'active' || profile.providerType !== 'internal_ca') {
+          throw new AppError('CERTIFICATE_PROFILE_VIOLATION', '只能关联活动中的 Internal CA 证书 Profile', {
+            authorityId,
+            profileId: profile.id,
+          });
+        }
+        if (profile.providerId && profile.providerId !== authority.providerId) {
+          throw new AppError('CERTIFICATE_PROFILE_VIOLATION', '证书 Profile 的签发 Provider 与当前 CA 不匹配', {
+            authorityId,
+            profileId: profile.id,
+          });
+        }
+        profileUpdates.push({ ...profile, certificateAuthorityId: authority.id, trustDomainId: trustDomain.id, updatedAt: now });
+      }
+      for (const profile of linkedProfiles) {
+        if (profileIds.includes(profile.id)) continue;
+        if (profile.isDefault && profile.status === 'active') {
+          throw new AppError('CERTIFICATE_PROFILE_VIOLATION', '默认自动证书 Profile 不能解除与 CA 的关联，请先选择替代 Profile', {
+            authorityId,
+            profileId: profile.id,
+          });
+        }
+        profileUpdates.push({ ...profile, certificateAuthorityId: undefined, updatedAt: now });
+      }
+    }
+    await this.repository.saveAuthorityWithProfiles(updated, profileUpdates);
+    await this.audit('internal_ca.authority.updated', actorId, 'certificate_authority.update', 'certificate_authority', authority.id, 'critical', context, {
+      trustDomainId: updated.trustDomainId,
+      profileIds: profileIds ?? linkedProfiles.map((profile) => profile.id),
+      profileLinksChanged: profileIds !== undefined,
+    });
+    return sanitizeAuthority(updated);
   }
 
   async deleteAuthority(tenantId: string, authorityId: string, actorId: string, context?: RequestContext): Promise<{ id: string; deleted: true }> {
@@ -1464,12 +1635,59 @@ export class InternalCaApplicationService {
     const now = new Date().toISOString();
     const trustDomainId = input.trustDomainId ?? await this.resolveProfileTrustDomain(tenantId, input.securityDomain);
     if (trustDomainId) await this.requireUsableTrustDomain(tenantId, trustDomainId);
+    const purpose = input.purpose ?? 'https_server';
+    if (purpose !== 'https_server') throw new AppError('VALIDATION_FAILED', '证书 Profile 用途当前仅支持 https_server');
+    const providerType = input.providerType ?? (input.securityDomain.trim().toLowerCase() === 'acme' ? 'acme' : 'internal_ca');
+    if (providerType !== 'acme' && providerType !== 'internal_ca') throw new AppError('VALIDATION_FAILED', '证书 Profile Provider 类型无效');
+    let providerId = optionalText(input.providerId);
+    const certificateAuthorityId = optionalText(input.certificateAuthorityId);
+    const acmeProviderProfileId = optionalText(input.acmeProviderProfileId);
+    const dnsProviderId = optionalText(input.dnsProviderId);
+    const credentialRef = optionalText(input.credentialRef);
+    if (credentialRef && !isSecretRef(credentialRef)) throw new AppError('SECRET_REF_INVALID', '证书 Profile 凭据必须使用 SecretRef', { field: 'credentialRef' });
+    if (providerType !== 'acme' && (acmeProviderProfileId || dnsProviderId || credentialRef)) {
+      throw new AppError('CERTIFICATE_PROFILE_VIOLATION', '只有 ACME Profile 可以配置 ACME 账户和 DNS 凭据');
+    }
+    if (providerType === 'internal_ca' && certificateAuthorityId) {
+      const authority = await this.repository.getAuthority(tenantId, certificateAuthorityId);
+      if (!authority) throw new AppError('RESOURCE_NOT_FOUND', '证书 Profile 绑定的 CA 不存在', { certificateAuthorityId });
+      if (authority.status !== 'active') throw new AppError('CA_PROVIDER_UNAVAILABLE', '证书 Profile 只能绑定活动 CA', { certificateAuthorityId });
+      if (providerId && authority.providerId !== providerId) throw new AppError('CERTIFICATE_PROFILE_VIOLATION', '证书 Profile 的 Provider 与 CA 不匹配');
+      // CA 是 Profile 的实际归属，Provider 由 CA 反推，避免管理员在两个下拉框中选出不一致的组合。
+      providerId = authority.providerId;
+    }
+    if (providerId) {
+      const provider = await this.repository.getProvider(tenantId, providerId);
+      if (!provider || provider.status !== 'active') throw new AppError('CA_PROVIDER_UNAVAILABLE', '证书 Profile 绑定的 Provider 不可用', { providerId });
+      if (providerType === 'acme' && provider.type !== 'acme') throw new AppError('CERTIFICATE_PROFILE_VIOLATION', 'ACME Profile 必须绑定 ACME Provider');
+      if (providerType === 'internal_ca' && provider.type === 'acme') throw new AppError('CERTIFICATE_PROFILE_VIOLATION', 'Internal CA Profile 不能绑定 ACME Provider');
+    }
+    if (input.isDefault === true) {
+      if (!providerId) throw new AppError('CERTIFICATE_PROFILE_VIOLATION', '默认 Profile 必须绑定明确的 Provider');
+      if (providerType === 'internal_ca' && !certificateAuthorityId) {
+        throw new AppError('CERTIFICATE_PROFILE_VIOLATION', '默认 Internal CA Profile 必须绑定明确的 CA');
+      }
+      if (providerType === 'acme' && (!dnsProviderId || !credentialRef)) {
+        throw new AppError('CERTIFICATE_PROFILE_VIOLATION', '默认 ACME Profile 必须配置 DNS Provider 和凭据 SecretRef');
+      }
+    }
     const profile: CertificateProfileEntity = {
       id: newId('certprof'),
       tenantId,
       name: requiredText(input.name, 'name'),
+      purpose,
+      providerType,
+      ...(providerId ? { providerId } : {}),
+      ...(certificateAuthorityId ? { certificateAuthorityId } : {}),
+      ...(acmeProviderProfileId ? { acmeProviderProfileId } : {}),
+      ...(dnsProviderId ? { dnsProviderId } : {}),
+      ...(credentialRef ? { credentialRef } : {}),
       securityDomain: requiredText(input.securityDomain, 'securityDomain'),
       trustDomainId,
+      domainPatterns: normalizeProfilePatterns(input.domainPatterns),
+      targetCapabilities: uniqueStrings(input.targetCapabilities ?? []),
+      isDefault: input.isDefault === true,
+      priority: normalizeProfilePriority(input.priority),
       status: 'active',
       currentVersion: 1,
       createdAt: now,
@@ -1490,6 +1708,7 @@ export class InternalCaApplicationService {
   async createProfileVersion(tenantId: string, profileId: string, rules: Partial<CertificateProfileRules>, actorId: string): Promise<CertificateProfileVersionEntity> {
     const profile = await this.repository.getProfile(tenantId, profileId);
     if (!profile) throw new AppError('RESOURCE_NOT_FOUND', '证书 Profile 不存在', { profileId });
+    if (profile.status !== 'active') throw new AppError('RESOURCE_VERSION_CONFLICT', '已删除的证书 Profile 不能新增版本', { profileId });
     const current = (await this.repository.listProfileVersions(profileId)).sort((left, right) => right.versionNo - left.versionNo)[0];
     const next: CertificateProfileVersionEntity = {
       id: newId('certprofv'),
@@ -1506,9 +1725,93 @@ export class InternalCaApplicationService {
 
   async listProfiles(tenantId: string): Promise<Array<{ profile: CertificateProfileEntity; versions: CertificateProfileVersionEntity[] }>> {
     return Promise.all((await this.repository.listProfiles(tenantId)).map(async (profile) => ({
-      profile,
+      profile: normalizeProfileEntity(profile),
       versions: await this.repository.listProfileVersions(profile.id),
     })));
+  }
+
+  async deleteProfile(tenantId: string, profileId: string, actorId: string, context?: RequestContext): Promise<{ id: string; deleted: true }> {
+    const profile = await this.repository.getProfile(tenantId, profileId);
+    if (!profile) throw new AppError('RESOURCE_NOT_FOUND', '证书 Profile 不存在', { profileId });
+    if (profile.status === 'disabled') return { id: profile.id, deleted: true };
+    const now = new Date().toISOString();
+    await this.repository.saveProfile({ ...profile, status: 'disabled', isDefault: false, updatedAt: now });
+    await this.audit('internal_ca.profile.deleted', actorId, 'ca_template_mapping.manage', 'certificate_profile', profile.id, 'high', context, {
+      softDeleted: true,
+      currentVersion: profile.currentVersion,
+    });
+    return { id: profile.id, deleted: true };
+  }
+
+  /**
+   * 按用途、域名、CA 和目标能力解析唯一活动 Profile。
+   * 这里故意不按数组顺序、优先级或版本号兜底；零个或多个候选都必须让调用方处理。
+   */
+  async resolveCertificateProfile(input: {
+    tenantId: string;
+    purpose?: CertificateProfilePurpose;
+    primaryDomain: string;
+    securityDomain?: string;
+    providerType?: CertificateProfileProviderType;
+    providerId?: string;
+    certificateAuthorityId?: string;
+    targetCapabilities?: string[];
+  }): Promise<{ profile: CertificateProfileEntity; version: CertificateProfileVersionEntity; matchedBy: Record<string, unknown> }> {
+    const purpose = input.purpose ?? 'https_server';
+    const domain = normalizeDomain(input.primaryDomain);
+    const securityDomain = optionalText(input.securityDomain)?.toLowerCase();
+    const targetCapabilities = new Set((input.targetCapabilities ?? []).map((item) => item.trim().toLowerCase()).filter(Boolean));
+    const explicitSource = Boolean(input.providerType || input.providerId || input.certificateAuthorityId);
+    const entries = await this.listProfiles(input.tenantId);
+    const candidates = entries.filter(({ profile }) => {
+      if (profile.status !== 'active' || profile.purpose !== purpose) return false;
+      if (!explicitSource && !profile.isDefault) return false;
+      if (input.providerType && profile.providerType !== input.providerType) return false;
+      if (input.providerId && profile.providerId !== input.providerId) return false;
+      if (input.certificateAuthorityId && profile.certificateAuthorityId !== input.certificateAuthorityId) return false;
+      // 未提供应用安全域时只能使用通用 Profile，不能猜测某个具体安全域。
+      if (profile.securityDomain.toLowerCase() !== '*'
+        && (!securityDomain || profile.securityDomain.toLowerCase() !== securityDomain)) return false;
+      if (profile.domainPatterns.length > 0 && !profile.domainPatterns.some((pattern) => matchesProfilePattern(domain, pattern))) return false;
+      if (profile.targetCapabilities.some((capability) => !targetCapabilities.has(capability))) return false;
+      return true;
+    });
+    if (candidates.length !== 1) {
+      throw new AppError('CERTIFICATE_PROFILE_RESOLUTION_FAILED', candidates.length === 0
+        ? '没有匹配当前用途、域名、CA 与目标能力的活动证书 Profile'
+        : '当前条件匹配多个活动证书 Profile，无法安全选择', {
+        purpose,
+        primaryDomain: domain,
+        securityDomain,
+        providerType: input.providerType,
+        providerId: input.providerId,
+        certificateAuthorityId: input.certificateAuthorityId,
+        candidateProfileIds: candidates.map(({ profile }) => profile.id),
+      });
+    }
+    const selected = candidates[0]!;
+    const version = selected.versions.find((item) => item.versionNo === selected.profile.currentVersion);
+    if (!version) throw new AppError('CERTIFICATE_PROFILE_RESOLUTION_FAILED', '活动证书 Profile 没有明确的当前版本', {
+      profileId: selected.profile.id,
+      currentVersion: selected.profile.currentVersion,
+    });
+    return {
+      profile: selected.profile,
+      version,
+      matchedBy: {
+        purpose,
+        primaryDomain: domain,
+        securityDomain: selected.profile.securityDomain,
+        ...(securityDomain ? { requestedSecurityDomain: securityDomain } : {}),
+        providerType: selected.profile.providerType,
+        ...(selected.profile.providerId ? { providerId: selected.profile.providerId } : {}),
+        ...(selected.profile.certificateAuthorityId ? { certificateAuthorityId: selected.profile.certificateAuthorityId } : {}),
+        ...(selected.profile.acmeProviderProfileId ? { acmeProviderProfileId: selected.profile.acmeProviderProfileId } : {}),
+        ...(selected.profile.dnsProviderId ? { dnsProviderId: selected.profile.dnsProviderId } : {}),
+        ...(selected.profile.credentialRef ? { credentialRef: selected.profile.credentialRef } : {}),
+        targetCapabilities: selected.profile.targetCapabilities,
+      },
+    };
   }
 
   /** 普通 ACME 申请的宿主上下文，不暴露逻辑 Authority/Profile 给前端。 */
@@ -1562,6 +1865,9 @@ export class InternalCaApplicationService {
           name: profileName,
           securityDomain: 'acme',
           trustDomainId: authority.trustDomainId,
+          providerType: 'acme',
+          providerId: provider.id,
+          certificateAuthorityId: authority.id,
           rules: {
             allowedSanTypes: ['dns', 'ip'], keyAlgorithms: ['rsa', 'ec'], minimumRsaBits: 2048,
             maximumValidityDays: 397, renewalWindowDays: 7, rotateKeyOnRenewal: true,
@@ -2472,10 +2778,12 @@ export class InternalCaApplicationService {
     input: CreateAuthorityInput,
     provider: CaProviderEntity,
     trustDomainId: string,
+    publicCrlBaseUrl?: string,
   ): Promise<CertificateAuthorityEntity> {
     const now = new Date().toISOString();
+    const authorityId = newId('ca');
     return this.repository.saveAuthority({
-      id: newId('ca'),
+      id: authorityId,
       tenantId,
       name: requiredText(input.name, 'name'),
       role: 'root',
@@ -2485,6 +2793,7 @@ export class InternalCaApplicationService {
       securityDomain: requiredText(input.securityDomain, 'securityDomain'),
       status: 'active',
       subjectCommonName: requiredText(input.commonName || input.name, 'commonName'),
+      crlDistributionPoint: resolvePublicCrlDistributionPoint(publicCrlBaseUrl, tenantId, authorityId, input.crlDistributionPoint),
       configuration: structuredClone(input.configuration ?? {}),
       createdAt: now,
       updatedAt: now,
@@ -2499,6 +2808,7 @@ export class InternalCaApplicationService {
     commonName: string,
     context?: RequestContext,
     parentPrivateKeyPem?: string,
+    publicCrlBaseUrl?: string,
   ): Promise<CertificateAuthorityEntity> {
     if (!parent.certificatePem) throw new AppError('CA_TOPOLOGY_INVALID', '父根 CA 缺少证书材料');
     const resolvedParentKey = parentPrivateKeyPem ?? (parent.privateKeySecretRef
@@ -2555,7 +2865,7 @@ export class InternalCaApplicationService {
       notBefore: material.notBefore,
       notAfter: material.notAfter,
       fingerprintSha256: material.fingerprintSha256,
-      crlDistributionPoint: optionalText(input.crlDistributionPoint),
+      crlDistributionPoint: resolvePublicCrlDistributionPoint(publicCrlBaseUrl, tenantId, intermediateId, input.crlDistributionPoint),
       createdAt: now,
       updatedAt: now,
     });
@@ -3169,6 +3479,73 @@ function capabilityRecordId(ownerType: CaCapabilityRecordEntity['ownerType'], ow
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim().toLowerCase()).filter(Boolean))];
+}
+
+/** 内置 CA 的 CRL 只能指向控制面实际提供的匿名 CRL 服务，禁止从管理表单写入任意地址。 */
+function resolvePublicCrlDistributionPoint(
+  publicBaseUrl: string | undefined,
+  tenantId: string,
+  authorityId: string,
+  fallback?: string,
+): string | undefined {
+  const baseUrl = normalizePublicServiceBaseUrl(publicBaseUrl ?? process.env.GCAC_PUBLIC_BASE_URL);
+  if (!baseUrl) return optionalText(fallback);
+  return `${baseUrl}/api/v1/public/ca-crl/${encodeURIComponent(tenantId)}/${encodeURIComponent(authorityId)}`;
+}
+
+function normalizePublicServiceBaseUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = new URL(value.trim());
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return undefined;
+    return parsed.origin.replace(/\/+$/u, '');
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeDomain(value: string): string {
+  return value.trim().toLowerCase().replace(/\.$/, '');
+}
+
+function normalizeProfilePatterns(values?: string[]): string[] {
+  return uniqueStrings(values ?? []).map((pattern) => pattern.replace(/^\.+/, ''));
+}
+
+function normalizeProfilePriority(value?: number): number {
+  if (!Number.isFinite(value)) return 100;
+  return Math.max(0, Math.min(1000, Math.trunc(value!)));
+}
+
+function isSecretRef(value: string): boolean {
+  return /^secret:\/\/[A-Za-z0-9._:/#-]{1,512}$/.test(value.trim());
+}
+
+function normalizeProfileEntity(profile: CertificateProfileEntity): CertificateProfileEntity {
+  const legacySecurityDomain = profile.securityDomain?.trim().toLowerCase() || '*';
+  // AD CS/插件 Profile 的旧数据可能把 providerType 写成具体 Provider 类型。
+  // 应用供应策略只区分 ACME 与本产品管理的 CA，其余来源统一归一化为 internal_ca，
+  // 这样选择微软 CA 时仍能按绑定的 Authority 解析到唯一当前版本。
+  const providerType = String(profile.providerType ?? (legacySecurityDomain === 'acme' ? 'acme' : 'internal_ca')).trim().toLowerCase() === 'acme'
+    ? 'acme'
+    : 'internal_ca';
+  return {
+    ...profile,
+    purpose: profile.purpose ?? 'https_server',
+    providerType,
+    securityDomain: legacySecurityDomain,
+    domainPatterns: normalizeProfilePatterns(profile.domainPatterns),
+    targetCapabilities: uniqueStrings(profile.targetCapabilities ?? []),
+    isDefault: profile.isDefault === true,
+    priority: normalizeProfilePriority(profile.priority),
+  };
+}
+
+function matchesProfilePattern(domain: string, pattern: string): boolean {
+  const normalized = normalizeDomain(pattern);
+  if (!normalized || normalized === '*') return true;
+  if (normalized.startsWith('*.')) return domain === normalized.slice(2) || domain.endsWith(`.${normalized.slice(2)}`);
+  return domain === normalized;
 }
 
 function normalizeCertificateNames(values: string[]): string[] {

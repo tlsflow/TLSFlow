@@ -53,6 +53,7 @@ const registeredErrorCodes: Record<string, ErrorCodeDefinition> = {
   CA_LEDGER_INCONSISTENT: { httpStatus: 409, message: 'CA 签发账本与证书状态不一致' },
   CERTIFICATE_PROMOTION_BLOCKED: { httpStatus: 409, message: '证书版本 Promotion 被阻断' },
   CERTIFICATE_PROFILE_VIOLATION: { httpStatus: 422, message: '证书申请不符合 Profile' },
+  CERTIFICATE_PROFILE_RESOLUTION_FAILED: { httpStatus: 422, message: '没有唯一匹配的活动证书 Profile' },
   CERTIFICATE_TRUST_DOMAIN_MISMATCH: { httpStatus: 422, message: '证书申请、Profile 与 CA 不属于同一信任域' },
   CSR_SIGNATURE_INVALID: { httpStatus: 422, message: 'CSR 签名无效' },
   CSR_ASSET_MISMATCH: { httpStatus: 422, message: 'CSR 与应用资产不匹配' },

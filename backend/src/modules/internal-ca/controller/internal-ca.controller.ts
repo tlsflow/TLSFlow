@@ -14,6 +14,7 @@ import type {
   AcmeProviderConfigurationInput,
   CreateAuthorityInput,
   CreateCaProviderInput,
+  UpdateCertificateAuthorityInput,
   UpdateCaProviderInput,
   CreateProviderActionBindingInput,
   CreateCaTrustDomainInput,
@@ -72,13 +73,16 @@ export class InternalCaController {
     router.get('/api/v1/ca-trust-domains', '查询 CA 信任域', tags, (request) => this.listTrustDomains(request));
     router.post('/api/v1/ca-trust-domains', '创建 CA 信任域', tags, (request) => this.createTrustDomain(request));
     router.patch('/api/v1/ca-trust-domains/:id', '更新 CA 信任域', tags, (request) => this.updateTrustDomain(request));
+    router.delete('/api/v1/ca-trust-domains/:id', '退休 CA 信任域', tags, (request) => this.deleteTrustDomain(request));
     router.get('/api/v1/certificate-authorities', '查询证书机构', tags, (request) => this.listAuthorities(request));
+    router.patch('/api/v1/certificate-authorities/:id', '更新证书机构管理配置', tags, (request) => this.updateAuthority(request));
     router.delete('/api/v1/certificate-authorities/:id', '退休证书机构', tags, (request) => this.deleteAuthority(request));
     router.post('/api/v1/certificate-authorities/preview', '预览 CA 拓扑风险', tags, (request) => this.previewAuthority(request));
     router.post('/api/v1/certificate-authorities', '创建证书机构对象', tags, (request) => this.createAuthority(request));
     router.get('/api/v1/certificate-profiles', '查询证书 Profile', tags, (request) => this.listProfiles(request));
     router.post('/api/v1/certificate-profiles', '创建证书 Profile', tags, (request) => this.createProfile(request));
     router.post('/api/v1/certificate-profiles/:id/versions', '创建证书 Profile 版本', tags, (request) => this.createProfileVersion(request));
+    router.delete('/api/v1/certificate-profiles/:id', '停用证书 Profile', tags, (request) => this.deleteProfile(request));
     router.get('/api/v1/certificate-policies', '查询租户证书策略', tags, (request) => this.listCertificatePolicies(request));
     router.post('/api/v1/certificate-policies/:id/versions', '创建证书策略版本', tags, (request) => this.createCertificatePolicyVersion(request));
     router.get('/api/v1/certificate-requests', '查询证书申请', tags, (request) => this.listRequests(request));
@@ -243,9 +247,21 @@ export class InternalCaController {
     return this.service.updateTrustDomain(tenantId(request), pathId(request), objectBody(request) as unknown as UpdateCaTrustDomainInput, actorId(request), request.context);
   }
 
+  private async deleteTrustDomain(request: HttpRequest) {
+    await this.assertAction(request, 'ca.authority.manage', 'ca_trust_domain');
+    return this.service.deleteTrustDomain(tenantId(request), pathId(request), actorId(request), request.context);
+  }
+
   private async listAuthorities(request: HttpRequest) {
     await this.assertAction(request, 'ca.operations.read', 'certificate_authority');
-    return this.service.listAuthorities(tenantId(request));
+    return this.service.listAuthorities(tenantId(request), resolveCrlPublicBaseUrl(request));
+  }
+
+  private async updateAuthority(request: HttpRequest) {
+    await this.assertAction(request, 'ca.authority.manage', 'certificate_authority');
+    const body = { ...objectBody(request) };
+    delete body.crlDistributionPoint;
+    return this.service.updateAuthority(tenantId(request), pathId(request), body as UpdateCertificateAuthorityInput, actorId(request), request.context, resolveCrlPublicBaseUrl(request));
   }
 
   private async deleteAuthority(request: HttpRequest) {
@@ -260,8 +276,9 @@ export class InternalCaController {
 
   private async createAuthority(request: HttpRequest) {
     await this.assertAction(request, 'ca.authority.manage', 'certificate_authority');
-    const body = objectBody(request);
-    return { statusCode: 201, body: await this.service.createAuthority(tenantId(request), { ...body, actorId: actorId(request) } as unknown as CreateAuthorityInput, request.context) };
+    const body = { ...objectBody(request) };
+    delete body.crlDistributionPoint;
+    return { statusCode: 201, body: await this.service.createAuthority(tenantId(request), { ...body, actorId: actorId(request) } as unknown as CreateAuthorityInput, request.context, resolveCrlPublicBaseUrl(request)) };
   }
 
   private async listProfiles(request: HttpRequest) {
@@ -278,6 +295,11 @@ export class InternalCaController {
   private async createProfileVersion(request: HttpRequest) {
     await this.assertAction(request, 'ca.template.mapping.manage', 'certificate_profile');
     return this.service.createProfileVersion(tenantId(request), pathId(request), objectBody(request), actorId(request));
+  }
+
+  private async deleteProfile(request: HttpRequest) {
+    await this.assertAction(request, 'ca.template.mapping.manage', 'certificate_profile');
+    return this.service.deleteProfile(tenantId(request), pathId(request), actorId(request), request.context);
   }
 
   private async listCertificatePolicies(request: HttpRequest) {
@@ -911,13 +933,16 @@ export function getInternalCaRouteContracts(): RouteContract[] {
     ['GET', '/api/v1/ca-trust-domains', 'listCaTrustDomains', '查询 CA 信任域', arraySchema],
     ['POST', '/api/v1/ca-trust-domains', 'createCaTrustDomain', '创建 CA 信任域', responseSchema],
     ['PATCH', '/api/v1/ca-trust-domains/:id', 'updateCaTrustDomain', '更新 CA 信任域', responseSchema],
+    ['DELETE', '/api/v1/ca-trust-domains/:id', 'deleteCaTrustDomain', '退休 CA 信任域', responseSchema],
     ['GET', '/api/v1/certificate-authorities', 'listCertificateAuthorities', '查询证书机构', arraySchema],
+    ['PATCH', '/api/v1/certificate-authorities/:id', 'updateCertificateAuthority', '更新证书机构管理配置', responseSchema],
     ['DELETE', '/api/v1/certificate-authorities/:id', 'deleteCertificateAuthority', '退休证书机构', responseSchema],
     ['POST', '/api/v1/certificate-authorities/preview', 'previewCertificateAuthority', '预览 CA 拓扑风险', responseSchema],
     ['POST', '/api/v1/certificate-authorities', 'createCertificateAuthority', '创建证书机构对象', arraySchema],
     ['GET', '/api/v1/certificate-profiles', 'listCertificateProfiles', '查询证书 Profile', arraySchema],
     ['POST', '/api/v1/certificate-profiles', 'createCertificateProfile', '创建证书 Profile', responseSchema],
     ['POST', '/api/v1/certificate-profiles/:id/versions', 'createCertificateProfileVersion', '创建证书 Profile 版本', responseSchema],
+    ['DELETE', '/api/v1/certificate-profiles/:id', 'deleteCertificateProfile', '停用证书 Profile', responseSchema],
     ['GET', '/api/v1/certificate-policies', 'listCertificatePolicies', '查询租户证书策略', arraySchema],
     ['POST', '/api/v1/certificate-policies/:id/versions', 'createCertificatePolicyVersion', '创建证书策略版本', responseSchema],
     ['GET', '/api/v1/certificate-requests', 'listCertificateRequests', '查询证书申请', arraySchema],
@@ -986,6 +1011,54 @@ export function getInternalCaRouteContracts(): RouteContract[] {
 
 function tenantId(request: HttpRequest): string {
   return requireTenantId(request);
+}
+
+/** 公开 CRL 端点必须使用已配置或当前反向代理解析出的可信来源，不能接受请求体里的任意 URL。 */
+function resolveCrlPublicBaseUrl(request: HttpRequest): string {
+  const candidates = [
+    process.env.GCAC_CRL_PUBLIC_BASE_URL,
+    process.env.GCAC_PUBLIC_BASE_URL,
+    singleHeader(request, 'x-public-base-url'),
+    singleHeader(request, 'origin'),
+    originFromReferer(singleHeader(request, 'referer')),
+    inferredRequestOrigin(request),
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizePublicBaseUrl(candidate);
+    if (normalized) return normalized;
+  }
+  return 'http://localhost';
+}
+
+function singleHeader(request: HttpRequest, key: string): string | undefined {
+  const value = request.headers[key];
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function originFromReferer(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function inferredRequestOrigin(request: HttpRequest): string | undefined {
+  const proto = singleHeader(request, 'x-forwarded-proto')?.split(',')[0]?.trim() || 'http';
+  const host = singleHeader(request, 'x-forwarded-host')?.split(',')[0]?.trim() || singleHeader(request, 'host');
+  return host ? `${proto}://${host}` : undefined;
+}
+
+function normalizePublicBaseUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = new URL(value.trim());
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return undefined;
+    return parsed.origin.replace(/\/+$/u, '');
+  } catch {
+    return undefined;
+  }
 }
 
 function actorId(request: HttpRequest): string {
