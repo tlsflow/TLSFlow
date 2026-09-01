@@ -40,7 +40,8 @@
     "scripts/dev-web.sh",
     "scripts/dev-tls-inspector.sh",
     "scripts/dev/dev-all.sh",
-    ".workflow/0014-sync-github.yml"
+    ".workflow/0014-sync-github.yml",
+    ".gitea/workflows/sync-github.yml"
   ],
   "publicContributionPaths": [
     "agents",
