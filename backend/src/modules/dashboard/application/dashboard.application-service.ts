@@ -1,4 +1,4 @@
-import type { PageQuery } from '../../../common/pagination/pagination.js';
+import type { PageAuthorizationFilter, PageQuery } from '../../../common/pagination/pagination.js';
 import type { AuditService } from '../../audits/audit.service.js';
 import { isSuppressedAudit } from '../../audits/audit-event-types.js';
 import type { AssetsApplicationService } from '../../assets/application/assets.application-service.js';
@@ -42,8 +42,13 @@ export class DashboardApplicationService {
 
   async getOverview(input: { tenantId: string; subject: SecuritySubject }): Promise<DashboardOverview> {
     const generatedAt = new Date().toISOString();
-    const canReadAudit = await this.dependencies.canReadAudit(input.subject, input.tenantId);
-    const [applicationAuthorization, certificateAuthorization, certificateVersionAuthorization, bindingAuthorization, agentAuthorization, gatewayAuthorization, deviceAuthorization] = await Promise.all([
+    // 网关表结构只需检查一次；提前启动可与权限解析并行，避免首屏额外串行等待。
+    const gatewaySchemaPromise = this.dependencies.readRepository
+      ? this.dependencies.gateways.ensureSchema()
+      : undefined;
+    // 审计权限和对象授权互不依赖，必须同时开始；串行等待会把权限解析延迟直接叠加到首屏。
+    const canReadAuditPromise = this.dependencies.canReadAudit(input.subject, input.tenantId);
+    const authorizationsPromise = Promise.all([
       this.dependencies.objectPermissions.buildAuthorizedQuery(input.subject, 'service_asset', 'read'),
       this.dependencies.objectPermissions.buildAuthorizedQuery(input.subject, 'certificate_asset', 'read'),
       this.dependencies.objectPermissions.buildAuthorizedQuery(input.subject, 'certificate_version', 'read'),
@@ -52,13 +57,16 @@ export class DashboardApplicationService {
       this.dependencies.objectPermissions.buildAuthorizedQuery(input.subject, 'gateway', 'read'),
       this.dependencies.objectPermissions.buildAuthorizedQuery(input.subject, 'host', 'read'),
     ]);
-    const dashboardAssetsPromise = this.loadDashboardAssets(input.tenantId, deviceAuthorization);
+    const [canReadAudit, [applicationAuthorization, certificateAuthorization, certificateVersionAuthorization, bindingAuthorization, agentAuthorization, gatewayAuthorization, deviceAuthorization]] = await Promise.all([
+      canReadAuditPromise,
+      authorizationsPromise,
+    ]);
     if (this.dependencies.readRepository) {
       return this.getOverviewFromReadModel({
         input,
         generatedAt,
         canReadAudit,
-        dashboardAssets: await dashboardAssetsPromise,
+        gatewaySchemaPromise,
         authorizations: {
           applicationAssets: applicationAuthorization,
           certificateAssets: certificateAuthorization,
@@ -66,9 +74,11 @@ export class DashboardApplicationService {
           bindings: bindingAuthorization,
           agents: agentAuthorization,
           gateways: gatewayAuthorization,
+          managedDevices: deviceAuthorization,
         },
       });
     }
+    const dashboardAssetsPromise = this.loadDashboardAssets(input.tenantId, deviceAuthorization);
     const [
       applicationAssets,
       certificateAssets,
@@ -96,8 +106,19 @@ export class DashboardApplicationService {
     ]);
     const visibleAuditLogs = auditLogs.filter(shouldShowOnDashboardAudits);
     const authorizedAuditLogs = canReadAudit
-      ? await filterDashboardAuditLogs(this.dependencies.objectPermissions, input.subject, visibleAuditLogs)
+      ? await filterDashboardAuditLogs(this.dependencies.objectPermissions, input.subject, visibleAuditLogs, {
+        certificate_asset: certificateAuthorization,
+        certificate_version: certificateVersionAuthorization,
+        service_asset: applicationAuthorization,
+        application_asset: applicationAuthorization,
+        certificate_binding: bindingAuthorization,
+        gateway: gatewayAuthorization,
+        agent: agentAuthorization,
+      })
       : [];
+    // 展示上下文只服务于最终首屏的 8 条审计；先筛选再加载计划、Secret 和证书标签，
+    // 避免候选窗口中的几十条历史记录把读模型重新变成逐条查询。
+    const dashboardAuditLogs = selectDashboardAuditLogs(authorizedAuditLogs.slice());
     const visibleAgents = deduplicateDashboardAgents(agents.items);
 
     const activeCertificateVersions = certificateVersions.items.filter((version) => version.status === 'active');
@@ -109,15 +130,20 @@ export class DashboardApplicationService {
       bindingCountByVersionId: countBindingsByVersionId(bindings.items),
       nowIso: generatedAt,
     });
-    const auditContext = await buildAuditPresentationContext({
-      tenantId: input.tenantId,
-      auditLogs: authorizedAuditLogs,
-      deploymentPlans: this.dependencies.deploymentPlans,
-      applicationAssets: applicationAssets.items,
-      bindings: bindings.items,
-      secrets: this.dependencies.secrets,
-      certificates: this.dependencies.certificates,
-    });
+    const auditContext = dashboardAuditLogs.length > 0
+      ? await buildAuditPresentationContext({
+        tenantId: input.tenantId,
+        auditLogs: dashboardAuditLogs,
+        deploymentPlans: this.dependencies.deploymentPlans,
+        applicationAssets: applicationAssets.items,
+        bindings: bindings.items,
+        secrets: this.dependencies.secrets,
+        certificates: this.dependencies.certificates,
+        labelScope: 'referenced',
+        preloadedCertificateAssets: certificateAssets.items,
+        preloadedCertificateVersions: certificateVersions.items,
+      })
+      : emptyAuditPresentationContext();
 
     return {
       generatedAt,
@@ -142,7 +168,7 @@ export class DashboardApplicationService {
         gatewayReachability,
         nowIso: generatedAt,
       }),
-      recentAudits: buildRecentDashboardAudits(authorizedAuditLogs, auditContext),
+      recentAudits: buildRecentDashboardAudits(dashboardAuditLogs, auditContext),
     };
   }
 
@@ -154,10 +180,10 @@ export class DashboardApplicationService {
     input: { tenantId: string; subject: SecuritySubject };
     generatedAt: string;
     canReadAudit: boolean;
-    dashboardAssets: ManagedDevicePageDto;
+    gatewaySchemaPromise?: Promise<void>;
     authorizations: Parameters<DashboardReadRepository['load']>[0]['authorizations'];
   }): Promise<DashboardOverview> {
-    await this.dependencies.gateways.ensureSchema();
+    await input.gatewaySchemaPromise;
     const model = await this.dependencies.readRepository!.load({
       tenantId: input.input.tenantId,
       nowIso: input.generatedAt,
@@ -166,8 +192,18 @@ export class DashboardApplicationService {
     });
     const visibleAuditLogs = model.auditCandidates.filter(shouldShowOnDashboardAudits);
     const authorizedAuditLogs = input.canReadAudit
-      ? await filterDashboardAuditLogs(this.dependencies.objectPermissions, input.input.subject, visibleAuditLogs)
+      ? await filterDashboardAuditLogs(this.dependencies.objectPermissions, input.input.subject, visibleAuditLogs, {
+        certificate_asset: input.authorizations.certificateAssets,
+        certificate_version: input.authorizations.certificateVersions,
+        service_asset: input.authorizations.applicationAssets,
+        application_asset: input.authorizations.applicationAssets,
+        certificate_binding: input.authorizations.bindings,
+        gateway: input.authorizations.gateways,
+        agent: input.authorizations.agents,
+      })
       : [];
+    // 只为首屏最终展示的 8 条审计构建对象标签，避免每条候选记录触发计划查询。
+    const dashboardAuditLogs = selectDashboardAuditLogs(authorizedAuditLogs.slice());
     const visibleAgents = deduplicateDashboardAgents(model.agents);
     const certificateStatuses = buildCertificateStatuses({
       assets: model.certificateAssets,
@@ -175,15 +211,20 @@ export class DashboardApplicationService {
       bindingCountByVersionId: model.bindingCountsByVersionId,
       nowIso: input.generatedAt,
     });
-    const auditContext = await buildAuditPresentationContext({
-      tenantId: input.input.tenantId,
-      auditLogs: authorizedAuditLogs,
-      deploymentPlans: this.dependencies.deploymentPlans,
-      applicationAssets: model.applicationAssets,
-      bindings: model.bindings,
-      secrets: this.dependencies.secrets,
-      certificates: this.dependencies.certificates,
-    });
+    const auditContext = dashboardAuditLogs.length > 0
+      ? await buildAuditPresentationContext({
+        tenantId: input.input.tenantId,
+        auditLogs: dashboardAuditLogs,
+        deploymentPlans: this.dependencies.deploymentPlans,
+        applicationAssets: model.applicationAssets,
+        bindings: model.bindings,
+        secrets: this.dependencies.secrets,
+        certificates: this.dependencies.certificates,
+        labelScope: 'referenced',
+        preloadedCertificateAssets: model.certificateAssets,
+        preloadedCertificateVersions: model.certificateVersions,
+      })
+      : emptyAuditPresentationContext();
 
     return {
       generatedAt: input.generatedAt,
@@ -201,14 +242,14 @@ export class DashboardApplicationService {
       statusGroups: buildStatusGroups({
         applicationAssets: model.applicationAssets,
         certificateStatuses,
-        assets: input.dashboardAssets.items,
-        assetsTotal: input.dashboardAssets.total,
+        assets: model.managedDevices.items,
+        assetsTotal: model.managedDevices.total,
         gateways: model.gateways,
         gatewayZones: model.gatewayZones,
         gatewayReachability: model.gatewayReachability,
         nowIso: input.generatedAt,
       }),
-      recentAudits: buildRecentDashboardAudits(authorizedAuditLogs, auditContext),
+      recentAudits: buildRecentDashboardAudits(dashboardAuditLogs, auditContext),
     };
   }
 
@@ -394,7 +435,13 @@ async function filterDashboardAuditLogs(
   objectPermissions: ObjectPermissionService,
   subject: SecuritySubject,
   logs: AuditLogEntity[],
+  authorizations: Readonly<Record<string, PageAuthorizationFilter | undefined>> = {},
 ): Promise<AuditLogEntity[]> {
+  const preparedAuthorizations = new Map(Object.entries(authorizations).map(([objectType, authorization]) => [
+    objectType,
+    prepareDashboardAuditAuthorization(authorization),
+  ] as const));
+  const permissionCache = new Map<string, Promise<boolean>>();
   const filtered = await Promise.all(logs.map(async (log) => {
     if (!log.resourceId) {
       return log;
@@ -402,32 +449,66 @@ async function filterDashboardAuditLogs(
     const objectType = dashboardAuditObjectType(log.resourceType);
     // 带对象 ID 但无法映射对象类型时不能凭租户范围放行，避免未知对象绕过对象授权。
     if (!objectType) return undefined;
+    const prepared = preparedAuthorizations.get(objectType);
+    if (prepared?.mode === 'allowAll') return log;
+    if (prepared?.mode === 'static') {
+      return prepared.allowedIds.has(log.resourceId) && !prepared.deniedIds.has(log.resourceId) ? log : undefined;
+    }
     const object = {
       objectType,
       objectId: log.resourceId,
       tenantId: subject.scope?.tenantId,
     };
-    const permissionService = objectPermissions as ObjectPermissionService & {
-      isAllowed?: (
-        subject: SecuritySubject,
-        accessLevel: 'read',
-        object: { objectType: string; objectId: string; tenantId?: string },
-      ) => Promise<boolean>;
-    };
-    const allowed = permissionService.isAllowed
-      ? await permissionService.isAllowed(subject, 'read', object)
-      : (await objectPermissions.can(subject, 'read', object)).allowed;
-    return allowed ? log : undefined;
+    const cacheKey = `${objectType}:${log.resourceId}`;
+    let permission = permissionCache.get(cacheKey);
+    if (!permission) {
+      permission = Promise.resolve(objectPermissions as ObjectPermissionService & {
+        isAllowed?: (
+          subject: SecuritySubject,
+          accessLevel: 'read',
+          object: { objectType: string; objectId: string; tenantId?: string },
+        ) => Promise<boolean>;
+      }).then((permissionService) => permissionService.isAllowed
+        ? permissionService.isAllowed(subject, 'read', object)
+        : objectPermissions.can(subject, 'read', object).then((decision) => decision.allowed));
+      permissionCache.set(cacheKey, permission);
+    }
+    return (await permission) ? log : undefined;
   }));
   return filtered.filter((log): log is AuditLogEntity => Boolean(log));
+}
+
+type DashboardAuditAuthorization = {
+  mode: 'allowAll' | 'static' | 'fallback';
+  allowedIds: Set<string>;
+  deniedIds: Set<string>;
+};
+
+function prepareDashboardAuditAuthorization(authorization: PageAuthorizationFilter | undefined): DashboardAuditAuthorization | undefined {
+  if (!authorization) return undefined;
+  const allowedIds = new Set(authorization.objectIds ?? []);
+  const deniedIds = new Set(authorization.deniedObjectIds ?? []);
+  if (authorization.unrestricted && (authorization.deniedObjectIds?.length ?? 0) === 0 && (authorization.deniedDynamicConditions?.length ?? 0) === 0) {
+    return { mode: 'allowAll', allowedIds, deniedIds };
+  }
+  if (!authorization.unrestricted && (authorization.dynamicConditions?.length ?? 0) === 0 && (authorization.deniedDynamicConditions?.length ?? 0) === 0) {
+    return { mode: 'static', allowedIds, deniedIds };
+  }
+  return { mode: 'fallback', allowedIds, deniedIds };
 }
 
 function dashboardAuditObjectType(resourceType: string): string | undefined {
   const aliases: Record<string, string> = {
     certificate: 'certificate_asset',
+    certificate_asset: 'certificate_asset',
+    certificateAsset: 'certificate_asset',
     certificate_version: 'certificate_version',
+    certificateVersion: 'certificate_version',
     certificate_version_format: 'certificate_version_format',
+    certificate_format: 'certificate_version_format',
+    certificateVersionFormat: 'certificate_version_format',
     deployment_plan: 'deployment_plan',
+    deploymentPlan: 'deployment_plan',
     executionRun: 'execution_run',
     execution_run: 'execution_run',
     approval: 'approval',
