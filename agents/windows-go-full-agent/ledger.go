@@ -176,6 +176,20 @@ func (l *localTaskLedger) markReported(taskID string, success bool) (localTaskRe
 	})
 }
 
+// discard 删除控制面已经判定为过期或不可再接受的本地待回执任务，
+// 防止 Agent 在本地恢复账本中无限重复提交旧结果。
+func (l *localTaskLedger) discard(taskID string) error {
+	record, ok := l.tasks[taskID]
+	if !ok {
+		return nil
+	}
+	delete(l.tasks, taskID)
+	if l.idempotencyIndex[record.IdempotencyKey] == taskID {
+		delete(l.idempotencyIndex, record.IdempotencyKey)
+	}
+	return l.persist()
+}
+
 func (l *localTaskLedger) get(taskID string) (localTaskRecord, bool) {
 	record, ok := l.tasks[taskID]
 	return record, ok

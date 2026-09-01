@@ -34,7 +34,7 @@ import (
 var defaultAgentConfigTemplate []byte
 
 const (
-	agentVersion                = "0.1.46"
+	agentVersion                = "0.1.47"
 	defaultConfigPath           = `C:\ProgramData\GCAC\FullAgentGo\config\agent.config.json`
 	defaultMetadata             = `C:\ProgramData\GCAC\FullAgentGo\service.install.json`
 	defaultTaskPoll             = 5
@@ -232,8 +232,23 @@ type reportedCapability struct {
 }
 
 type apiErrorResponse struct {
-	Message   string `json:"message"`
-	ErrorCode string `json:"errorCode"`
+	Message   string         `json:"message"`
+	ErrorCode string         `json:"errorCode"`
+	Details   map[string]any `json:"details,omitempty"`
+}
+
+type controlPlaneRequestError struct {
+	statusCode int
+	message    string
+	errorCode  string
+	details    map[string]any
+}
+
+func (e *controlPlaneRequestError) Error() string {
+	if e.errorCode != "" {
+		return fmt.Sprintf("%s (%s)", e.message, e.errorCode)
+	}
+	return e.message
 }
 
 type agentTaskEnvelope struct {
@@ -2358,6 +2373,17 @@ func replayTaskResult(ctx context.Context, client *http.Client, config *AgentCon
 		Detail:       mapFromMap(record.Result, "detail"),
 	}
 	if _, err := submitTaskResult(ctx, client, config, request); err != nil {
+		if isDiscardableTaskResultError(err) {
+			logger.Warn("控制面已清理或终止旧任务结果，移除本地待回执 taskId=%s error=%v", record.TaskID, err)
+			if discardErr := deps.taskLedger.discard(record.TaskID); discardErr != nil {
+				return fmt.Errorf("清理本地旧任务失败 taskId=%s: %w", record.TaskID, discardErr)
+			}
+			_ = deps.recoveryLedger.record(record.TaskID, "runtime", taskStatusRejected, "task.result_discarded", map[string]any{
+				"taskId": record.TaskID,
+				"reason": err.Error(),
+			})
+			return nil
+		}
 		logger.Warn("补传任务结果失败 taskId=%s error=%v", record.TaskID, err)
 		_ = submitRuntimeLog(ctx, client, config, submitRuntimeLogRequest{
 			AgentID:  agentID,
@@ -2853,10 +2879,12 @@ func doJSONRequest(ctx context.Context, client *http.Client, config *AgentConfig
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		var apiErr apiErrorResponse
 		if err := json.Unmarshal(responseBody, &apiErr); err == nil && strings.TrimSpace(apiErr.Message) != "" {
-			if strings.TrimSpace(apiErr.ErrorCode) != "" {
-				return fmt.Errorf("%s (%s)", apiErr.Message, apiErr.ErrorCode)
+			return &controlPlaneRequestError{
+				statusCode: response.StatusCode,
+				message:    apiErr.Message,
+				errorCode:  apiErr.ErrorCode,
+				details:    apiErr.Details,
 			}
-			return errors.New(apiErr.Message)
 		}
 		return fmt.Errorf("HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(responseBody)))
 	}
@@ -2878,6 +2906,21 @@ func doJSONRequest(ctx context.Context, client *http.Client, config *AgentConfig
 	}
 
 	return fmt.Errorf("解析响应失败: %s", strings.TrimSpace(string(responseBody)))
+}
+
+func isDiscardableTaskResultError(err error) bool {
+	requestErr, ok := err.(*controlPlaneRequestError)
+	if !ok {
+		return false
+	}
+	if requestErr.statusCode == http.StatusNotFound || requestErr.statusCode == http.StatusGone {
+		return true
+	}
+	if requestErr.errorCode != "RESOURCE_VERSION_CONFLICT" {
+		return false
+	}
+	reason, _ := requestErr.details["reason"].(string)
+	return reason == "AGENT_V2_LATE_RECEIPT_REJECTED"
 }
 
 func writeJSON(value any) error {
