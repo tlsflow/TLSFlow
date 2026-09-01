@@ -811,6 +811,11 @@ const DEVICE_DETAIL_SQL = `
     device.product_family, device.software_version, device.software_build, device.support_tier, device.capability_profile,
     device.metadata as device_metadata, device.plugin_version_id, plugin_version.plugin_version as control_version,
     device.plugin_binding_id, device.last_discovered_at as device_last_discovered_at, device.last_error_code,
+    case
+      when binding.status = 'ACTIVE' and binding.input_bindings #>> '{connections,management,tls,enabled}' = 'true' then 'HTTPS'
+      when binding.status = 'ACTIVE' and binding.input_bindings #>> '{connections,management,tls,enabled}' = 'false' then 'HTTP'
+      else null
+    end as binding_management_protocol,
     service.address as device_address, coalesce(counts.asset_count, 0)::int as application_asset_count,
     resource_counts.framework_count, resource_counts.site_count, resource_counts.certificate_count, resource_counts.log_count
   from target_host host
@@ -820,6 +825,7 @@ const DEVICE_DETAIL_SQL = `
   left join liveness_signals liveness on true
   left join pg_device_assets device on device.tenant_id=host.tenant_id and device.host_id=host.id
   left join unified_plugin_versions plugin_version on plugin_version.id=device.plugin_version_id
+  left join unified_plugin_bindings binding on binding.tenant_id=device.tenant_id and binding.id=device.plugin_binding_id
   left join pg_service_assets service on service.tenant_id=device.tenant_id and service.id=device.service_asset_id and service.deleted_at is null
   cross join application_counts counts
   cross join resource_counts
@@ -897,6 +903,7 @@ interface ManagedDeviceRow extends Record<string, unknown> {
   plugin_version_id: string | null;
   control_version: string | null;
   plugin_binding_id: string | null;
+  binding_management_protocol: 'HTTP' | 'HTTPS' | null;
   device_last_discovered_at: string | null;
   last_error_code: string | null;
   device_address: string | null;
@@ -1276,8 +1283,9 @@ function buildInformationSections(
       { key: 'deviceFamily', value: row.device_family, valueType: 'TEXT' as const },
       { key: 'managementAddress', value: row.device_address, valueType: 'TEXT' as const, copyable: true },
       { key: 'managementPort', value: row.management_port, valueType: 'NUMBER' as const },
+      { key: 'managementProtocol', value: row.binding_management_protocol, valueType: 'TEXT' as const },
       { key: 'authMode', value: row.auth_mode, valueType: 'TEXT' as const },
-      { key: 'tlsVerify', value: row.tls_verify, valueType: 'BOOLEAN' as const },
+      { key: 'tlsVerify', value: row.binding_management_protocol === 'HTTPS' ? row.tls_verify : null, valueType: 'BOOLEAN' as const },
       { key: 'softwareVersion', value: row.software_version, valueType: 'TEXT' as const },
       { key: 'softwareBuild', value: row.software_build, valueType: 'TEXT' as const },
       { key: 'pluginVersion', value: row.control_version, valueType: 'TEXT' as const },
