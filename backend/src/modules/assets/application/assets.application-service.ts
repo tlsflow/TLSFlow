@@ -55,6 +55,7 @@ import {
 } from './deployment-strategy.service.js';
 import type { ManagedTargetContextResolver } from './managed-target-context.resolver.js';
 import type { PluginAgentLinkageService } from '../../plugins/application/plugin-agent-linkage.service.js';
+import type { CloudResourceProjectionService } from '../../providers/discovery/cloud-resource-projection.js';
 
 /** 应用主域名变更后的证书供应策略同步端口。 */
 export interface ApplicationCertificateDomainChangePort {
@@ -84,6 +85,7 @@ export class AssetsApplicationService {
     private monitorsRepository?: MonitorsRepository,
     private linkageService?: PluginAgentLinkageService,
     private applicationCertificateDomainChange?: ApplicationCertificateDomainChangePort,
+    private cloudResourceProjection?: CloudResourceProjectionService,
   ) {}
 
   setPluginAgentLinkageService(service: PluginAgentLinkageService): void {
@@ -134,6 +136,10 @@ export class AssetsApplicationService {
 
   setLicensingService(licensingService: ApplicationAssetQuotaPort): void {
     this.licensingService = licensingService;
+  }
+
+  setCloudResourceProjectionService(projection: CloudResourceProjectionService): void {
+    this.cloudResourceProjection = projection;
   }
 
   async createHost(tenantId: string, input: CreateHostDto) {
@@ -256,13 +262,98 @@ export class AssetsApplicationService {
     const hydrated = await this.hydrateServiceAssetStrategy(tenantId, detail);
     const [withCertificate] = await this.hydrateCurrentCertificateProjection(tenantId, [hydrated]);
     const contextual = await this.hydrateServiceAssetTargetContext(tenantId, withCertificate ?? hydrated);
-    if (!this.linkageService) return contextual;
+    const projected = contextual.assetKind === 'CLOUD_SERVICE'
+      ? await this.hydrateCloudServiceDetail(tenantId, contextual)
+      : contextual;
+    if (!this.linkageService) return projected;
     try {
-      return { ...contextual, linkageStatus: await this.linkageService.getStatus(tenantId, serviceAssetId) };
+      return { ...projected, linkageStatus: await this.linkageService.getStatus(tenantId, serviceAssetId) };
     } catch (error) {
       // 联动诊断是详情增强信息，不能阻断既有资产详情读取。
-      return { ...contextual, linkageStatus: { status: 'UNKNOWN', severity: 'WARNING', repairable: false, issues: [{ code: 'LINKAGE_CHECK_FAILED', message: error instanceof Error ? error.message : String(error) }] } };
+      return { ...projected, linkageStatus: { status: 'UNKNOWN', severity: 'WARNING', repairable: false, issues: [{ code: 'LINKAGE_CHECK_FAILED', message: error instanceof Error ? error.message : String(error) }] } };
     }
+  }
+
+  /** 中文说明：云服务详情复用标准设备详情合同，只读取已持久化的 Framework/Site/ManagedTarget 和既有绑定。 */
+  private async hydrateCloudServiceDetail(tenantId: string, asset: ServiceAssetDetailDto): Promise<ServiceAssetDetailDto & Record<string, unknown>> {
+    if (!this.cloudResourceProjection) return asset;
+    const projection = await this.cloudResourceProjection.listForAsset(tenantId, asset.id, 'SERVICE_ASSET');
+    const bindings = (await this.bindingsRepository?.listCertificateBindings(tenantId, { page: 1, pageSize: 5000, filter: {} }))?.items ?? [];
+    const frameworkById = new Map(projection.frameworks.map((framework) => [String(framework.id), framework]));
+    const targetBySiteId = new Map<string, Record<string, unknown>>();
+    for (const target of projection.managedTargets) {
+      const siteId = typeof target.siteId === 'string' ? target.siteId : '';
+      if (siteId) targetBySiteId.set(siteId, target);
+    }
+    const sites = projection.sites.map((site) => {
+      const siteId = String(site.id);
+      const target = targetBySiteId.get(siteId);
+      const framework = frameworkById.get(String(site.frameworkInstanceId ?? ''));
+      const siteBindings = bindings
+        .filter((binding) => binding.siteAssetId === siteId || Boolean(target?.id && binding.managedTargetId === target.id))
+        .map((binding) => standardSiteBinding(binding));
+      const metadata = asRecord(site.metadata);
+      return {
+        id: siteId,
+        siteAssetId: siteId,
+        frameworkInstanceId: typeof site.frameworkInstanceId === 'string' ? site.frameworkInstanceId : undefined,
+        managedTargetId: typeof target?.id === 'string' ? target.id : undefined,
+        kind: String(site.siteType ?? 'cloud.resource'),
+        frameworkType: String(framework?.frameworkType ?? 'cloud.resource'),
+        name: String(site.siteName ?? site.siteKey ?? siteId),
+        status: String(site.status ?? 'UNKNOWN'),
+        endpoint: {
+          address: stringFromRecord(metadata, ['domainName', 'address', 'cname']),
+          hostName: stringFromRecord(metadata, ['domainName', 'hostName']),
+          protocol: asset.protocol,
+          port: asset.port,
+        },
+        bindings: siteBindings,
+        metadata,
+      };
+    });
+    const certificates = uniqueCertificates(sites.flatMap((site) => site.bindings.map((binding) => binding.certificate).filter(Boolean)));
+    const status = String(asset.status ?? 'UNKNOWN');
+    return {
+      ...asset,
+      category: 'CLOUD',
+      productFamily: stringFromRecord(asset.metadata, ['productFamily', 'pluginId']) || 'cloud.service',
+      managementMethod: 'PLUGIN',
+      managementAddress: asset.address,
+      livenessStatus: status === 'ACTIVE' ? 'ONLINE' : 'UNKNOWN',
+      health: status === 'ACTIVE' ? 'HEALTHY' : 'UNKNOWN',
+      overview: {
+        deviceId: asset.id,
+        displayName: asset.displayName ?? asset.address,
+        deviceType: 'CLOUD',
+        productFamily: stringFromRecord(asset.metadata, ['productFamily', 'pluginId']) || 'cloud.service',
+        managementMode: 'CONTROL_PLANE',
+        status: status === 'ACTIVE' ? 'ONLINE' : 'UNKNOWN',
+        updatedAt: asset.updatedAt,
+      },
+      informationSections: [{ key: 'common', fields: [
+        { key: 'managementAddress', value: asset.address, valueType: 'TEXT', copyable: true },
+        { key: 'managementPort', value: asset.port, valueType: 'NUMBER' },
+        { key: 'protocol', value: asset.protocol, valueType: 'TEXT' },
+        { key: 'lastDiscoveredAt', value: asset.lastDiscoveredAt ?? null, valueType: 'DATETIME' },
+      ] }],
+      frameworks: projection.frameworks.map((framework) => ({
+        id: framework.id,
+        stableKey: framework.frameworkKey,
+        frameworkType: framework.frameworkType,
+        displayName: framework.displayName,
+        version: framework.frameworkVersion,
+        status: framework.status,
+        metadata: framework.rawFacts ?? {},
+      })),
+      sites,
+      certificates,
+      logs: [],
+      resourceCounts: { frameworks: projection.frameworks.length, sites: sites.length, certificates: certificates.length, logs: 0 },
+      allowedActions: [],
+      extension: { type: 'GENERIC', rawType: 'SERVICE_ASSET' },
+      extensionSummary: { serviceAssetId: asset.id, provider: stringFromRecord(asset.metadata, ['provider', 'pluginId']) },
+    };
   }
 
   async updateServiceAssetDeploymentStrategy(tenantId: string, serviceAssetId: string, strategy: DeploymentStrategyDto, actorId?: string): Promise<ServiceAssetDto> {
@@ -938,6 +1029,61 @@ export class AssetsApplicationService {
     }
   }
 	}
+
+function standardSiteBinding(binding: CertificateBindingDto): Record<string, unknown> {
+  const metadata = asRecord(binding.metadata);
+  const configured = asRecord(metadata.configuredCertificate);
+  const certificateVersionId = binding.certificateVersionId ?? binding.targetCertificateVersionId;
+  const certificate = certificateVersionId || binding.observedFingerprintSha256 || binding.desiredFingerprintSha256
+    ? {
+        id: certificateVersionId ?? binding.id,
+        certificateVersionId,
+        name: stringFromRecord(configured, ['name', 'commonName']) || binding.domainName || binding.domain,
+        subject: stringFromRecord(configured, ['subject']),
+        issuer: stringFromRecord(configured, ['issuer']),
+        notBefore: stringFromRecord(configured, ['notBefore']),
+        notAfter: stringFromRecord(configured, ['notAfter']),
+        fingerprintSha256: binding.desiredFingerprintSha256 ?? binding.observedFingerprintSha256,
+        status: binding.status,
+      }
+    : undefined;
+  return {
+    id: binding.id,
+    bindingKey: binding.bindingKey,
+    bindingType: binding.bindingType,
+    hostName: binding.domainName ?? binding.domain,
+    status: binding.status,
+    certificate,
+    deploymentTarget: {
+      managedTargetId: binding.managedTargetId,
+      targetType: stringFromRecord(metadata, ['targetType']),
+      targetKey: stringFromRecord(metadata, ['targetKey']),
+    },
+    replacement: binding.managedTargetId
+      ? { allowed: true, managedTargetId: binding.managedTargetId }
+      : { allowed: false, reasonCode: 'MANAGED_TARGET_UNAVAILABLE' },
+  };
+}
+
+function uniqueCertificates(values: Array<Record<string, unknown> | undefined>): Array<Record<string, unknown>> {
+  const seen = new Set<string>();
+  return values.filter((certificate): certificate is Record<string, unknown> => {
+    if (!certificate) return false;
+    const key = String(certificate.id ?? certificate.certificateVersionId ?? certificate.fingerprintSha256 ?? '');
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function stringFromRecord(record: Record<string, unknown> | undefined, keys: readonly string[]): string | undefined {
+  if (!record) return undefined;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
+}
 
 function resolveCurrentCertificateProjection(
   asset: ServiceAssetDto,

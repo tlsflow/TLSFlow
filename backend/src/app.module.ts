@@ -565,6 +565,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const pluginBindingsService = new PluginBindingsApplicationService(new PluginBindingsRepository(appDb));
   cloudAccountAssetsService.setBindingProvisioner(new CloudAccountAssetBindingProvisioner(unifiedPluginsService));
   const cloudResourceProjectionService = new CloudResourceProjectionService(appDb);
+  assetsService.setCloudResourceProjectionService(cloudResourceProjectionService);
   const cloudPluginActionExecutor = new PluginRunnerExecutorAdapter({
     ...(pluginRunnerDependencies ?? {}),
     executionGrants: security.grants,

@@ -153,7 +153,7 @@ export class AssetsController {
       });
       const servicePage = await this.service.listServiceAssets(tenantId(request), serviceQuery);
       for (const asset of servicePage.items) {
-        const projected = projectServiceAsset(asset, serviceManageAllowed);
+        const projected = projectServiceAsset(asset as unknown as Record<string, unknown>, serviceManageAllowed);
         if (matchesUnifiedAssetFilter(projected, query.filter)) items.push(projected);
       }
     }
@@ -1006,7 +1006,7 @@ function pickDeviceFilters(filter: Record<string, string>): Record<string, strin
   return Object.fromEntries(allowed.flatMap((key) => filter[key] ? [[key, filter[key]]] : []));
 }
 
-function projectDeviceAsset(device: ManagedDeviceSummaryDto, canManage: boolean): Record<string, unknown> {
+export function projectDeviceAsset(device: ManagedDeviceSummaryDto, canManage: boolean): Record<string, unknown> {
   return {
     ...device,
     assetKind: 'DEVICE',
@@ -1015,7 +1015,7 @@ function projectDeviceAsset(device: ManagedDeviceSummaryDto, canManage: boolean)
   };
 }
 
-function projectServiceAsset(asset: Record<string, unknown>, canManage: boolean): Record<string, unknown> {
+export function projectServiceAsset(asset: Record<string, unknown>, canManage: boolean): Record<string, unknown> {
   return {
     ...asset,
     assetKind: 'CLOUD_SERVICE',
@@ -1029,7 +1029,7 @@ function projectServiceAsset(asset: Record<string, unknown>, canManage: boolean)
   };
 }
 
-function matchesUnifiedAssetFilter(asset: Record<string, unknown>, filter: Record<string, string>): boolean {
+export function matchesUnifiedAssetFilter(asset: Record<string, unknown>, filter: Record<string, string>): boolean {
   return Object.entries(filter).every(([key, expected]) => {
     if (key === 'assetKind') return String(asset.assetKind).toUpperCase() === expected.toUpperCase() || expected.toUpperCase() === 'ALL';
     if (key === 'category' || key === 'productFamily' || key === 'managementMethod' || key === 'health' || key === 'status') {
@@ -1040,7 +1040,7 @@ function matchesUnifiedAssetFilter(asset: Record<string, unknown>, filter: Recor
   });
 }
 
-function compareUnifiedAssets(left: Record<string, unknown>, right: Record<string, unknown>, sort?: { field: string; direction: 'asc' | 'desc' }): number {
+export function compareUnifiedAssets(left: Record<string, unknown>, right: Record<string, unknown>, sort?: { field: string; direction: 'asc' | 'desc' }): number {
   const field = sort?.field ?? 'displayName';
   const direction = sort?.direction === 'desc' ? -1 : 1;
   const leftValue = String(left[field] ?? left.displayName ?? left.id).toLocaleLowerCase();
