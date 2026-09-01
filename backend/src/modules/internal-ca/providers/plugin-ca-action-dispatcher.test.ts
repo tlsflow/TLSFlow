@@ -4,8 +4,40 @@ import { describe, it } from 'node:test';
 import type { JsonSchema } from '../../../common/validation/json-schema.js';
 import { PluginCaActionDispatcher } from './plugin-ca-action-dispatcher.js';
 import type { UnifiedPluginVersionRecord } from '../../plugins/dto/unified-plugins.dto.js';
+import type { AgentTaskEnvelope } from '../../agents/schema/agents.schema.js';
 
 describe('Microsoft AD CS Agent 调度', () => {
+  it('从 Agent Receipt 的 operationResults 提取吊销时间', async () => {
+    const { dispatcher } = createDispatcher({
+      agentPlan: true,
+      existingTask: {
+        status: 'succeeded',
+        result: {
+          success: true,
+          status: 'SUCCESS',
+          detail: {
+            receipt: {
+              status: 'SUCCESS',
+              operationResults: [{ status: 'revoked', revokedAt: '2026-09-01T05:57:05.236Z' }],
+            },
+          },
+        },
+      },
+    });
+
+    const result = await dispatcher.execute({
+      provider: provider(),
+      binding: { ...(binding() as Record<string, unknown>), revokeAction: { actionId: 'ca.issue', actionVersion: 'v1' } } as never,
+      action: 'revoke',
+      authority: { configuration: { agentId: 'agent-authority-1' } } as never,
+      payload: { serialNumber: '7800000017' },
+      actorId: 'actor-1',
+      idempotencyKey: 'idempotency-revoke-receipt',
+    });
+
+    assert.equal(result.revokedAt, '2026-09-01T05:57:05.236Z');
+  });
+
   it('issue 使用 Authority 配置的 Agent ID，而不是 Provider ID', async () => {
     const { dispatcher, captured } = createDispatcher({ agentPlan: true });
     await dispatcher.execute({
@@ -152,6 +184,7 @@ describe('Microsoft AD CS Agent 调度', () => {
 function createDispatcher(options: {
   agentPlan?: boolean;
   agentPlatform?: { osType: string; role: string };
+  existingTask?: Partial<AgentTaskEnvelope>;
   pluginStatus?: UnifiedPluginVersionRecord['status'];
   replacementPlugin?: { id: string; pluginId: string; version: string; status: UnifiedPluginVersionRecord['status'] };
   accessibleVersions?: UnifiedPluginVersionRecord[];
@@ -196,7 +229,19 @@ function createDispatcher(options: {
       captured.agentLookup = agentId;
       return options.agentPlatform ?? { osType: 'windows_adcs', role: 'adcs_agent' };
     },
-    findTaskByIdempotencyKey: async () => undefined,
+    findTaskByIdempotencyKey: async () => options.existingTask ? {
+      id: 'task-adcs-existing',
+      tenantId: 'tenant-1',
+      agentId: 'agent-authority-1',
+      executionRunId: 'run-existing',
+      executionStepId: 'step-existing',
+      idempotencyKey: 'idempotency-revoke-receipt',
+      payload: {},
+      createdAt: '2026-09-01T00:00:00.000Z',
+      updatedAt: '2026-09-01T00:00:00.000Z',
+      requestId: 'request-existing',
+      ...options.existingTask,
+    } as AgentTaskEnvelope : undefined,
     enqueueTask: async (_tenantId: string, input: { agentId: string; payload: Record<string, unknown> }) => {
       captured.enqueued = input;
       return { id: 'task-adcs-1', status: 'queued' };

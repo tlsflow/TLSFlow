@@ -150,7 +150,13 @@ export class PluginCaProviderAdapter implements CaProviderAdapter {
     if (!binding?.revokeAction) throw new AppError('CA_PROVIDER_ACTION_UNBOUND', '外部 CA 缺少固定吊销动作绑定');
     const output = await this.execute('revoke', input.provider, binding, input.actorId, input.idempotencyKey ?? `revoke:${input.authority.id}:${input.serialNumber}`, { operation: 'revoke', serialNumber: input.serialNumber, reason: input.reason }, input.authority);
     const revokedAt = typeof output.revokedAt === 'string' ? output.revokedAt : undefined;
-    if (!revokedAt) throw new AppError('CA_PROVIDER_RESULT_INVALID', '外部 CA 吊销回执缺少 revokedAt');
+    if (!revokedAt) {
+      // Agent 任务是异步提交的；pending/unknown 不是回执格式错误，必须保留为可查询状态。
+      if (output.status === 'pending' || output.status === 'unknown') {
+        throw new AppError('CA_PROVIDER_UNAVAILABLE', '外部 CA 吊销任务尚未完成，请稍后查询', { mayBeUnknown: true, status: output.status });
+      }
+      throw new AppError('CA_PROVIDER_RESULT_INVALID', '外部 CA 吊销回执缺少 revokedAt');
+    }
     return { revokedAt };
   }
 

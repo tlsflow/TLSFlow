@@ -396,10 +396,15 @@ function normalizeAdcsTaskResult(action: 'issue' | 'query' | 'revoke' | 'revocat
     throw new AppError('CA_PROVIDER_UNAVAILABLE', 'AD CS Agent 任务结果未确认成功', { taskId: task.id, status: result?.status });
   }
   const detail = readRecord(result.detail) ?? {};
-  const operationResults = Array.isArray(detail.operationResults)
-    ? detail.operationResults.filter(isRecord)
-    : [];
-  const operation = operationResults.at(-1) ?? detail;
+  // Agent v2 的真实操作结果位于 Receipt 内；旧版 Agent/Runner 仍可能把
+  // operationResults 放在 detail 顶层，因此按新结构优先、旧结构回退读取。
+  const receipt = readRecord(detail.receipt);
+  const operationResults = (Array.isArray(receipt?.operationResults)
+    ? receipt.operationResults
+    : Array.isArray(detail.operationResults)
+      ? detail.operationResults
+      : []).filter(isRecord);
+  const operation = operationResults.at(-1) ?? receipt ?? detail;
   if (action === 'issue' || action === 'query') {
     if (typeof operation.providerRequestId !== 'string' || typeof operation.status !== 'string') {
       throw new AppError('CA_PROVIDER_RESULT_INVALID', 'AD CS Agent Receipt 缺少签发结果');

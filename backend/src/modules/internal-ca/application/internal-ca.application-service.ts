@@ -2619,6 +2619,30 @@ export class InternalCaApplicationService {
     return this.repository.listRevocations(tenantId);
   }
 
+  async refreshRevocation(tenantId: string, revocationId: string, actorId: string): Promise<CertificateRevocationEntity> {
+    const revocation = (await this.repository.listRevocations(tenantId)).find((item) => item.id === revocationId);
+    if (!revocation) throw new AppError('RESOURCE_NOT_FOUND', '证书吊销任务不存在', { revocationId });
+    if (revocation.status === 'revoked') {
+      // 兼容旧版本已将吊销账本写成 revoked、但尚未同步证书库版本的历史记录。
+      const version = await this.dependencies.certificates.getRepository().getVersion(revocation.certificateVersionId, tenantId);
+      if (version && version.status !== 'revoked') {
+        await this.dependencies.certificates.revokeVersion({
+          id: revocation.certificateVersionId,
+          status: 'revoked',
+          actorId,
+          tenantId,
+        });
+      }
+      return this.repository.saveRevocation({ ...revocation, warnings: [], updatedAt: new Date().toISOString() });
+    }
+    if (!['failed', 'unknown', 'revoking'].includes(revocation.status)) {
+      throw new AppError('RESOURCE_VERSION_CONFLICT', '证书吊销任务当前不可查询', { status: revocation.status });
+    }
+    const version = await this.dependencies.certificates.getRepository().getVersion(revocation.certificateVersionId, tenantId);
+    if (!version?.serialNumber) throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在或缺少序列号', { certificateVersionId: revocation.certificateVersionId });
+    return this.executeRevocation({ ...revocation, status: 'approved' }, version.serialNumber, actorId);
+  }
+
   async approveRevocation(tenantId: string, revocationId: string, approvalId: string, actorId: string): Promise<CertificateRevocationEntity> {
     const revocation = (await this.repository.listRevocations(tenantId)).find((item) => item.id === revocationId);
     if (!revocation) throw new AppError('RESOURCE_NOT_FOUND', '证书吊销任务不存在', { revocationId });
@@ -2731,6 +2755,13 @@ export class InternalCaApplicationService {
       const revoked = await adapter.revoke({ provider, authority, serialNumber, reason: revocation.reason, actorId, actionBinding, idempotencyKey: `revoke:${revocation.id}` });
       const issuance = await this.repository.getIssuanceByCertificateVersion(revocation.tenantId, revocation.certificateVersionId);
       if (issuance) await this.repository.saveIssuanceRecord({ ...issuance, status: 'revoked', revocationReason: revocation.reason, revokedAt: revoked.revokedAt, updatedAt: revoked.revokedAt, observedAt: revoked.revokedAt });
+      // CA 回执确认后必须同步证书库版本投影；CA 运维观测本身不会修改 pg_certificate_versions。
+      await this.dependencies.certificates.revokeVersion({
+        id: revocation.certificateVersionId,
+        status: 'revoked',
+        actorId,
+        tenantId: revocation.tenantId,
+      }, context);
       if (provider.type === 'gcac_builtin') {
         if (!authority.crlDistributionPoint) {
           return this.repository.saveRevocation({
@@ -2747,7 +2778,7 @@ export class InternalCaApplicationService {
         }
       }
       await this.audit('internal_ca.certificate.revoked', actorId, 'certificate.revoke', 'certificate_revocation', revocation.id, 'critical', context, { caId: authority.id, serialNumber });
-      return this.repository.saveRevocation({ ...revoking, status: 'revoked', revokedAt: revoked.revokedAt, updatedAt: new Date().toISOString() });
+      return this.repository.saveRevocation({ ...revoking, status: 'revoked', revokedAt: revoked.revokedAt, warnings: [], updatedAt: new Date().toISOString() });
     } catch (error) {
       const status: CertificateRevocationEntity['status'] = error instanceof AppError && error.errorCode === 'CA_PROVIDER_UNAVAILABLE' ? 'unknown' : 'failed';
       return this.repository.saveRevocation({ ...revoking, status, warnings: [error instanceof Error ? error.message : String(error)], updatedAt: new Date().toISOString() });

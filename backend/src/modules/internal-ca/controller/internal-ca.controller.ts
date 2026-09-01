@@ -121,6 +121,7 @@ export class InternalCaController {
     router.post('/api/v1/acme/renewal-jobs/:id/cancel', '取消 ACME 续签任务', tags, (request) => this.cancelAcmeRenewalJob(request));
     router.get('/api/v1/certificate-revocations', '查询证书吊销任务', tags, (request) => this.listRevocations(request));
     router.post('/api/v1/certificate-revocations', '创建证书吊销任务', tags, (request) => this.createRevocation(request));
+    router.post('/api/v1/certificate-revocations/:id/query', '查询证书吊销结果', tags, (request) => this.queryRevocation(request));
     router.post('/api/v1/certificate-revocations/:id/approve', '审批证书吊销任务', tags, (request) => this.approveRevocation(request));
     router.get('/api/v1/ca-crl-publications', '查询 CA CRL 发布记录', tags, (request) => this.listCrlPublications(request));
     router.post('/api/v1/certificate-authorities/:id/crl/publish', '发布内置 CA CRL', tags, (request) => this.publishCrl(request));
@@ -671,6 +672,11 @@ export class InternalCaController {
     return { statusCode: 201, body: await this.service.requestRevocation(tenantId(request), requiredString(body, 'certificateVersionId'), requiredString(body, 'reason'), actorId(request), request.context) };
   }
 
+  private async queryRevocation(request: HttpRequest) {
+    await this.assertAction(request, 'ca.certificate.revoke', 'certificate_revocation');
+    return this.service.refreshRevocation(tenantId(request), pathId(request), actorId(request));
+  }
+
   private async approveRevocation(request: HttpRequest) {
     await this.assertAction(request, 'ca.certificate.revoke', 'certificate_revocation');
     return this.service.approveRevocation(tenantId(request), pathId(request), requiredString(objectBody(request), 'approvalId'), actorId(request));
@@ -984,6 +990,7 @@ export function getInternalCaRouteContracts(): RouteContract[] {
     ['POST', '/api/v1/acme/renewal-jobs/:id/cancel', 'cancelAcmeRenewalJob', '取消 ACME 续签任务', responseSchema],
     ['GET', '/api/v1/certificate-revocations', 'listCertificateRevocations', '查询证书吊销任务', arraySchema],
     ['POST', '/api/v1/certificate-revocations', 'createCertificateRevocation', '创建证书吊销任务', responseSchema],
+    ['POST', '/api/v1/certificate-revocations/:id/query', 'queryCertificateRevocation', '查询证书吊销结果', responseSchema],
     ['POST', '/api/v1/certificate-revocations/:id/approve', 'approveCertificateRevocation', '审批证书吊销任务', responseSchema],
     ['GET', '/api/v1/ca-crl-publications', 'listCaCrlPublications', '查询 CA CRL 发布记录', arraySchema],
     ['POST', '/api/v1/certificate-authorities/:id/crl/publish', 'publishCaCrl', '发布内置 CA CRL', responseSchema],
