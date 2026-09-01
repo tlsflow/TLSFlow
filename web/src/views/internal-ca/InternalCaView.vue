@@ -38,10 +38,17 @@ const authorityWizardForm = ref<HTMLFormElement | null>(null)
 const authoritySubjectAdvancedOpen = ref(false)
 const commonNameCustomized = ref(false)
 const trustDomainModalOpen = ref(false)
+const trustDomainEditTarget = ref<InternalCaRecord | null>(null)
 const requestModalOpen = ref(false)
 const profileModalOpen = ref(false)
+const authorityEditModalOpen = ref(false)
+const authorityEditTarget = ref<InternalCaRecord | null>(null)
 const authorityDeleteModalOpen = ref(false)
 const authorityDeleteTarget = ref<InternalCaRecord | null>(null)
+const trustDomainDeleteModalOpen = ref(false)
+const trustDomainDeleteTarget = ref<InternalCaRecord | null>(null)
+const profileDeleteModalOpen = ref(false)
+const profileDeleteTarget = ref<InternalCaRecord | null>(null)
 const adcsModalOpen = ref(false)
 const adcsEditingProviderId = ref('')
 const adcsInstallBusy = ref(false)
@@ -50,6 +57,7 @@ const adcsRefreshBusy = ref('')
 
 const trustDomainDraft = reactive({ name: '', purpose: 'production_tls', isolationLevel: 'standard', isDefault: false })
 const authorityDraft = reactive({ providerId: '', trustDomainId: '', parentCaId: '', name: '', commonName: '', securityDomain: 'production', topologyMode: 'root_with_intermediate', keyBackend: 'secret' })
+const authorityEditDraft = reactive({ name: '', trustDomainId: '', securityDomain: '', certificateProfileId: '' })
 const profileDraft = reactive({ name: '', domainPatterns: '', maximumValidityDays: 90, renewalWindowDays: 30, requireApproval: true })
 const requestDraft = reactive({
   applicationAssetId: '', trustDomainId: '', caId: '', profileVersionId: '', commonName: '', sans: '', custodyMode: 'managed_secret',
@@ -66,9 +74,24 @@ const rootAuthorities = computed(() => authorities.value.filter((item) => (text(
 const selectedRoot = computed(() => rootAuthorities.value.find((item) => text(item.id) === selectedRootId.value) ?? rootAuthorities.value[0])
 const selectedIntermediates = computed(() => authorities.value.filter((item) => text(item.parentCaId) === text(selectedRoot.value?.id) && text(item.status, 'active') === 'active'))
 const activeAuthorities = computed(() => authorities.value.filter((item) => text(item.status, 'active') === 'active'))
+const selectableTrustDomains = computed(() => trustDomains.value.filter((item) => ['active', 'rotating'].includes(text(item.status))))
+const visibleTrustDomains = computed(() => trustDomains.value.filter((item) => text(item.status) !== 'retired'))
+const activeProfiles = computed(() => profiles.value.filter((item) => text(asRecord(item.profile).status) === 'active'))
+const visibleProfiles = computed(() => profiles.value.filter((item) => text(asRecord(item.profile).status) !== 'disabled'))
+const isTrustDomainEditing = computed(() => trustDomainEditTarget.value !== null)
+const authorityEditProfileOptions = computed(() => {
+  const providerId = text(authorityEditTarget.value?.providerId)
+  return activeProfiles.value.flatMap((entry) => {
+    const profile = asRecord(entry.profile)
+    if (text(profile.providerType) !== 'internal_ca') return []
+    if (text(profile.providerId) && text(profile.providerId) !== providerId) return []
+    return [profile]
+  })
+})
+const authorityEditCrlDistributionPoint = computed(() => text(authorityEditTarget.value?.crlDistributionPoint))
 const eligibleParentRoots = computed(() => rootAuthorities.value.filter(isEligibleParentRoot))
 const requestAuthorities = computed(() => authorities.value.filter((item) => text(item.status, 'active') === 'active' && (!requestDraft.trustDomainId || text(item.trustDomainId) === requestDraft.trustDomainId)))
-const requestProfileVersions = computed(() => profiles.value.flatMap((item) => {
+const requestProfileVersions = computed(() => activeProfiles.value.flatMap((item) => {
   const profile = item.profile as InternalCaRecord | undefined
   if (requestDraft.trustDomainId && text(profile?.trustDomainId) !== requestDraft.trustDomainId) return []
   return asRecords(item.versions).map((version): InternalCaRecord => ({ ...version, profileName: text(profile?.name) }))
@@ -91,12 +114,13 @@ const visibleProviders = computed(() => providers.value.filter((item) => !(isAdc
 const recentRequests = computed(() => requests.value.slice(0, 20))
 const selectedCreationMode = computed(() => authorityCreationMode.value)
 const trustDomainColumns = computed<DataTableColumn<InternalCaRecord>[]>(() => [
-  { key: 'name', title: t('internalCa.trustDomains.columns.name'), width: '22%' },
-  { key: 'purpose', title: t('internalCa.trustDomains.columns.purpose'), width: '18%' },
-  { key: 'isolationLevel', title: t('internalCa.trustDomains.columns.isolationLevel'), width: '18%' },
-  { key: 'status', title: t('internalCa.trustDomains.columns.status'), width: '14%' },
-  { key: 'isDefault', title: t('internalCa.trustDomains.columns.default'), width: '14%' },
-  { key: 'createdAt', title: t('internalCa.trustDomains.columns.createdAt') },
+  { key: 'name', title: t('internalCa.trustDomains.columns.name'), width: '19%' },
+  { key: 'purpose', title: t('internalCa.trustDomains.columns.purpose'), width: '15%' },
+  { key: 'isolationLevel', title: t('internalCa.trustDomains.columns.isolationLevel'), width: '16%' },
+  { key: 'status', title: t('internalCa.trustDomains.columns.status'), width: '12%' },
+  { key: 'isDefault', title: t('internalCa.trustDomains.columns.default'), width: '12%' },
+  { key: 'createdAt', title: t('internalCa.trustDomains.columns.createdAt'), width: '16%' },
+  { key: 'actions', title: t('internalCa.trustDomains.columns.actions'), width: '10%' },
 ])
 const requestColumns = computed<DataTableColumn<InternalCaRecord>[]>(() => [
   { key: 'subjectCommonName', title: t('internalCa.requests.columns.commonName'), width: '16%' },
@@ -108,10 +132,12 @@ const requestColumns = computed<DataTableColumn<InternalCaRecord>[]>(() => [
   { key: 'actions', title: t('internalCa.requests.columns.actions'), width: '12%' },
 ])
 const profileColumns = computed<DataTableColumn<InternalCaRecord>[]>(() => [
-  { key: 'name', title: t('internalCa.trustDomains.columns.name'), width: '28%' },
-  { key: 'securityDomain', title: t('internalCa.profiles.columns.securityDomain'), width: '24%' },
-  { key: 'versionCount', title: t('internalCa.profiles.columns.versionCount'), width: '24%' },
-  { key: 'status', title: t('internalCa.trustDomains.columns.status'), width: '24%' },
+  { key: 'name', title: t('internalCa.trustDomains.columns.name'), width: '24%' },
+  { key: 'providerType', title: t('internalCa.profiles.columns.providerType'), width: '16%' },
+  { key: 'securityDomain', title: t('internalCa.profiles.columns.securityDomain'), width: '20%' },
+  { key: 'versionCount', title: t('internalCa.profiles.columns.versionCount'), width: '12%' },
+  { key: 'status', title: t('internalCa.trustDomains.columns.status'), width: '14%' },
+  { key: 'actions', title: t('internalCa.profiles.columns.actions'), width: '14%' },
 ])
 
 onMounted(loadAll)
@@ -156,9 +182,9 @@ async function loadAll() {
       return (result.value.data ?? []).map((binding) => ({ ...binding, providerId }))
     })
     authorityDraft.providerId ||= text(builtinBackend.value?.id)
-    const defaultTrustDomainId = text(trustDomains.value.find((item) => item.isDefault === true)?.id ?? trustDomains.value[0]?.id)
-    authorityDraft.trustDomainId ||= defaultTrustDomainId
-    requestDraft.trustDomainId ||= defaultTrustDomainId
+    const defaultTrustDomainId = text(selectableTrustDomains.value.find((item) => item.isDefault === true)?.id ?? selectableTrustDomains.value[0]?.id)
+    if (!selectableTrustDomains.value.some((item) => text(item.id) === authorityDraft.trustDomainId)) authorityDraft.trustDomainId = defaultTrustDomainId
+    if (!selectableTrustDomains.value.some((item) => text(item.id) === requestDraft.trustDomainId)) requestDraft.trustDomainId = defaultTrustDomainId
     if (!requestAuthorities.value.some((item) => text(item.id) === requestDraft.caId)) {
       requestDraft.caId = text(requestAuthorities.value.find((item) => text(item.role) === 'intermediate')?.id ?? requestAuthorities.value[0]?.id)
     }
@@ -190,18 +216,60 @@ async function runAction(action: () => Promise<unknown>, successKey: string): Pr
 
 function openTrustDomainModal() {
   Object.assign(trustDomainDraft, { name: '', purpose: 'production_tls', isolationLevel: 'standard', isDefault: false })
+  trustDomainEditTarget.value = null
   error.value = ''
   trustDomainModalOpen.value = true
 }
 
-async function createTrustDomain() {
-  const created = await runAction(() => internalCaApi.createTrustDomain({
+function openTrustDomainEditModal(domain: InternalCaRecord) {
+  const trustDomainId = text(domain.id)
+  if (!trustDomainId) return
+  Object.assign(trustDomainDraft, {
+    name: text(domain.name),
+    purpose: text(domain.purpose),
+    isolationLevel: text(domain.isolationLevel, 'standard'),
+    isDefault: domain.isDefault === true,
+  })
+  trustDomainEditTarget.value = domain
+  error.value = ''
+  trustDomainModalOpen.value = true
+}
+
+function openTrustDomainDeleteModal(domain: InternalCaRecord) {
+  const trustDomainId = text(domain.id)
+  if (!trustDomainId) return
+  error.value = ''
+  trustDomainDeleteTarget.value = domain
+  trustDomainDeleteModalOpen.value = true
+}
+
+async function confirmTrustDomainDelete() {
+  const trustDomainId = text(trustDomainDeleteTarget.value?.id)
+  if (!trustDomainId) return
+  const ok = await runAction(() => internalCaApi.deleteTrustDomain(trustDomainId), 'internalCa.messages.trustDomainDeleted')
+  if (ok) {
+    trustDomainDeleteModalOpen.value = false
+    trustDomainDeleteTarget.value = null
+  }
+}
+
+async function saveTrustDomain() {
+  const targetId = text(trustDomainEditTarget.value?.id)
+  const body = {
     name: trustDomainDraft.name.trim(),
     purpose: trustDomainDraft.purpose.trim(),
     isolationLevel: trustDomainDraft.isolationLevel,
     isDefault: trustDomainDraft.isDefault,
-  }), 'internalCa.messages.trustDomainCreated')
-  if (created) trustDomainModalOpen.value = false
+  }
+  const successKey = targetId ? 'internalCa.messages.trustDomainUpdated' : 'internalCa.messages.trustDomainCreated'
+  const saved = await runAction(
+    () => targetId ? internalCaApi.updateTrustDomain(targetId, body) : internalCaApi.createTrustDomain(body),
+    successKey,
+  )
+  if (saved) {
+    trustDomainModalOpen.value = false
+    trustDomainEditTarget.value = null
+  }
 }
 
 async function previewAuthority() {
@@ -379,6 +447,7 @@ function backendVerificationSummary(backend: InternalCaRecord): string {
 function adcsRuntimeOf(backend: InternalCaRecord): InternalCaRecord {
   return asRecord(backend.runtime)
 }
+
 function adcsAuthorityId(backend: InternalCaRecord): string {
   return text(activeAuthorities.value.find((authority) => text(authority.providerId) === text(backend.id))?.id)
 }
@@ -473,6 +542,24 @@ function openProfileModal() {
   })
   error.value = ''
   profileModalOpen.value = true
+}
+
+function openProfileDeleteModal(entry: InternalCaRecord) {
+  const profile = asRecord(entry.profile)
+  if (!text(profile.id)) return
+  error.value = ''
+  profileDeleteTarget.value = entry
+  profileDeleteModalOpen.value = true
+}
+
+async function confirmProfileDelete() {
+  const profileId = text(asRecord(profileDeleteTarget.value?.profile).id)
+  if (!profileId) return
+  const ok = await runAction(() => internalCaApi.deleteProfile(profileId), 'internalCa.messages.profileDeleted')
+  if (ok) {
+    profileDeleteModalOpen.value = false
+    profileDeleteTarget.value = null
+  }
 }
 
 async function createRequest() {
@@ -648,6 +735,38 @@ function openAuthorityDeleteModal(authority: InternalCaRecord) {
   authorityDeleteModalOpen.value = true
 }
 
+function openAuthorityEditModal(authority: InternalCaRecord) {
+  const authorityId = text(authority.id)
+  if (!authorityId) return
+  authorityEditTarget.value = authority
+  Object.assign(authorityEditDraft, {
+    name: text(authority.name),
+    trustDomainId: text(authority.trustDomainId),
+    securityDomain: text(authority.securityDomain),
+    certificateProfileId: text(activeProfiles.value
+      .map((entry) => asRecord(entry.profile))
+      .filter((profile) => text(profile.certificateAuthorityId) === authorityId)
+      .map((profile) => text(profile.id))[0]),
+  })
+  error.value = ''
+  authorityEditModalOpen.value = true
+}
+
+async function saveAuthority() {
+  const authorityId = text(authorityEditTarget.value?.id)
+  if (!authorityId) return
+  const saved = await runAction(() => internalCaApi.updateAuthority(authorityId, {
+    name: authorityEditDraft.name.trim(),
+    trustDomainId: authorityEditDraft.trustDomainId,
+    securityDomain: authorityEditDraft.securityDomain.trim(),
+    certificateProfileId: authorityEditDraft.certificateProfileId || null,
+  }), 'internalCa.messages.authorityUpdated')
+  if (saved) {
+    authorityEditModalOpen.value = false
+    authorityEditTarget.value = null
+  }
+}
+
 async function confirmAuthorityDelete() {
   const authorityId = text(authorityDeleteTarget.value?.id)
   if (!authorityId) return
@@ -754,8 +873,8 @@ function requestDeploymentSummary(request: InternalCaRecord): string {
               <span class="root-ca-card__accent"></span>
               <span class="root-ca-card__body">
                 <span class="root-ca-card__title">
-                  <strong>{{ text(root.name) }}</strong>
                   <GcStatusTag :status="text(root.status)" />
+                  <strong>{{ text(root.name) }}</strong>
                 </span>
                 <span class="root-ca-card__cn">{{ text(root.subjectCommonName) }}</span>
                 <span class="root-ca-card__meta">{{ trustDomainName(root.trustDomainId) }} · {{ text(root.securityDomain) }}</span>
@@ -763,7 +882,10 @@ function requestDeploymentSummary(request: InternalCaRecord): string {
                 <span class="root-ca-card__badge">{{ t('internalCa.labels.intermediateCount', { count: activeAuthorities.filter((item) => text(item.parentCaId) === text(root.id)).length }) }}</span>
               </span>
             </button>
-            <button type="button" class="gc-button gc-button--sm gc-button--danger root-ca-card__delete" :aria-label="t('internalCa.actions.deleteAuthority')" @click="openAuthorityDeleteModal(root)">{{ t('internalCa.actions.deleteAuthority') }}</button>
+            <div class="root-ca-card__actions">
+              <button type="button" class="gc-button gc-button--sm ca-compact-action" :aria-label="t('internalCa.actions.editAuthority')" @click="openAuthorityEditModal(root)">{{ t('common.edit') }}</button>
+              <button type="button" class="gc-button gc-button--sm gc-button--danger ca-compact-action" :aria-label="t('internalCa.actions.deleteAuthority')" @click="openAuthorityDeleteModal(root)">{{ t('common.delete') }}</button>
+            </div>
           </article>
         </div>
         <article v-if="selectedRoot" class="ca-architecture">
@@ -832,11 +954,11 @@ function requestDeploymentSummary(request: InternalCaRecord): string {
         </span>
       </summary>
       <div class="ca-section__body">
-        <GcDataTable :columns="trustDomainColumns" :rows="trustDomains" :loading="loading" row-key="id" :empty-text="t('internalCa.trustDomains.empty')" dense pagination>
+        <GcDataTable :columns="trustDomainColumns" :rows="visibleTrustDomains" :loading="loading" row-key="id" :empty-text="t('internalCa.trustDomains.empty')" dense pagination>
           <template #toolbar>
             <div class="trust-domain-page__table-toolbar">
               <strong>{{ t('internalCa.trustDomains.recordsTitle') }}</strong>
-              <span>{{ t('businessPage.total', { count: trustDomains.length }) }}</span>
+              <span>{{ t('businessPage.total', { count: visibleTrustDomains.length }) }}</span>
             </div>
           </template>
           <template #cell-name="{ row }">
@@ -847,6 +969,12 @@ function requestDeploymentSummary(request: InternalCaRecord): string {
           <template #cell-status="{ row }"><GcStatusTag :status="text(row.status)" /></template>
           <template #cell-isDefault="{ row }">{{ row.isDefault ? t('internalCa.labels.defaultTrustDomain') : t('internalCa.trustDomains.notDefault') }}</template>
           <template #cell-createdAt="{ row }">{{ localTime(row.createdAt) }}</template>
+          <template #cell-actions="{ row }">
+            <div class="trust-domain-page__actions">
+              <button class="gc-button gc-button--sm ca-compact-action" type="button" :disabled="actionPending" :aria-label="t('internalCa.actions.editTrustDomain')" @click="openTrustDomainEditModal(row)">{{ t('common.edit') }}</button>
+              <button class="gc-button gc-button--sm gc-button--danger ca-compact-action" type="button" :disabled="actionPending" :aria-label="t('internalCa.actions.deleteTrustDomain')" @click="openTrustDomainDeleteModal(row)">{{ t('common.delete') }}</button>
+            </div>
+          </template>
         </GcDataTable>
       </div>
     </details>
@@ -860,11 +988,11 @@ function requestDeploymentSummary(request: InternalCaRecord): string {
         </span>
       </summary>
       <div class="ca-section__body">
-        <GcDataTable :columns="profileColumns" :rows="profiles" :loading="loading" row-key="id" :empty-text="t('internalCa.profiles.empty')" dense pagination>
+        <GcDataTable :columns="profileColumns" :rows="visibleProfiles" :loading="loading" row-key="id" :empty-text="t('internalCa.profiles.empty')" dense pagination>
           <template #toolbar>
             <div class="trust-domain-page__table-toolbar">
               <strong>{{ t('internalCa.profiles.recordsTitle') }}</strong>
-              <span>{{ t('businessPage.total', { count: profiles.length }) }}</span>
+              <span>{{ t('businessPage.total', { count: visibleProfiles.length }) }}</span>
             </div>
           </template>
           <template #cell-name="{ row }">
@@ -872,9 +1000,13 @@ function requestDeploymentSummary(request: InternalCaRecord): string {
               <strong>{{ text(row.profile && (row.profile as InternalCaRecord).name) }}</strong>
             </div>
           </template>
+          <template #cell-providerType="{ row }">{{ text(row.profile && (row.profile as InternalCaRecord).providerType, t('internalCa.profiles.providerTypes.internalCa')) }}</template>
           <template #cell-securityDomain="{ row }">{{ text(row.profile && (row.profile as InternalCaRecord).securityDomain) }}</template>
           <template #cell-versionCount="{ row }">{{ t('internalCa.labels.versionCount', { count: asRecords(row.versions).length }) }}</template>
-          <template #cell-status="{ row }"><GcStatusTag :status="text(row.status)" /></template>
+          <template #cell-status="{ row }"><GcStatusTag :status="text((row.profile as InternalCaRecord | undefined)?.status, 'unknown')" :label="(row.profile as InternalCaRecord | undefined)?.isDefault === true ? t('internalCa.profiles.defaultProfile') : undefined" /></template>
+          <template #cell-actions="{ row }">
+            <button class="gc-button gc-button--sm gc-button--danger" type="button" :disabled="actionPending" @click="openProfileDeleteModal(row)">{{ t('internalCa.actions.deleteProfile') }}</button>
+          </template>
         </GcDataTable>
       </div>
     </details>
@@ -992,25 +1124,44 @@ function requestDeploymentSummary(request: InternalCaRecord): string {
       </div>
     </details>
 
-    <GcModal v-model:open="trustDomainModalOpen" size="lg" :title="t('internalCa.trustDomains.modalTitle')" :description="t('internalCa.trustDomains.modalDescription')">
-      <form id="trust-domain-form" class="trust-domain-form" @submit.prevent="createTrustDomain">
+    <GcModal v-model:open="trustDomainModalOpen" size="lg" :title="t(isTrustDomainEditing ? 'internalCa.trustDomains.editModalTitle' : 'internalCa.trustDomains.modalTitle')" :description="t(isTrustDomainEditing ? 'internalCa.trustDomains.editModalDescription' : 'internalCa.trustDomains.modalDescription')">
+      <form id="trust-domain-form" class="trust-domain-form" @submit.prevent="saveTrustDomain">
         <label>{{ t('internalCa.fields.name') }}<input v-model="trustDomainDraft.name" required /></label>
         <label>{{ t('internalCa.fields.purpose') }}<input v-model="trustDomainDraft.purpose" required /></label>
         <label>{{ t('internalCa.fields.isolationLevel') }}<select v-model="trustDomainDraft.isolationLevel"><option value="standard">{{ t('internalCa.isolationLevels.standard') }}</option><option value="strict">{{ t('internalCa.isolationLevels.strict') }}</option><option value="regulated">{{ t('internalCa.isolationLevels.regulated') }}</option></select></label>
         <label class="check"><input v-model="trustDomainDraft.isDefault" type="checkbox" />{{ t('internalCa.fields.defaultTrustDomain') }}</label>
-        <p class="trust-domain-form__hint">{{ t('internalCa.trustDomains.generatedCodeHint') }}</p>
+        <p v-if="!isTrustDomainEditing" class="trust-domain-form__hint">{{ t('internalCa.trustDomains.generatedCodeHint') }}</p>
         <p v-if="error" class="notice notice--danger">{{ error }}</p>
       </form>
       <template #actions>
-        <button class="gc-button" type="button" :disabled="actionPending" @click="trustDomainModalOpen = false">{{ t('designSystem.confirm.cancel') }}</button>
-        <button class="gc-button gc-button--primary" form="trust-domain-form" type="submit" :disabled="actionPending">{{ actionPending ? t('businessPage.processing') : t('internalCa.actions.createTrustDomain') }}</button>
+        <button class="gc-button" type="button" :disabled="actionPending" @click="trustDomainModalOpen = false; trustDomainEditTarget = null">{{ t('designSystem.confirm.cancel') }}</button>
+        <button class="gc-button gc-button--primary" form="trust-domain-form" type="submit" :disabled="actionPending">{{ actionPending ? t('businessPage.processing') : t(isTrustDomainEditing ? 'internalCa.actions.updateTrustDomain' : 'internalCa.actions.createTrustDomain') }}</button>
+      </template>
+    </GcModal>
+
+    <GcModal v-model:open="authorityEditModalOpen" size="lg" :title="t('internalCa.authorityEdit.modalTitle')" :description="t('internalCa.authorityEdit.modalDescription')">
+      <form id="authority-edit-form" class="trust-domain-form" @submit.prevent="saveAuthority">
+        <label>{{ t('internalCa.fields.name') }}<input v-model="authorityEditDraft.name" required /></label>
+        <label>{{ t('internalCa.fields.trustDomain') }}<select v-model="authorityEditDraft.trustDomainId" required><option v-for="item in selectableTrustDomains" :key="text(item.id)" :value="text(item.id)">{{ text(item.name) }}</option></select></label>
+        <label>{{ t('internalCa.fields.securityDomain') }}<input v-model="authorityEditDraft.securityDomain" required /></label>
+        <label>{{ t('internalCa.fields.crlUrl') }}<input :value="authorityEditCrlDistributionPoint" readonly /></label>
+        <label>{{ t('internalCa.fields.certificateProfiles') }}<select v-model="authorityEditDraft.certificateProfileId" :aria-label="t('internalCa.authorityEdit.selectProfile')" :disabled="authorityEditProfileOptions.length === 0">
+          <option value="">{{ t('internalCa.authorityEdit.selectProfile') }}</option>
+          <option v-for="profile in authorityEditProfileOptions" :key="text(profile.id)" :value="text(profile.id)">{{ text(profile.name) }}</option>
+        </select></label>
+        <p v-if="authorityEditProfileOptions.length === 0" class="trust-domain-form__hint">{{ t('internalCa.authorityEdit.noProfiles') }}</p>
+        <p v-if="error" class="notice notice--danger">{{ error }}</p>
+      </form>
+      <template #actions>
+        <button class="gc-button" type="button" :disabled="actionPending" @click="authorityEditModalOpen = false; authorityEditTarget = null">{{ t('designSystem.confirm.cancel') }}</button>
+        <button class="gc-button gc-button--primary" form="authority-edit-form" type="submit" :disabled="actionPending">{{ actionPending ? t('businessPage.processing') : t('internalCa.actions.updateAuthority') }}</button>
       </template>
     </GcModal>
 
     <GcModal v-model:open="requestModalOpen" size="lg" :title="t('internalCa.requests.modalTitle')" :description="t('internalCa.requests.modalDescription')">
       <form id="request-form" class="trust-domain-form" @submit.prevent="createRequest">
         <label>{{ t('internalCa.fields.applicationAssetId') }}<input v-model="requestDraft.applicationAssetId" required /></label>
-        <label>{{ t('internalCa.fields.trustDomain') }}<select v-model="requestDraft.trustDomainId" required><option v-for="item in trustDomains" :key="text(item.id)" :value="text(item.id)">{{ text(item.name) }}</option></select></label>
+        <label>{{ t('internalCa.fields.trustDomain') }}<select v-model="requestDraft.trustDomainId" required><option v-for="item in selectableTrustDomains" :key="text(item.id)" :value="text(item.id)">{{ text(item.name) }}</option></select></label>
         <label>{{ t('internalCa.fields.authority') }}<select v-model="requestDraft.caId"><option v-for="item in requestAuthorities" :key="text(item.id)" :value="text(item.id)">{{ text(item.name) }}</option></select></label>
         <label>{{ t('internalCa.fields.profileVersionId') }}<select v-model="requestDraft.profileVersionId" required><option v-for="item in requestProfileVersions" :key="text(item.id)" :value="text(item.id)">{{ text(item.profileName) }} · v{{ number(item.versionNo) }}</option></select></label>
         <label>{{ t('internalCa.fields.commonName') }}<input v-model="requestDraft.commonName" required /></label>
@@ -1107,6 +1258,20 @@ function requestDeploymentSummary(request: InternalCaRecord): string {
       </template>
     </GcModal>
 
+    <GcModal v-model:open="trustDomainDeleteModalOpen" size="sm" :title="t('internalCa.actions.deleteTrustDomain')" :description="t('internalCa.messages.confirmTrustDomainDelete', { name: text(trustDomainDeleteTarget?.name) })" :busy="actionPending" :error="error">
+      <template #actions>
+        <button class="gc-button" type="button" :disabled="actionPending" @click="trustDomainDeleteModalOpen = false">{{ t('designSystem.confirm.cancel') }}</button>
+        <button class="gc-button gc-button--danger" type="button" :disabled="actionPending" @click="confirmTrustDomainDelete">{{ t('designSystem.confirm.confirm') }}</button>
+      </template>
+    </GcModal>
+
+    <GcModal v-model:open="profileDeleteModalOpen" size="sm" :title="t('internalCa.actions.deleteProfile')" :description="t('internalCa.messages.confirmProfileDelete', { name: text(asRecord(profileDeleteTarget?.profile).name) })" :busy="actionPending" :error="error">
+      <template #actions>
+        <button class="gc-button" type="button" :disabled="actionPending" @click="profileDeleteModalOpen = false">{{ t('designSystem.confirm.cancel') }}</button>
+        <button class="gc-button gc-button--danger" type="button" :disabled="actionPending" @click="confirmProfileDelete">{{ t('designSystem.confirm.confirm') }}</button>
+      </template>
+    </GcModal>
+
     <GcModal v-model:open="adcsModalOpen" size="xl" :title="adcsEditingProviderId ? t('internalCa.adcs.modal.editTitle') : t('internalCa.adcs.modal.addTitle')" :description="t('internalCa.adcs.modal.description')">
       <div id="adcs-provider-form" class="adcs-provider-form">
         <section class="adcs-install-panel adcs-provider-form__full">
@@ -1148,8 +1313,16 @@ function requestDeploymentSummary(request: InternalCaRecord): string {
 .trust-domain-page__table-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-3); }
 .trust-domain-page__table-toolbar span { color: var(--gc-color-text-muted); }
 .trust-domain-page__cell-main { display: grid; gap: var(--gc-space-1); }
+.trust-domain-page__actions, .root-ca-card__actions { display: flex; align-items: center; gap: var(--gc-space-2); }
+.ca-compact-action { flex: 0 0 var(--gc-size-ca-compact-action-width); width: var(--gc-size-ca-compact-action-width); min-width: var(--gc-size-ca-compact-action-width); height: var(--gc-control-height-ca-compact-action); padding: 0; }
 .trust-domain-form { display: grid; gap: var(--gc-space-4); }
 .trust-domain-form__hint { margin: 0; padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-info-border); border-radius: var(--gc-radius-md); color: var(--gc-color-text-muted); background: var(--gc-color-info-bg); }
+.authority-edit-form__profiles { display: grid; gap: var(--gc-space-2); min-width: 0; margin: 0; padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-border-soft); border-radius: var(--gc-radius-md); }
+.authority-edit-form__profiles legend { padding: 0 var(--gc-space-1); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); }
+.authority-edit-form__profile-picker { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--gc-space-2); }
+.authority-edit-form__profile-list { display: grid; gap: var(--gc-space-2); }
+.authority-edit-form__profile-item { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-3); min-width: 0; padding: var(--gc-space-2); border: var(--gc-border-width-default) solid var(--gc-color-border-soft); border-radius: var(--gc-radius-sm); }
+.authority-edit-form__profile-item span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--gc-color-text-muted); }
 .adcs-install-panel { display: grid; gap: var(--gc-space-3); padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-info-border); border-radius: var(--gc-radius-md); background: var(--gc-color-info-bg); }
 .adcs-install-panel__header, .adcs-install-panel__association, .adcs-install-panel__meta { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-3); flex-wrap: wrap; }
 .adcs-install-panel__header strong { color: var(--gc-color-text-strong); }
@@ -1187,11 +1360,11 @@ pre { overflow: auto; padding: var(--gc-space-3); color: var(--gc-color-text); b
 .root-ca-card.is-selected { border-color: var(--gc-color-primary); background: var(--gc-color-surface-selected); }
 .root-ca-card__select { display: grid; grid-template-columns: var(--gc-space-1) minmax(0, 1fr); gap: 0 var(--gc-space-3); min-width: 0; padding: 0; text-align: left; color: inherit; cursor: pointer; border: 0; background: transparent; align-items: stretch; }
 .root-ca-card__select:focus-visible { outline: var(--gc-border-width-default) solid var(--gc-color-focus-ring); outline-offset: var(--gc-space-1); border-radius: var(--gc-radius-sm); }
-.root-ca-card__delete { align-self: start; white-space: nowrap; }
+.root-ca-card__actions { align-self: start; }
 .root-ca-card__accent { width: var(--gc-space-1); height: 100%; min-height: var(--gc-control-height-sm); border-radius: var(--gc-radius-xl); background: var(--gc-color-primary); }
 .root-ca-card.is-selected .root-ca-card__accent { background: var(--gc-color-primary); box-shadow: var(--gc-shadow-focus); }
 .root-ca-card__body { display: grid; gap: var(--gc-space-hairline); min-width: 0; }
-.root-ca-card__title { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--gc-space-2); min-width: 0; font-size: var(--gc-font-size-sm); }
+.root-ca-card__title { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--gc-space-2); min-width: 0; font-size: var(--gc-font-size-sm); }
 .root-ca-card__title strong { min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .root-ca-card__cn { font-size: var(--gc-font-size-xs); color: var(--gc-color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .root-ca-card__meta { font-size: var(--gc-font-size-xs); color: var(--gc-color-text-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1302,7 +1475,8 @@ pre { overflow: auto; padding: var(--gc-space-3); color: var(--gc-color-text); b
   .backend-summary small { grid-column: 1 / -1; }
   .backend-summary__actions { grid-column: 1 / -1; justify-content: flex-start; }
   .root-ca-card { grid-template-columns: 1fr; }
-  .root-ca-card__delete { justify-self: end; }
+  .root-ca-card__actions { justify-self: end; }
+  .authority-edit-form__profile-picker { grid-template-columns: 1fr; }
   .adcs-provider-form { grid-template-columns: 1fr; }
   .adcs-provider-form__full { grid-column: auto; }
   .lifecycle-row, .lifecycle-row--rotation { grid-template-columns: minmax(0, 1fr) auto; }

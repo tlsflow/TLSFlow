@@ -116,11 +116,13 @@
   --gc-control-height-sm: 34px;
   --gc-control-height-xs: 28px;
   --gc-control-height-card-action: 30.5px;
+  --gc-control-height-ca-compact-action: 27.5px;
   --gc-control-height-comfortable: 44px;
   --gc-control-height-lg: 48px;
   --gc-size-card-min: 180px;
   --gc-size-certificate-card-min: 285px;
   --gc-size-card-compact: 90px;
+  --gc-size-ca-compact-action-width: 60px;
   --gc-size-plugin-logo-market-inline: 80px;
   --gc-size-plugin-logo-market-block: 45px;
   --gc-size-plugin-logo-detail: 72px;
