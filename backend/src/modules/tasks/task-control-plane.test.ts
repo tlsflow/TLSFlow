@@ -431,6 +431,56 @@ test('证书未知写结果具备指纹核验材料时会提升为主动轮询�
   assert.equal((await repository.claimNext(task.tenantId, 'worker-promote-recovery', 60))?.task.id, task.id);
 });
 
+test('完整 Agent Plan 未确认 service.reload 时不会从 WAITING_RESULT 无限重试', async () => {
+  const { db, repository, service } = await createFixture();
+  const task = await service.enqueue({
+    tenantId: 'tenant-task-promote-monolithic-confirmation',
+    taskType: 'CERTIFICATE_DEPLOY',
+    triggerSource: 'execution.apply.enqueue',
+    payload: { runId: 'run-promote-monolithic-confirmation' },
+  });
+  await db.query(`update task_runs set status = 'WAITING_RESULT', next_attempt_at = now() where id = $1`, [task.id]);
+
+  await db.query(
+    `insert into pg_documents (namespace, document_id, payload)
+     values ('executions:steps', 'step-promote-monolithic-confirmation', $1::jsonb)`,
+    [JSON.stringify({
+      id: 'step-promote-monolithic-confirmation',
+      executionRunId: 'run-promote-monolithic-confirmation',
+      status: 'RUNNING',
+      lastErrorCode: 'AGENT_EXECUTION_UNKNOWN',
+      inputSnapshot: {
+        actionType: 'agent.plan.execute',
+        plan: {
+          operations: [
+            { operationType: 'filesystem.atomic_replace' },
+            { operationType: 'command.execute_allowlisted' },
+            { operationType: 'service.reload' },
+          ],
+        },
+        resultDetail: {
+          executionStatus: 'UNKNOWN',
+          operationResults: [
+            { operationType: 'filesystem.atomic_replace', status: 'SUCCEEDED' },
+            { operationType: 'command.execute_allowlisted', status: 'UNKNOWN' },
+          ],
+        },
+        certificateVerification: {
+          capabilityKey: 'certificate.verify',
+          schemaVersion: '1.0',
+          expectedFingerprintSha256: 'e'.repeat(64),
+        },
+      },
+    })],
+  );
+
+  assert.equal(await repository.promoteRecoverableExecutionTasks(task.tenantId), 1);
+  const promoted = await repository.getById(task.tenantId, task.id);
+  assert.equal(promoted?.status, 'AWAITING_CONFIRMATION');
+  assert.equal(promoted?.progress?.automaticRecovery, false);
+  assert.equal(await repository.claimNext(task.tenantId, 'worker-must-not-replay-monolithic', 60), undefined);
+});
+
 test('旧 RETRY_WAITING 未知写结果没有核验材料时会转为人工确认', async () => {
   const { db, repository, service } = await createFixture();
   const task = await service.enqueue({

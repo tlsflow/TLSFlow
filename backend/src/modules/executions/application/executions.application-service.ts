@@ -2109,37 +2109,46 @@ function hasAutomaticUnknownRecoverySource(step: ExecutionStepEntity): boolean {
   if (verification?.capabilityKey !== 'certificate.verify' || verification?.schemaVersion !== '1.0') return false;
   if (!readExpectedCertificateFingerprint(step.inputSnapshot)) return false;
 
-  // 完整 Agent Plan 在 INSTALL 内部包含 service.reload。只有同时有成功写入和
-  // 成功重载证据时，才允许在未知结果恢复中核验 TLS；否则可能在 Apache 重载
-  // 前拿旧证书与目标证书比较，产生错误的指纹不匹配。
-  if (String(step.inputSnapshot.executorType ?? '').toUpperCase() === 'AGENT') {
-    const detail = readRecord(step.inputSnapshot.resultDetail);
-    const operationResults = Array.isArray(detail?.operationResults)
-      ? detail.operationResults
-      : Array.isArray(detail?.operations) ? detail.operations : [];
-    const writeOperationTypes = new Set([
-      'filesystem.atomic_replace',
-      'filesystem.restore',
-      'certificate.store.install',
-      'service.start',
-      'service.stop',
-      'service.restart',
-      'service.reload',
-      'command.execute_allowlisted',
-    ]);
+  const detail = readRecord(step.inputSnapshot.resultDetail);
+  const operationResults = Array.isArray(detail?.operationResults)
+    ? detail.operationResults
+    : Array.isArray(detail?.operations) ? detail.operations : [];
+  const writeOperationTypes = new Set([
+    'filesystem.atomic_replace',
+    'filesystem.restore',
+    'certificate.store.install',
+    'service.start',
+    'service.stop',
+    'service.restart',
+    'service.reload',
+    'command.execute_allowlisted',
+  ]);
+
+  // 完整 Agent Plan 不论由哪一种宿主适配器回写，都必须同时有成功写入
+  // 和成功 service.reload 证据；否则只能人工确认，不能进入无限轮询。
+  if (isMonolithicAgentPlanPayload(step.inputSnapshot)) {
     const hasSuccessfulWrite = operationResults.some((operation) => {
       const record = readRecord(operation);
       return writeOperationTypes.has(readString(record?.operationType) ?? '')
         && String(record?.status ?? '').toUpperCase() === 'SUCCEEDED';
     });
-    if (isMonolithicAgentPlanPayload(step.inputSnapshot)) {
-      const hasSuccessfulReload = operationResults.some((operation) => {
-        const record = readRecord(operation);
-        return readString(record?.operationType) === 'service.reload'
-          && String(record?.status ?? '').toUpperCase() === 'SUCCEEDED';
-      });
-      return hasSuccessfulWrite && hasSuccessfulReload;
-    }
+    const hasSuccessfulReload = operationResults.some((operation) => {
+      const record = readRecord(operation);
+      return readString(record?.operationType) === 'service.reload'
+        && String(record?.status ?? '').toUpperCase() === 'SUCCEEDED';
+    });
+    return hasSuccessfulWrite && hasSuccessfulReload;
+  }
+
+  // 完整 Agent Plan 在 INSTALL 内部包含 service.reload。只有同时有成功写入和
+  // 成功重载证据时，才允许在未知结果恢复中核验 TLS；否则可能在 Apache 重载
+  // 前拿旧证书与目标证书比较，产生错误的指纹不匹配。
+  if (String(step.inputSnapshot.executorType ?? '').toUpperCase() === 'AGENT') {
+    const hasSuccessfulWrite = operationResults.some((operation) => {
+      const record = readRecord(operation);
+      return writeOperationTypes.has(readString(record?.operationType) ?? '')
+        && String(record?.status ?? '').toUpperCase() === 'SUCCEEDED';
+    });
     return hasSuccessfulWrite;
   }
   return true;
