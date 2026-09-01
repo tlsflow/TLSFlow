@@ -38,6 +38,7 @@ import { certificateFormats } from '../../certificates/schema/certificates.schem
 import { GCAC_VERSION } from '../../../common/version.js';
 import { ApplicationOnboardingRecipeLoader } from '../../application-onboarding/recipe/application-onboarding-recipe.loader.js';
 import { readCertificateLocation } from '../../deployment-inputs/dto/certificate-location.dto.js';
+import { structuredLogger } from '../../../common/logging/structured-logger.js';
 import { ApplicationExecutionCompatibilityService } from '../../assets/application/application-execution-compatibility.service.js';
 
 type ExecutionLocation = 'AGENT' | 'CONTROL_PLANE' | 'GATEWAY';
@@ -132,7 +133,7 @@ export class ManagedTargetPluginQueryService {
     applicationAssetId: string;
     value: SaveManagedTargetPluginOverrideInput;
   }) {
-    return this.db.transaction(async (tx) => {
+    const result = await this.db.transaction(async (tx) => {
       const services = this.createServices(tx);
       const context = await services.contexts.resolve(input.tenantId, input.value.managedTargetId);
       this.assertTargetCapability(context, input.value.capabilityKey ?? 'certificate.deploy');
@@ -213,9 +214,7 @@ export class ManagedTargetPluginQueryService {
         await services.assets.updateServiceAsset(input.tenantId, input.applicationAssetId, {
           deploymentStrategy: { type: 'MANAGED_TARGET', approvalRequired, managedTarget: { managedTargetId: context.managedTarget.id, certificateFormatId, executionMode, workflowExecutionBindingId: binding.id } },
         });
-        const executionCompatibility = await new ApplicationExecutionCompatibilityService(tx)
-          .recheckApplication(input.tenantId, input.applicationAssetId);
-        return { target, executionMode, workflowExecutionBinding: binding, executionCompatibility: executionCompatibility[0], effectiveCapability: undefined };
+        return { target, executionMode, workflowExecutionBinding: binding, effectiveCapability: undefined };
       }
       if (input.value.workflowExecution) throw new AppError('EXECUTION_SOURCE_CONFLICT', '插件模式不得提交工作流执行配置');
       const previousWorkflowBindingId = applicationAsset.deploymentStrategy?.type === 'MANAGED_TARGET'
@@ -303,9 +302,7 @@ export class ManagedTargetPluginQueryService {
         await services.assets.updateServiceAsset(input.tenantId, input.applicationAssetId, {
           deploymentStrategy: { type: 'MANAGED_TARGET', approvalRequired, managedTarget: { managedTargetId: context.managedTarget.id, certificateFormatId, executionMode: 'PLUGIN' } },
         });
-        const executionCompatibility = await new ApplicationExecutionCompatibilityService(tx)
-          .recheckApplication(input.tenantId, input.applicationAssetId);
-        return { target, executionMode: 'PLUGIN', executionCompatibility: executionCompatibility[0], effectiveCapability: summarizeCapability(resolved) };
+        return { target, executionMode: 'PLUGIN', effectiveCapability: summarizeCapability(resolved) };
       }
       const plugin = overridePlugin;
       if (!plugin) throw new AppError('APPLICATION_CURRENT_PLUGIN_UNAVAILABLE', '应用当前插件不可用', { applicationAssetId: input.applicationAssetId, capabilityKey });
@@ -381,10 +378,10 @@ export class ManagedTargetPluginQueryService {
       await services.assets.updateServiceAsset(input.tenantId, input.applicationAssetId, {
         deploymentStrategy: { type: 'MANAGED_TARGET', approvalRequired, managedTarget: { managedTargetId: context.managedTarget.id, certificateFormatId, executionMode: 'PLUGIN' } },
       });
-      const executionCompatibility = await new ApplicationExecutionCompatibilityService(tx)
-        .recheckApplication(input.tenantId, input.applicationAssetId);
-      return { target, executionMode: 'PLUGIN', executionCompatibility: executionCompatibility[0], effectiveCapability: summarizeCapability(resolved) };
+      return { target, executionMode: 'PLUGIN', effectiveCapability: summarizeCapability(resolved) };
     });
+    this.scheduleCompatibilityRecheck(input.tenantId, input.applicationAssetId);
+    return result;
   }
 
   /**
@@ -416,6 +413,19 @@ export class ManagedTargetPluginQueryService {
         },
       },
     });
+  }
+
+  /** 中文说明：事务提交后异步刷新兼容性，不能把事务客户端交给后台任务。 */
+  private scheduleCompatibilityRecheck(tenantId: string, applicationAssetId: string): void {
+    void new ApplicationExecutionCompatibilityService(this.db)
+      .recheckApplication(tenantId, applicationAssetId)
+      .catch((error: unknown) => {
+        structuredLogger.warn('应用执行兼容性异步重检失败', {
+          tenantId,
+          applicationAssetId,
+          error: error instanceof Error ? error.message : String(error),
+        }, { module: 'managed-target-plugin-query' });
+      });
   }
 
   async projectApplicationOnboardingDefaults(input: {

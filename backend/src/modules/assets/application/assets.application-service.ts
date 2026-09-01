@@ -57,6 +57,7 @@ import type { ManagedTargetContextResolver } from './managed-target-context.reso
 import type { PluginAgentLinkageService } from '../../plugins/application/plugin-agent-linkage.service.js';
 import type { CloudResourceProjectionService } from '../../providers/discovery/cloud-resource-projection.js';
 import type { ApplicationExecutionCompatibilityService } from './application-execution-compatibility.service.js';
+import { structuredLogger } from '../../../common/logging/structured-logger.js';
 
 /** 应用主域名变更后的证书供应策略同步端口。 */
 export interface ApplicationCertificateDomainChangePort {
@@ -88,7 +89,7 @@ export interface AssetPluginVersionResolver {
 }
 
 export class AssetsApplicationService {
-  private executionCompatibility?: Pick<ApplicationExecutionCompatibilityService, 'recheckApplication' | 'recheckManagedTarget'>;
+  private executionCompatibility?: Pick<ApplicationExecutionCompatibilityService, 'recheckApplication' | 'recheckManagedTarget' | 'recheckHost' | 'recheckFrameworkInstance' | 'recheckSiteAsset'>;
 
   constructor(
     private readonly repository: AssetsRepository = new PgAssetsRepository(),
@@ -115,7 +116,7 @@ export class AssetsApplicationService {
     this.applicationCertificateDomainChange = port;
   }
 
-  setApplicationExecutionCompatibilityService(service?: Pick<ApplicationExecutionCompatibilityService, 'recheckApplication' | 'recheckManagedTarget'>): void {
+  setApplicationExecutionCompatibilityService(service?: Pick<ApplicationExecutionCompatibilityService, 'recheckApplication' | 'recheckManagedTarget' | 'recheckHost' | 'recheckFrameworkInstance' | 'recheckSiteAsset'>): void {
     this.executionCompatibility = service;
   }
 
@@ -174,11 +175,15 @@ export class AssetsApplicationService {
   }
 
   async updateHost(tenantId: string, hostId: string, input: UpdateHostDto) {
-    return this.repository.updateHost(tenantId, hostId, this.domain.normalizeHostPatch(input));
+    const updated = await this.repository.updateHost(tenantId, hostId, this.domain.normalizeHostPatch(input));
+    this.scheduleCompatibilityRecheck('host', tenantId, hostId);
+    return updated;
   }
 
   async deleteHost(tenantId: string, hostId: string) {
-    return this.repository.deleteHost(tenantId, hostId);
+    const deleted = await this.repository.deleteHost(tenantId, hostId);
+    this.scheduleCompatibilityRecheck('host', tenantId, hostId);
+    return deleted;
   }
 
   async listHosts(tenantId: string, query: PageQuery) {
@@ -190,11 +195,15 @@ export class AssetsApplicationService {
   }
 
   async updateFrameworkInstance(tenantId: string, serviceInstanceId: string, input: UpdateFrameworkInstanceDto) {
-    return this.repository.updateFrameworkInstance(tenantId, serviceInstanceId, this.domain.normalizeServiceInstancePatch(input));
+    const updated = await this.repository.updateFrameworkInstance(tenantId, serviceInstanceId, this.domain.normalizeServiceInstancePatch(input));
+    this.scheduleCompatibilityRecheck('framework', tenantId, serviceInstanceId);
+    return updated;
   }
 
   async deleteFrameworkInstance(tenantId: string, serviceInstanceId: string) {
-    return this.repository.deleteFrameworkInstance(tenantId, serviceInstanceId);
+    const deleted = await this.repository.deleteFrameworkInstance(tenantId, serviceInstanceId);
+    this.scheduleCompatibilityRecheck('framework', tenantId, serviceInstanceId);
+    return deleted;
   }
 
   async listFrameworkInstances(tenantId: string, query: PageQuery) {
@@ -215,8 +224,6 @@ export class AssetsApplicationService {
     }
     const created = await this.repository.createServiceAsset(tenantId, normalized);
     if (!created) throw new AppError('SYSTEM_INTERNAL_ERROR', '创建 ServiceAsset 后未返回结果');
-    const hydrated = await this.repository.getServiceAssetIncludingDeleted(tenantId, created.id);
-    if (hydrated) return this.hydrateServiceAssetStrategy(tenantId, hydrated);
     return this.hydrateServiceAssetStrategy(tenantId, created);
   }
 
@@ -244,7 +251,7 @@ export class AssetsApplicationService {
     }
     const updated = await this.repository.updateServiceAsset(tenantId, serviceAssetId, synchronized);
     if (!updated) throw new AppError('SYSTEM_INTERNAL_ERROR', '更新 ServiceAsset 后未返回结果');
-    await this.executionCompatibility?.recheckApplication(tenantId, serviceAssetId);
+    this.scheduleCompatibilityRecheck('application', tenantId, serviceAssetId);
     const previousDomain = normalizeApplicationDomain(current.sniName || current.address);
     const nextDomain = normalizeApplicationDomain(updated.sniName || updated.address);
     if (previousDomain !== nextDomain && this.applicationCertificateDomainChange) {
@@ -256,8 +263,6 @@ export class AssetsApplicationService {
         actorId,
       );
     }
-    const hydrated = await this.repository.getServiceAssetIncludingDeleted(tenantId, updated.id);
-    if (hydrated) return this.hydrateServiceAssetStrategy(tenantId, hydrated);
     return this.hydrateServiceAssetStrategy(tenantId, updated);
   }
 
@@ -491,7 +496,7 @@ export class AssetsApplicationService {
       metadata: { ...asset.metadata, deploymentStrategy: normalized },
       deploymentStrategy: normalized,
     });
-    await this.executionCompatibility?.recheckApplication(tenantId, serviceAssetId);
+    this.scheduleCompatibilityRecheck('application', tenantId, serviceAssetId);
     return this.hydrateServiceAssetStrategy(tenantId, updated);
   }
 
@@ -500,11 +505,15 @@ export class AssetsApplicationService {
   }
 
   async updateSiteAsset(tenantId: string, siteAssetId: string, input: UpdateSiteAssetDto) {
-    return this.repository.updateSiteAsset(tenantId, siteAssetId, this.domain.normalizeSiteAssetPatch(input));
+    const updated = await this.repository.updateSiteAsset(tenantId, siteAssetId, this.domain.normalizeSiteAssetPatch(input));
+    this.scheduleCompatibilityRecheck('site', tenantId, siteAssetId);
+    return updated;
   }
 
   async deleteSiteAsset(tenantId: string, siteAssetId: string) {
-    return this.repository.deleteSiteAsset(tenantId, siteAssetId);
+    const deleted = await this.repository.deleteSiteAsset(tenantId, siteAssetId);
+    this.scheduleCompatibilityRecheck('site', tenantId, siteAssetId);
+    return deleted;
   }
 
   async listSiteAssets(tenantId: string, query: PageQuery) {
@@ -1010,6 +1019,26 @@ export class AssetsApplicationService {
       }
     }
     return host.id;
+  }
+
+  /** 中文说明：写入已提交后异步刷新兼容性，保存响应不等待诊断扫描。 */
+  private scheduleCompatibilityRecheck(kind: 'application' | 'host' | 'framework' | 'site', tenantId: string, resourceId: string): void {
+    if (!this.executionCompatibility) return;
+    const action = kind === 'application'
+      ? () => this.executionCompatibility!.recheckApplication(tenantId, resourceId)
+      : kind === 'host'
+        ? () => this.executionCompatibility!.recheckHost(tenantId, resourceId)
+        : kind === 'framework'
+          ? () => this.executionCompatibility!.recheckFrameworkInstance(tenantId, resourceId)
+          : () => this.executionCompatibility!.recheckSiteAsset(tenantId, resourceId);
+    void action().catch((error: unknown) => {
+      structuredLogger.warn('应用执行兼容性异步重检失败', {
+        kind,
+        tenantId,
+        resourceId,
+        error: error instanceof Error ? error.message : String(error),
+      }, { module: 'assets' });
+    });
   }
 
   private async hydrateServiceAssetStrategy<T extends ServiceAssetDto>(tenantId: string, asset: T): Promise<T> {

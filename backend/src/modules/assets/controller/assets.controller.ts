@@ -11,6 +11,7 @@ import {
   OsTypes,
 } from '../../../shared/enums/core.enums.js';
 import type { SecuritySubject } from '../../../shared/security-types.js';
+import { structuredLogger } from '../../../common/logging/structured-logger.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import type { DevicesApplicationService } from '../../devices/application/devices.application-service.js';
 import type { ManagedDeviceSummaryDto } from '../../devices/dto/devices.dto.js';
@@ -673,7 +674,7 @@ export class AssetsController {
     await this.assertCanAsync(subject, 'application.update', 'service_asset', request, String(body.applicationAssetId));
     const enriched = await this.enrichApplicationAssetTargetInput(tenantId(request), body);
     const created = await this.service.getRepository().createApplicationAssetTarget(tenantId(request), enriched as any);
-    await this.executionCompatibility?.recheckApplication(tenantId(request), created.applicationAssetId);
+    this.scheduleCompatibilityRecheck(tenantId(request), created.applicationAssetId);
     return { statusCode: 201, body: created };
   }
 
@@ -685,7 +686,7 @@ export class AssetsController {
     const { id: _id, ...patch } = body;
     void _id;
     const updated = await this.service.getRepository().updateApplicationAssetTarget(tenantId(request), id, patch as any);
-    await this.executionCompatibility?.recheckApplication(tenantId(request), updated.applicationAssetId);
+    this.scheduleCompatibilityRecheck(tenantId(request), updated.applicationAssetId);
     return { statusCode: 200, body: updated };
   }
 
@@ -694,8 +695,20 @@ export class AssetsController {
     const subject = this.subjectFromRequest(request);
     await this.assertCanAsync(subject, 'application.update', 'service_asset', request, String(body.id));
     const deleted = await this.service.getRepository().deleteApplicationAssetTarget(tenantId(request), String(body.id));
-    await this.executionCompatibility?.recheckApplication(tenantId(request), deleted.applicationAssetId);
+    this.scheduleCompatibilityRecheck(tenantId(request), deleted.applicationAssetId);
     return { statusCode: 200, body: deleted };
+  }
+
+  /** 中文说明：目标绑定写入已完成后异步刷新兼容性，避免阻塞保存响应。 */
+  private scheduleCompatibilityRecheck(tenantId: string, applicationAssetId: string): void {
+    if (!this.executionCompatibility) return;
+    void this.executionCompatibility.recheckApplication(tenantId, applicationAssetId).catch((error: unknown) => {
+      structuredLogger.warn('应用执行兼容性异步重检失败', {
+        tenantId,
+        applicationAssetId,
+        error: error instanceof Error ? error.message : String(error),
+      }, { module: 'assets.controller' });
+    });
   }
 
   private readApplicationAssetTargetBody(request: HttpRequest, creating: boolean): Record<string, unknown> {

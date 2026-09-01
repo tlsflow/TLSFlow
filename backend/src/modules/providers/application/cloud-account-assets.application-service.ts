@@ -7,6 +7,7 @@ import type {
 } from '../dto/providers.dto.js';
 import { stableScopeHash } from '../domain/provider-shared.js';
 import type { DatabasePort } from '../../../database/database-port.js';
+import type { ApplicationExecutionCompatibilityService } from '../../assets/application/application-execution-compatibility.service.js';
 import {
   assertSameRequest,
   findIdempotencyRecord,
@@ -33,6 +34,7 @@ export interface CloudAccountAssetBindingProvisionerContract {
 
 export class CloudAccountAssetsApplicationService {
   private bindingProvisioner?: CloudAccountAssetBindingProvisionerContract;
+  private executionCompatibility?: Pick<ApplicationExecutionCompatibilityService, 'recheckCloudAccountAsset'>;
 
   constructor(
     private readonly db: DatabasePort,
@@ -41,6 +43,10 @@ export class CloudAccountAssetsApplicationService {
   /** 中文说明：由应用装配注入 CloudAccountAsset -> PluginBinding 的事务内实现。 */
   setBindingProvisioner(provisioner: CloudAccountAssetBindingProvisionerContract): void {
     this.bindingProvisioner = provisioner;
+  }
+
+  setApplicationExecutionCompatibilityService(service?: Pick<ApplicationExecutionCompatibilityService, 'recheckCloudAccountAsset'>): void {
+    this.executionCompatibility = service;
   }
 
   async create(tenantId: string, input: CreateCloudAccountAssetInput): Promise<CloudAccountAsset> {
@@ -75,7 +81,7 @@ export class CloudAccountAssetsApplicationService {
       })
       : undefined;
     try {
-      return await this.db.transaction(async (tx) => {
+      const saved = await this.db.transaction(async (tx) => {
         const replay = await this.replayAsset(tx, tenantId, idempotencyScope, idempotencyKey, hash);
         if (replay) return replay;
         const identity = `${providerKey}:${input.accountId?.trim() ?? ''}:${stableScopeHash(scope)}`;
@@ -122,6 +128,8 @@ export class CloudAccountAssetsApplicationService {
         if (idempotencyKey && hash) await saveAssetIdempotency(tx, tenantId, idempotencyScope, idempotencyKey, hash, 201, asset);
         return asset;
       });
+      await this.executionCompatibility?.recheckCloudAccountAsset(tenantId, saved.id);
+      return saved;
     } catch (error) {
       return this.replayAfterIdempotencyRace(error, tenantId, idempotencyScope, idempotencyKey, hash);
     }
@@ -183,7 +191,7 @@ export class CloudAccountAssetsApplicationService {
     const { idempotencyKey: _ignored, expectedVersion: _expectedVersion, ...requestInput } = input;
     const hash = idempotencyKey ? requestHash({ operation: 'update', id, input: requestInput }) : undefined;
     try {
-      return await this.db.transaction(async (tx) => {
+      const saved = await this.db.transaction(async (tx) => {
         const replay = await this.replayAsset(tx, tenantId, idempotencyScope, idempotencyKey, hash);
         if (replay) return replay;
         const current = await this.getWithDb(tx, tenantId, id);
@@ -230,6 +238,8 @@ export class CloudAccountAssetsApplicationService {
         if (idempotencyKey && hash) await saveAssetIdempotency(tx, tenantId, idempotencyScope, idempotencyKey, hash, 200, saved);
         return saved;
       });
+      await this.executionCompatibility?.recheckCloudAccountAsset(tenantId, saved.id);
+      return saved;
     } catch (error) {
       return this.replayAfterIdempotencyRace(error, tenantId, idempotencyScope, idempotencyKey, hash);
     }
@@ -240,7 +250,7 @@ export class CloudAccountAssetsApplicationService {
     const idempotencyScope = createScope('delete', id);
     const hash = normalizedKey ? requestHash({ operation: 'delete', id }) : undefined;
     try {
-      return await this.db.transaction(async (tx) => {
+      const saved = await this.db.transaction(async (tx) => {
         const replay = await this.replayAsset(tx, tenantId, idempotencyScope, normalizedKey, hash);
         if (replay) return replay;
         const current = await this.getWithDb(tx, tenantId, id);
@@ -257,6 +267,8 @@ export class CloudAccountAssetsApplicationService {
         if (normalizedKey && hash) await saveAssetIdempotency(tx, tenantId, idempotencyScope, normalizedKey, hash, 200, saved);
         return saved;
       });
+      await this.executionCompatibility?.recheckCloudAccountAsset(tenantId, saved.id);
+      return saved;
     } catch (error) {
       return this.replayAfterIdempotencyRace(error, tenantId, idempotencyScope, normalizedKey, hash);
     }

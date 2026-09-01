@@ -8,6 +8,9 @@ import { DeploymentInputContractLoader } from '../../deployment-inputs/applicati
 import { ProductionDeploymentInputResolverService } from '../../deployment-inputs/application/production-deployment-input-resolver.service.js';
 import { deploymentAssetContextBuilder } from '../../deployment-inputs/application/deployment-asset-context.builder.js';
 import { PgUnifiedPluginsRepository } from '../../plugins/repository/unified-plugins.repository.js';
+import { ManagedTargetContextResolver } from './managed-target-context.resolver.js';
+import { PgAgentsRepository } from '../../agents/repository/agents.repository.js';
+import { PgDeviceAssetsRepository } from '../../device-assets/repository/device-assets.repository.js';
 import { currentApplicationExecutionResolver } from './current-application-execution-resolver.js';
 import { emptyInputBindingsV1, INPUT_BINDINGS_API_VERSION, type InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
 
@@ -42,10 +45,12 @@ export class ApplicationExecutionCompatibilityService {
     const generation = scanGeneration ?? await this.nextScanGeneration();
     try {
       const identity = await bindings.getExecutionIdentity(tenantId, workflowExecutionBindingId);
+      const managedTargetContext = await this.resolveManagedTargetContext(tenantId, asset);
       const validation = await new WorkflowDeploymentInputSaveService(this.db).validate({
         applicationAsset: asset,
         workflowExecution: identity.binding,
         currentBinding: identity.binding,
+        managedTargetContext,
       });
       const status: ApplicationExecutionCompatibilityStatus = validation.saveable ? 'READY' : 'UPDATE_REQUIRED';
       const result: ApplicationExecutionCompatibility = {
@@ -141,6 +146,49 @@ export class ApplicationExecutionCompatibilityService {
     return results;
   }
 
+  /** 受管目标的宿主事实变化时，只重检引用该 Host 的应用。 */
+  async recheckHost(tenantId: string, hostId: string): Promise<ApplicationExecutionCompatibility[]> {
+    return this.recheckManagedTargetsByRelation(tenantId, 'device_id', hostId);
+  }
+
+  /** FrameworkInstance 的版本、状态或发现事实变化时，只重检引用它的应用。 */
+  async recheckFrameworkInstance(tenantId: string, frameworkInstanceId: string): Promise<ApplicationExecutionCompatibility[]> {
+    return this.recheckManagedTargetsByRelation(tenantId, 'framework_instance_id', frameworkInstanceId);
+  }
+
+  /** Site 的绑定事实变化时，只重检引用它的应用。 */
+  async recheckSiteAsset(tenantId: string, siteAssetId: string): Promise<ApplicationExecutionCompatibility[]> {
+    return this.recheckManagedTargetsByRelation(tenantId, 'site_id', siteAssetId);
+  }
+
+  /** DeviceAsset 的连接能力变化时，只重检引用它的应用。 */
+  async recheckDeviceAsset(tenantId: string, deviceAssetId: string): Promise<ApplicationExecutionCompatibility[]> {
+    return this.recheckManagedTargetsByRelation(tenantId, 'device_asset_id', deviceAssetId);
+  }
+
+  /** 云账号资产的凭据、状态或作用域变化时，只重检引用它的应用。 */
+  async recheckCloudAccountAsset(tenantId: string, cloudAccountAssetId: string): Promise<ApplicationExecutionCompatibility[]> {
+    return this.recheckManagedTargetsByRelation(tenantId, 'asset_id', cloudAccountAssetId);
+  }
+
+  /** Agent 状态、版本或能力快照变化时，只重检其 Host 下的应用。 */
+  async recheckAgent(tenantId: string, agentId: string): Promise<ApplicationExecutionCompatibility[]> {
+    const rows = (await this.db.query<{ managed_target_id: string }>(`
+      select distinct target.id as managed_target_id
+        from pg_managed_targets target
+        join pg_hosts host
+          on host.tenant_id=target.tenant_id
+         and host.id=target.device_id
+       where target.tenant_id=$1
+         and target.deleted_at is null
+         and host.deleted_at is null
+         and host.agent_id=$2
+    `, [tenantId, agentId])).rows;
+    const results: ApplicationExecutionCompatibility[] = [];
+    for (const row of rows) results.push(...await this.recheckManagedTarget(tenantId, row.managed_target_id));
+    return results;
+  }
+
   async recheckPlugin(tenantId: string, pluginId: string): Promise<ApplicationExecutionCompatibility[]> {
     // 来源判定必须复用当前解析规则；租户自有版本覆盖同 ID 的 BUILTIN 版本时，
     // 只能重检当前租户，不能误把用户插件当成全局内置插件。
@@ -163,14 +211,38 @@ export class ApplicationExecutionCompatibilityService {
     const pluginRows = (await this.db.query<{ application_asset_id: string; tenant_id: string }>(`
       select distinct asset.id as application_asset_id, asset.tenant_id
         from pg_service_assets asset
-        join plugin_capability_assignments assignment
+        left join pg_application_asset_targets app_target
+          on app_target.tenant_id=asset.tenant_id
+         and app_target.application_asset_id=asset.id
+         and app_target.status <> 'DELETED'
+        left join pg_managed_targets target
+          on target.tenant_id=asset.tenant_id
+         and target.id=coalesce(
+           app_target.managed_target_id,
+           asset.metadata->'deploymentStrategy'->'managedTarget'->>'managedTargetId'
+         )
+         and target.deleted_at is null
+        left join plugin_capability_assignments assignment
           on assignment.tenant_id=asset.tenant_id
-         and assignment.owner_type in ('APPLICATION_ASSET','SERVICE_ASSET')
-         and assignment.owner_id=asset.id
          and assignment.status='ACTIVE'
-        join unified_plugin_bindings binding
+         and (
+           (assignment.owner_type in ('APPLICATION_ASSET','SERVICE_ASSET') and assignment.owner_id=asset.id)
+           or (assignment.owner_type='MANAGED_TARGET' and assignment.owner_id=target.id)
+           or (assignment.owner_type='DEVICE' and assignment.owner_id=target.device_id)
+           or (assignment.owner_type='CLOUD_ACCOUNT_ASSET' and assignment.owner_id=target.asset_id)
+         )
+        left join unified_plugin_bindings binding
           on binding.tenant_id=assignment.tenant_id and binding.id=assignment.plugin_binding_id and binding.status='ACTIVE'
-       where asset.deleted_at is null and assignment.plugin_id=$2
+       where asset.deleted_at is null
+         and (coalesce(assignment.plugin_id, binding.plugin_id)=$2 or exists (
+           select 1 from workflow_execution_bindings inherited_binding
+            where inherited_binding.tenant_id=asset.tenant_id
+              and inherited_binding.plugin_id=$2
+              and inherited_binding.id=coalesce(
+                asset.metadata->'deploymentStrategy'->'workflow'->>'workflowExecutionBindingId',
+                asset.metadata->'deploymentStrategy'->'managedTarget'->>'workflowExecutionBindingId'
+              )
+         ))
          and ($3::text = 'BUILTIN' or asset.tenant_id=$1)
     `, [tenantId, pluginId, source ?? 'USER'])).rows;
     const generation = await this.nextScanGeneration();
@@ -185,7 +257,7 @@ export class ApplicationExecutionCompatibilityService {
 
   /**
    * 按插件关联反查租户后再重检，禁止为了一个插件扫描租户内全部应用。
-   * 关联来源只取应用/服务资产的直接 Assignment 和 WorkflowExecutionBinding。
+   * 关联来源只取应用实际可继承的 Assignment 和 WorkflowExecutionBinding，不扫描租户应用列表。
    */
   async recheckPluginForAssociatedTenants(pluginId: string, tenantId?: string): Promise<ApplicationExecutionCompatibility[]> {
     const tenantIds = tenantId
@@ -200,6 +272,12 @@ export class ApplicationExecutionCompatibilityService {
             select tenant_id
               from workflow_execution_bindings
              where plugin_id=$1
+            union
+            select assignment.tenant_id
+              from plugin_capability_assignments assignment
+              left join unified_plugin_bindings binding
+                on binding.tenant_id=assignment.tenant_id and binding.id=assignment.plugin_binding_id
+             where coalesce(assignment.plugin_id, binding.plugin_id)=$1
           ) associated
           order by tenant_id
         `, [pluginId])).rows.map((row) => row.tenant_id);
@@ -247,6 +325,9 @@ export class ApplicationExecutionCompatibilityService {
   private async checkPluginAssignment(tenantId: string, applicationAssetId: string, scanGeneration: number): Promise<ApplicationExecutionCompatibility> {
     const asset = await new PgAssetsRepository(this.db).getServiceAsset(tenantId, applicationAssetId);
     if (!asset) throw new AppError('RESOURCE_NOT_FOUND', 'ApplicationAsset 不存在', { applicationAssetId });
+    const managedTargetId = asset.deploymentStrategy?.type === 'MANAGED_TARGET'
+      ? asset.deploymentStrategy.managedTarget?.managedTargetId
+      : undefined;
     const row = (await this.db.query<{
       assignment_id: string; binding_id: string; binding_version: number; plugin_id: string | null;
     }>(`
@@ -255,11 +336,20 @@ export class ApplicationExecutionCompatibilityService {
         from plugin_capability_assignments assignment
         join unified_plugin_bindings binding
           on binding.tenant_id=assignment.tenant_id and binding.id=assignment.plugin_binding_id
-       where assignment.tenant_id=$1 and assignment.owner_type in ('APPLICATION_ASSET','SERVICE_ASSET')
-         and assignment.owner_id=$2 and assignment.status='ACTIVE' and binding.status='ACTIVE'
-       order by case when assignment.owner_type='APPLICATION_ASSET' then 0 else 1 end, assignment.updated_at desc
+       where assignment.tenant_id=$1 and assignment.status='ACTIVE' and binding.status='ACTIVE'
+         and (
+           (assignment.owner_type in ('APPLICATION_ASSET','SERVICE_ASSET') and assignment.owner_id=$2)
+           or (assignment.owner_type='MANAGED_TARGET' and assignment.owner_id=$3)
+           or (assignment.owner_type='DEVICE' and assignment.owner_id=(
+             select device_id from pg_managed_targets where tenant_id=$1 and id=$3 and deleted_at is null
+           ))
+           or (assignment.owner_type='CLOUD_ACCOUNT_ASSET' and assignment.owner_id=(
+             select asset_id from pg_managed_targets where tenant_id=$1 and id=$3 and deleted_at is null
+           ))
+         )
+       order by case assignment.owner_type when 'APPLICATION_ASSET' then 0 when 'SERVICE_ASSET' then 0 when 'MANAGED_TARGET' then 1 else 2 end, assignment.updated_at desc
        limit 1
-    `, [tenantId, applicationAssetId])).rows[0];
+    `, [tenantId, applicationAssetId, managedTargetId ?? null])).rows[0];
     const sourceId = row?.assignment_id ?? applicationAssetId;
     const base = {
       applicationAssetId,
@@ -270,6 +360,7 @@ export class ApplicationExecutionCompatibilityService {
       checkedAt: new Date().toISOString(),
     };
     try {
+      const managedTargetContext = await this.resolveManagedTargetContext(tenantId, asset);
       if (!row?.plugin_id) throw new AppError('APPLICATION_EXECUTION_REFERENCE_INVALID', '插件稳定身份缺失', { applicationAssetId });
       const versions = await new PgUnifiedPluginsRepository(this.db).listAccessibleVersions(tenantId);
       const plugin = currentApplicationExecutionResolver.resolvePluginVersion(tenantId, row.plugin_id, versions);
@@ -285,7 +376,7 @@ export class ApplicationExecutionCompatibilityService {
       const projection = new ProductionDeploymentInputResolverService().resolveProjectionResult({
         phase: 'configure',
         contract,
-        assetContext: deploymentAssetContextBuilder.build({ applicationAsset: asset }),
+        assetContext: deploymentAssetContextBuilder.build({ applicationAsset: asset, managedTargetContext }),
         bindingLayers: { assetOverride: { pluginVersionId: plugin.id, inputBindings: normalizeInputBindings(binding.rows[0]?.input_bindings) } },
       });
       const status: ApplicationExecutionCompatibilityStatus = projection.resolvedInput.executable ? 'READY' : 'UPDATE_REQUIRED';
@@ -297,6 +388,42 @@ export class ApplicationExecutionCompatibilityService {
       await this.save(tenantId, result);
       return result;
     }
+  }
+
+  private async recheckManagedTargetsByRelation(
+    tenantId: string,
+    relation: 'device_id' | 'framework_instance_id' | 'site_id' | 'device_asset_id' | 'asset_id',
+    relationId: string,
+  ): Promise<ApplicationExecutionCompatibility[]> {
+    const rows = (await this.db.query<{ managed_target_id: string }>(`
+      select id as managed_target_id
+        from pg_managed_targets
+       where tenant_id=$1 and deleted_at is null and (
+         ${relation}=$2
+         ${relation === 'framework_instance_id' ? `or exists (
+           select 1 from pg_site_assets site
+            where site.tenant_id=pg_managed_targets.tenant_id
+              and site.id=pg_managed_targets.site_id
+              and site.framework_instance_id=$2
+              and site.deleted_at is null
+         )` : ''}
+       )
+    `, [tenantId, relationId])).rows;
+    const results: ApplicationExecutionCompatibility[] = [];
+    for (const row of rows) results.push(...await this.recheckManagedTarget(tenantId, row.managed_target_id));
+    return results;
+  }
+
+  private async resolveManagedTargetContext(tenantId: string, asset: Awaited<ReturnType<PgAssetsRepository['getServiceAsset']>>) {
+    if (!asset) return undefined;
+    const strategy = asset.deploymentStrategy;
+    const managedTargetId = strategy?.type === 'MANAGED_TARGET' ? strategy.managedTarget?.managedTargetId : undefined;
+    if (!managedTargetId) return undefined;
+    return new ManagedTargetContextResolver(
+      new PgAssetsRepository(this.db),
+      new PgAgentsRepository(this.db),
+      new PgDeviceAssetsRepository(this.db),
+    ).resolveTopology(tenantId, managedTargetId);
   }
 
   private async save(tenantId: string, value: ApplicationExecutionCompatibility): Promise<void> {

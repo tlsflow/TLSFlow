@@ -94,7 +94,7 @@ export class PgUnifiedPluginsRepository implements UnifiedPluginsRepository {
       'select * from unified_plugin_versions where tenant_id = $1 order by plugin_id, created_at desc',
       [tenantId],
     );
-    return Promise.all(result.rows.map(toRecord).filter((record): record is UnifiedPluginVersionRecord => Boolean(record)).map((record) => this.withResources(record)));
+    return this.withResourcesForRecords(result.rows.map(toRecord).filter((record): record is UnifiedPluginVersionRecord => Boolean(record)));
   }
 
   async listVersionsBySource(source: UnifiedPluginVersionRecord['source']): Promise<UnifiedPluginVersionRecord[]> {
@@ -102,7 +102,7 @@ export class PgUnifiedPluginsRepository implements UnifiedPluginsRepository {
       'select * from unified_plugin_versions where source = $1 order by plugin_id, created_at desc',
       [source],
     );
-    return Promise.all(result.rows.map(toRecord).filter((record): record is UnifiedPluginVersionRecord => Boolean(record)).map((record) => this.withResources(record)));
+    return this.withResourcesForRecords(result.rows.map(toRecord).filter((record): record is UnifiedPluginVersionRecord => Boolean(record)));
   }
 
   async listAccessibleVersions(tenantId: string): Promise<UnifiedPluginVersionRecord[]> {
@@ -112,7 +112,7 @@ export class PgUnifiedPluginsRepository implements UnifiedPluginsRepository {
         order by plugin_id, created_at desc`,
       [tenantId],
     );
-    return Promise.all(result.rows.map(toRecord).filter((record): record is UnifiedPluginVersionRecord => Boolean(record)).map((record) => this.withResources(record)));
+    return this.withResourcesForRecords(result.rows.map(toRecord).filter((record): record is UnifiedPluginVersionRecord => Boolean(record)));
   }
 
   async countReferences(tenantId: string, pluginVersionId: string): Promise<UnifiedPluginReferenceCounts> {
@@ -157,6 +157,32 @@ export class PgUnifiedPluginsRepository implements UnifiedPluginsRepository {
       [record.id],
     )).rows;
     return { ...record, resources: Object.fromEntries(rows.map((row) => [row.resource_path, row.resource_content])) };
+  }
+
+  /** 中文说明：列表场景一次加载所有版本资源，避免每个版本再发一条查询。 */
+  private async withResourcesForRecords(records: UnifiedPluginVersionRecord[]): Promise<UnifiedPluginVersionRecord[]> {
+    if (records.length === 0) return records;
+    const rows = (await this.db.query<{
+      plugin_version_id: string;
+      resource_path: string;
+      resource_content: string;
+    }>(
+      `select plugin_version_id, resource_path, resource_content
+         from unified_plugin_resources
+        where plugin_version_id = any($1::text[])
+        order by plugin_version_id, resource_path`,
+      [records.map((record) => record.id)],
+    )).rows;
+    const resourcesByVersion = new Map<string, Record<string, string>>();
+    for (const row of rows) {
+      const resources = resourcesByVersion.get(row.plugin_version_id) ?? {};
+      resources[row.resource_path] = row.resource_content;
+      resourcesByVersion.set(row.plugin_version_id, resources);
+    }
+    return records.map((record) => ({
+      ...record,
+      resources: resourcesByVersion.get(record.id) ?? {},
+    }));
   }
 }
 

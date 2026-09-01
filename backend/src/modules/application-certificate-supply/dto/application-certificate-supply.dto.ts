@@ -65,7 +65,7 @@ export interface ApplicationCertificateSupplyResponse {
   providers: {
     ca: CertificateSupplyProviderDto[];
     acme: CertificateSupplyProviderDto[];
-    dns: Array<{ id: string; name: string; requiresSecretRef: true }>;
+    dns: Array<{ id: string; name: string; requiresSecretRef: true; credentialTemplate: string }>;
     acmeProviderProfiles: Array<{ id: string; name: string; version?: string }>;
     authorities: Array<{ id: string; name: string; providerId: string; status: string }>;
     profiles: Array<{ id: string; name: string; currentVersion: number; versions: Array<{ id: string; versionNo: number }> }>;

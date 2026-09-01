@@ -473,7 +473,12 @@ export class ApplicationCertificateSupplyApplicationService {
       const provider = providerById.get(authority.providerId);
       return authority.status === 'active' && provider?.status === 'active' && provider.type !== 'acme';
     });
-    const dns = listAcmeDnsProviders().map((item) => ({ id: item.id, name: item.name, requiresSecretRef: true as const }));
+    const dns = listAcmeDnsProviders().map((item) => ({
+      id: item.id,
+      name: item.name,
+      requiresSecretRef: true as const,
+      credentialTemplate: item.credentialTemplate,
+    }));
     return {
       payload: {
         ca: providers.filter((provider) => provider.type !== 'acme'),

@@ -67,10 +67,13 @@ export class ManagedTargetContextResolver {
       : undefined;
     if (managedTarget.serviceAssetId && !serviceAsset) throw targetError('受管目标关联的 ServiceAsset 不存在', 'MANAGED_TARGET_RELATION_INVALID', { managedTargetId, serviceAssetId: managedTarget.serviceAssetId });
     if (!host && !cloudAccountAsset && !serviceAsset) throw targetError('受管目标没有合法所有者', 'MANAGED_TARGET_OWNER_UNAVAILABLE', { managedTargetId });
-    const [siteAsset, deviceAsset] = await Promise.all([
-      managedTarget.siteId ? this.assets.getSiteAsset(tenantId, managedTarget.siteId) : undefined,
-      managedTarget.deviceId ? this.devices.findByHostId(tenantId, managedTarget.deviceId) : undefined,
-    ]);
+    // 中文说明：这里可能复用事务客户端，必须顺序查询，不能让同一 Client 并发执行两条 SQL。
+    const siteAsset = managedTarget.siteId
+      ? await this.assets.getSiteAsset(tenantId, managedTarget.siteId)
+      : undefined;
+    const deviceAsset = managedTarget.deviceId
+      ? await this.devices.findByHostId(tenantId, managedTarget.deviceId)
+      : undefined;
     if (managedTarget.siteId && !siteAsset) throw targetError('受管目标关联的 Site 不存在', 'MANAGED_TARGET_RELATION_INVALID', { managedTargetId, siteId: managedTarget.siteId });
     // 历史 ManagedTarget 可能没有保存 frameworkInstanceId，但 Site 仍保留发现时的
     // Framework 关系。沿用该已持久化关系，避免应用向导丢失 Agent 上报的运行事实。

@@ -429,7 +429,8 @@ export class PgAssetsRepository implements AssetsRepository {
         });
       }
     }
-    return (await this.getServiceAsset(tenantId, serviceAssetId)) ?? updated;
+    // 中文说明：updated 已包含本次写入后的完整资产状态，避免提交后再次 hydrate 同一行。
+    return updated;
   }
 
   async deleteServiceAsset(tenantId: string, serviceAssetId: string): Promise<ServiceAssetDto> {

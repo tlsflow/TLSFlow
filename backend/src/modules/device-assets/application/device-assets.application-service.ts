@@ -2,6 +2,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type { CreateDeviceAssetDto, DeviceAssetDto, UpdateDeviceAssetDto } from '../dto/device-assets.dto.js';
 import { DeviceAssetsDomainService } from '../domain/device-assets.domain-service.js';
 import type { DeviceAssetsRepository } from '../repository/device-assets.repository.js';
+import type { ApplicationExecutionCompatibilityService } from '../../assets/application/application-execution-compatibility.service.js';
 
 export interface DeviceConnectionTestResult {
   reachable: boolean;
@@ -23,11 +24,17 @@ export interface DeviceConnectionTester {
 }
 
 export class DeviceAssetsApplicationService {
+  private executionCompatibility?: Pick<ApplicationExecutionCompatibilityService, 'recheckDeviceAsset'>;
+
   constructor(
     private readonly repository: DeviceAssetsRepository,
     private readonly connectionTester?: DeviceConnectionTester,
     private readonly domain = new DeviceAssetsDomainService(),
   ) {}
+
+  setApplicationExecutionCompatibilityService(service?: Pick<ApplicationExecutionCompatibilityService, 'recheckDeviceAsset'>): void {
+    this.executionCompatibility = service;
+  }
 
   list(tenantId: string): Promise<DeviceAssetDto[]> {
     return this.repository.list(tenantId);
@@ -39,16 +46,22 @@ export class DeviceAssetsApplicationService {
     return item;
   }
 
-  create(tenantId: string, input: CreateDeviceAssetDto): Promise<DeviceAssetDto> {
-    return this.repository.create(tenantId, this.domain.normalizeCreate(input));
+  async create(tenantId: string, input: CreateDeviceAssetDto): Promise<DeviceAssetDto> {
+    const created = await this.repository.create(tenantId, this.domain.normalizeCreate(input));
+    await this.executionCompatibility?.recheckDeviceAsset(tenantId, created.id);
+    return created;
   }
 
-  update(tenantId: string, deviceAssetId: string, input: UpdateDeviceAssetDto): Promise<DeviceAssetDto> {
-    return this.repository.update(tenantId, deviceAssetId, this.domain.normalizeUpdate(input));
+  async update(tenantId: string, deviceAssetId: string, input: UpdateDeviceAssetDto): Promise<DeviceAssetDto> {
+    const updated = await this.repository.update(tenantId, deviceAssetId, this.domain.normalizeUpdate(input));
+    await this.executionCompatibility?.recheckDeviceAsset(tenantId, updated.id);
+    return updated;
   }
 
-  delete(tenantId: string, deviceAssetId: string): Promise<DeviceAssetDto> {
-    return this.repository.softDelete(tenantId, deviceAssetId);
+  async delete(tenantId: string, deviceAssetId: string): Promise<DeviceAssetDto> {
+    const deleted = await this.repository.softDelete(tenantId, deviceAssetId);
+    await this.executionCompatibility?.recheckDeviceAsset(tenantId, deleted.id);
+    return deleted;
   }
 
   async testConnection(tenantId: string, deviceAssetId: string, actorId: string): Promise<DeviceConnectionTestResult> {

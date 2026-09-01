@@ -31,6 +31,7 @@ import type { PluginFactBindingV1, PluginFactPipelineResult, PluginFactPipelineS
 import type { AgentDiscoveryRequestFactory } from './agent-discovery-task-factory.js';
 import { AgentDirectClient } from './agent-direct-client.js';
 import { AgentManagementClient, signAgentUpgradeEnvelope, type AgentManagementResponse, type AgentUpgradeEnvelope } from './agent-management-client.js';
+import type { ApplicationExecutionCompatibilityService } from '../../assets/application/application-execution-compatibility.service.js';
 
 const agentV2PreExecutionFailureCodes = new Set(['ACTION_HANDLER_NOT_REGISTERED', 'AGENT_V2_AUTHORIZATION_DENIED', 'AGENT_V2_MESSAGE_INVALID', 'AGENT_V2_ACTION_UNSUPPORTED', 'AGENT_PLAN_INVALID']);
 const agentUpgradeHelperTimeoutMs = 5 * 60 * 1000;
@@ -226,6 +227,7 @@ export class AgentsApplicationService {
     errorCode?: string;
     errorMessage?: string;
   }) => Promise<void>;
+  private executionCompatibility?: Pick<ApplicationExecutionCompatibilityService, 'recheckAgent'>;
   constructor(
     private readonly repository: AgentsRepository = new PgAgentsRepository(),
     private readonly domain = new AgentsDomainService(),
@@ -263,6 +265,10 @@ export class AgentsApplicationService {
   /** 注入证书生命周期回写，Agent 任务仍先按通用队列和 Receipt 合同落账。 */
   setCertificateTaskResultHandler(handler?: AgentsApplicationService['certificateTaskResultHandler']): void {
     this.certificateTaskResultHandler = handler;
+  }
+
+  setApplicationExecutionCompatibilityService(service?: Pick<ApplicationExecutionCompatibilityService, 'recheckAgent'>): void {
+    this.executionCompatibility = service;
   }
 
   async createEnrollmentToken(tenantId: string, input: CreateEnrollmentTokenInput, requestId: string) {
@@ -371,6 +377,12 @@ export class AgentsApplicationService {
     const nextStatus = input.status ?? 'ONLINE';
     this.domain.assertStatusTransition(agent.status, nextStatus);
     const now = new Date().toISOString();
+    const nextManagementEndpoint = input.managementEndpoint === undefined
+      ? agent.descriptor.managementEndpoint
+      : this.domain.normalizeManagementEndpoint(input.managementEndpoint);
+    const compatibilityInputsChanged = agent.status !== nextStatus
+      || agent.descriptor.version !== input.version
+      || agent.descriptor.managementEndpoint !== nextManagementEndpoint;
     const gateway = this.domain.normalizeGatewayOnHeartbeat(agent, input, now);
     const updated = await this.repository.updateRegistration(agent.id, {
       status: nextStatus,
@@ -396,6 +408,7 @@ export class AgentsApplicationService {
       requestId,
     });
     await this.liveness?.recordHeartbeat(tenantId, agent.id, now);
+    if (compatibilityInputsChanged) await this.refreshApplicationExecutionCompatibility(tenantId, agent.id);
     return { agent: updated, heartbeat };
   }
 
@@ -579,6 +592,7 @@ export class AgentsApplicationService {
         })
       : agent;
     await this.syncGatewayRegistry(tenantId, updated);
+    await this.refreshApplicationExecutionCompatibility(tenantId, agent.id);
     return {
       agentId: agent.id,
       declarations: this.domain.toCapabilityDeclarations(updated, snapshot),
@@ -1568,6 +1582,7 @@ export class AgentsApplicationService {
       certificateRevoked: input.revokeCertificate ? true : agent.certificateRevoked,
     });
     await this.syncGatewayRegistry(tenantId, updated);
+    await this.refreshApplicationExecutionCompatibility(tenantId, agent.id);
     return updated;
   }
 
@@ -1584,13 +1599,27 @@ export class AgentsApplicationService {
       disabledReason: undefined,
     });
     await this.syncGatewayRegistry(tenantId, updated);
+    await this.refreshApplicationExecutionCompatibility(tenantId, agent.id);
     return updated;
   }
 
   async deleteAgent(tenantId: string, input: DeleteAgentInput) {
     const agent = await this.requireAgent(tenantId, input.agentId);
     await this.repository.deleteRegistration(agent.id);
+    await this.refreshApplicationExecutionCompatibility(tenantId, agent.id);
     return { deleted: true, agentId: agent.id };
+  }
+
+  private async refreshApplicationExecutionCompatibility(tenantId: string, agentId: string): Promise<void> {
+    try {
+      await this.executionCompatibility?.recheckAgent(tenantId, agentId);
+    } catch (error) {
+      // 兼容性重检失败不能阻断 Agent 心跳、能力上报或禁用操作；下一次执行前仍会再次门禁复检。
+      structuredLogger.warn('应用执行兼容性重检失败', {
+        agentId,
+        error: error instanceof Error ? error.message : String(error),
+      }, { module: 'agents', tenantId, resourceType: 'agent', resourceId: agentId });
+    }
   }
 
   async createAgentInstallSession(tenantId: string, input: CreateAgentInstallSessionInput, requestId: string, baseUrl: string): Promise<AgentInstallSessionBootstrapProjection> {
