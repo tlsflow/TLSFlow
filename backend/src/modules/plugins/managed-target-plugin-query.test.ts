@@ -225,13 +225,8 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
   assert.equal(saved.effectiveCapability?.source.ownerType, 'APPLICATION_ASSET');
   assert.equal(saved.effectiveCapability?.plugin.pluginId, 'fixture.managed');
   assert.equal(saved.effectiveCapability?.binding.hostId, device.hostId);
-  const compatibility = await db.query<{ status: string }>(
-    `select status from application_execution_compatibility
-      where tenant_id=$1 and application_asset_id=$2
-      order by checked_at desc limit 1`,
-    [tenantId, applicationAsset.id],
-  );
-  assert.equal(compatibility.rows[0]?.status, 'READY');
+  const compatibility = await waitForCompatibility(db, tenantId, applicationAsset.id);
+  assert.equal(compatibility.status, 'READY');
   const savedBinding = await new PluginBindingsApplicationService(new PluginBindingsRepository(db))
     .getTenantBinding(tenantId, saved.effectiveCapability!.binding.pluginBindingId);
   assert.equal(savedBinding.inputBindings.variables.allowInsecureTls, false);
@@ -424,6 +419,21 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
     },
   }), /版本冲突/);
 });
+
+async function waitForCompatibility(db: PgliteDatabase, tenantId: string, applicationAssetId: string): Promise<{ status: string }> {
+  // 中文说明：兼容性扫描在保存事务提交后异步执行，测试等待结果而不是改变生产同步边界。
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const row = (await db.query<{ status: string }>(
+      `select status from application_execution_compatibility
+        where tenant_id=$1 and application_asset_id=$2
+        order by checked_at desc limit 1`,
+      [tenantId, applicationAssetId],
+    )).rows[0];
+    if (row) return row;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error('等待应用执行兼容性异步重算超时');
+}
 
 test('真实 Windows Host 的 web.nginx ManagedTarget 可选择 Windows 证书更新插件', async () => {
   const db = new PgliteDatabase();

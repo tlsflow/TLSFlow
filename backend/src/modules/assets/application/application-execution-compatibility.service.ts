@@ -4,15 +4,12 @@ import { PgAssetsRepository } from '../repository/assets.repository.js';
 import { WorkflowExecutionBindingsRepository } from '../../workflow-templates/repository/workflow-execution-bindings.repository.js';
 import { WorkflowExecutionBindingsService } from '../../workflow-templates/application/workflow-execution-bindings.service.js';
 import { WorkflowDeploymentInputSaveService } from '../../deployment-inputs/application/workflow-deployment-input-save.service.js';
-import { DeploymentInputContractLoader } from '../../deployment-inputs/application/deployment-input-contract-loader.js';
-import { ProductionDeploymentInputResolverService } from '../../deployment-inputs/application/production-deployment-input-resolver.service.js';
-import { deploymentAssetContextBuilder } from '../../deployment-inputs/application/deployment-asset-context.builder.js';
 import { PgUnifiedPluginsRepository } from '../../plugins/repository/unified-plugins.repository.js';
 import { ManagedTargetContextResolver } from './managed-target-context.resolver.js';
 import { PgAgentsRepository } from '../../agents/repository/agents.repository.js';
 import { PgDeviceAssetsRepository } from '../../device-assets/repository/device-assets.repository.js';
+import { ManagedTargetPluginQueryService } from '../../plugins/application/managed-target-plugin-query.service.js';
 import { currentApplicationExecutionResolver } from './current-application-execution-resolver.js';
-import { emptyInputBindingsV1, INPUT_BINDINGS_API_VERSION, type InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
 
 export type ApplicationExecutionCompatibilityStatus = 'READY' | 'UPDATE_REQUIRED' | 'UNSUPPORTED';
 
@@ -112,16 +109,25 @@ export class ApplicationExecutionCompatibilityService {
   async recheckApplication(tenantId: string, applicationAssetId: string): Promise<ApplicationExecutionCompatibility[]> {
     const asset = await new PgAssetsRepository(this.db).getServiceAsset(tenantId, applicationAssetId);
     if (!asset) throw new AppError('RESOURCE_NOT_FOUND', 'ApplicationAsset 不存在', { applicationAssetId });
+    const generation = await this.nextScanGeneration();
     const strategy = asset.deploymentStrategy;
     const bindingId = strategy?.type === 'WORKFLOW'
       ? strategy.workflow?.workflowExecutionBindingId
       : strategy?.type === 'MANAGED_TARGET'
         ? strategy.managedTarget?.workflowExecutionBindingId
         : undefined;
-    if (bindingId) return [await this.checkWorkflowBinding(tenantId, applicationAssetId, bindingId, await this.nextScanGeneration())];
-    if (strategy?.type === 'MANAGED_TARGET' && (strategy.managedTarget?.executionMode ?? 'PLUGIN') === 'PLUGIN') {
-      return [await this.checkPluginAssignment(tenantId, applicationAssetId, await this.nextScanGeneration())];
+    if (bindingId) {
+      const result = await this.checkWorkflowBinding(tenantId, applicationAssetId, bindingId, generation);
+      await this.removeStaleSources(tenantId, applicationAssetId, generation, result.sourceType, result.sourceId);
+      return [result];
     }
+    if (strategy?.type === 'MANAGED_TARGET' && (strategy.managedTarget?.executionMode ?? 'PLUGIN') === 'PLUGIN') {
+      const result = await this.checkPluginAssignment(tenantId, applicationAssetId, generation);
+      await this.removeStaleSources(tenantId, applicationAssetId, generation, result.sourceType, result.sourceId);
+      return [result];
+    }
+    // 没有任何当前执行来源时，旧的 READY 快照不能继续代表当前配置。
+    await this.removeStaleSources(tenantId, applicationAssetId, generation);
     return [];
   }
 
@@ -225,6 +231,7 @@ export class ApplicationExecutionCompatibilityService {
         left join plugin_capability_assignments assignment
           on assignment.tenant_id=asset.tenant_id
          and assignment.status='ACTIVE'
+         and assignment.capability_key='certificate.deploy'
          and (
            (assignment.owner_type in ('APPLICATION_ASSET','SERVICE_ASSET') and assignment.owner_id=asset.id)
            or (assignment.owner_type='MANAGED_TARGET' and assignment.owner_id=target.id)
@@ -234,6 +241,8 @@ export class ApplicationExecutionCompatibilityService {
         left join unified_plugin_bindings binding
           on binding.tenant_id=assignment.tenant_id and binding.id=assignment.plugin_binding_id and binding.status='ACTIVE'
        where asset.deleted_at is null
+         and asset.metadata->'deploymentStrategy'->>'type' = 'MANAGED_TARGET'
+         and coalesce(asset.metadata->'deploymentStrategy'->'managedTarget'->>'executionMode', 'PLUGIN') = 'PLUGIN'
          and (coalesce(assignment.plugin_id, binding.plugin_id)=$2 or exists (
            select 1 from workflow_execution_bindings inherited_binding
             where inherited_binding.tenant_id=asset.tenant_id
@@ -337,6 +346,7 @@ export class ApplicationExecutionCompatibilityService {
         join unified_plugin_bindings binding
           on binding.tenant_id=assignment.tenant_id and binding.id=assignment.plugin_binding_id
        where assignment.tenant_id=$1 and assignment.status='ACTIVE' and binding.status='ACTIVE'
+         and assignment.capability_key='certificate.deploy'
          and (
            (assignment.owner_type in ('APPLICATION_ASSET','SERVICE_ASSET') and assignment.owner_id=$2)
            or (assignment.owner_type='MANAGED_TARGET' and assignment.owner_id=$3)
@@ -360,27 +370,43 @@ export class ApplicationExecutionCompatibilityService {
       checkedAt: new Date().toISOString(),
     };
     try {
-      const managedTargetContext = await this.resolveManagedTargetContext(tenantId, asset);
-      if (!row?.plugin_id) throw new AppError('APPLICATION_EXECUTION_REFERENCE_INVALID', '插件稳定身份缺失', { applicationAssetId });
-      const versions = await new PgUnifiedPluginsRepository(this.db).listAccessibleVersions(tenantId);
-      const plugin = currentApplicationExecutionResolver.resolvePluginVersion(tenantId, row.plugin_id, versions);
-      if (!plugin) throw new AppError('APPLICATION_CURRENT_PLUGIN_UNAVAILABLE', '当前插件不可用', { pluginId: row.plugin_id });
-      const capabilityKey = (await this.db.query<{ capability_key: string }>(
-        `select capability_key from plugin_capability_assignments where id=$1`, [row.assignment_id],
-      )).rows[0]?.capability_key;
-      if (!capabilityKey) throw new AppError('APPLICATION_EXECUTION_REFERENCE_INVALID', '插件能力身份缺失', { assignmentId: row.assignment_id });
-      const contract = new DeploymentInputContractLoader().fromPlugin(plugin, capabilityKey);
-      const binding = await this.db.query<{ input_bindings: unknown }>(
-        `select input_bindings from unified_plugin_bindings where id=$1 and tenant_id=$2`, [row.binding_id, tenantId],
-      );
-      const projection = new ProductionDeploymentInputResolverService().resolveProjectionResult({
-        phase: 'configure',
-        contract,
-        assetContext: deploymentAssetContextBuilder.build({ applicationAsset: asset, managedTargetContext }),
-        bindingLayers: { assetOverride: { pluginVersionId: plugin.id, inputBindings: normalizeInputBindings(binding.rows[0]?.input_bindings) } },
+      if (!managedTargetId) throw new AppError('APPLICATION_EXECUTION_REFERENCE_INVALID', '应用资产缺少 ManagedTarget', { applicationAssetId });
+      const capabilityKey = 'certificate.deploy';
+      // 兼容性扫描必须复用部署输入投影：它会解析当前有效能力、所有继承层和跨版本迁移，
+      // 与创建部署计划的输入解析保持完全一致，避免卡片状态与实际预检分叉。
+      const query = new ManagedTargetPluginQueryService(this.db);
+      const effective = await query.getEffectiveCapability({ tenantId, managedTargetId, capabilityKey, applicationAssetId });
+      if (effective.binding.pluginVersionId !== effective.plugin.pluginVersionId) {
+        throw new AppError('VALIDATION_FAILED', '当前插件版本与应用 Binding 不一致', {
+          code: 'DEPLOYMENT_INPUT_VERSION_MISMATCH',
+          pluginVersionId: effective.plugin.pluginVersionId,
+          bindingPluginVersionId: effective.binding.pluginVersionId,
+        });
+      }
+      const projection = await query.projectApplicationAssetPluginInputs({
+        tenantId,
+        managedTargetId,
+        capabilityKey,
+        pluginVersionId: effective.plugin.pluginVersionId,
+        applicationAsset: {
+          id: asset.id,
+          address: asset.address,
+          ...(asset.sniName ? { sniName: asset.sniName } : {}),
+          ...(asset.verifyUrl ? { verifyUrl: asset.verifyUrl } : {}),
+          port: asset.port,
+          protocol: asset.protocol,
+          ...(asset.displayName ? { displayName: asset.displayName } : {}),
+        },
       });
-      const status: ApplicationExecutionCompatibilityStatus = projection.resolvedInput.executable ? 'READY' : 'UPDATE_REQUIRED';
-      const result = { ...base, status, issues: projection.resolvedInput.issues.map((issue) => ({ code: issue.code, path: issue.path, slot: issue.slot, category: issue.category })), checkedPluginVersionId: plugin.id };
+      const status: ApplicationExecutionCompatibilityStatus = projection.saveable ? 'READY' : 'UPDATE_REQUIRED';
+      const result = {
+        ...base,
+        sourceId: effective.source.assignmentId,
+        referenceVersion: Math.max(asset.version, effective.binding.version),
+        status,
+        issues: projection.issues.map((issue) => ({ code: issue.code, path: issue.path, slot: issue.slot, category: issue.category })),
+        checkedPluginVersionId: effective.plugin.pluginVersionId,
+      };
       await this.save(tenantId, result);
       return result;
     } catch (error) {
@@ -441,6 +467,27 @@ export class ApplicationExecutionCompatibilityService {
              and application_execution_compatibility.reference_version <= excluded.reference_version)
     `, [tenantId, value.applicationAssetId, value.sourceType, value.sourceId, value.status, JSON.stringify(value.issues), value.checkedPluginVersionId ?? null, value.checkedWorkflowVersionId ?? null, value.checkedAt, value.referenceVersion, value.scanGeneration]);
   }
+
+  private async removeStaleSources(
+    tenantId: string,
+    applicationAssetId: string,
+    scanGeneration: number,
+    sourceType?: ApplicationExecutionCompatibility['sourceType'],
+    sourceId?: string,
+  ): Promise<void> {
+    const params: Array<string | number> = [tenantId, applicationAssetId, scanGeneration];
+    const sourceClause = sourceType && sourceId
+      ? 'and not (source_type=$4 and source_id=$5)'
+      : '';
+    if (sourceClause && sourceType && sourceId) params.push(sourceType, sourceId);
+    await this.db.query(`
+      delete from application_execution_compatibility
+       where tenant_id=$1
+         and application_asset_id=$2
+         and scan_generation <= $3
+         ${sourceClause}
+    `, params);
+  }
 }
 
 interface CompatibilityRow extends Record<string, unknown> {
@@ -476,20 +523,4 @@ function compatibilityErrorCode(error: unknown): string {
   const details = error.details;
   if (details && typeof details === 'object' && 'code' in details && typeof details.code === 'string') return details.code;
   return error.errorCode;
-}
-
-function normalizeInputBindings(value: unknown): InputBindingsV1 {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return emptyInputBindingsV1();
-  const record = value as Record<string, unknown>;
-  return {
-    apiVersion: INPUT_BINDINGS_API_VERSION,
-    variables: isRecord(record.variables) ? record.variables : {},
-    connections: isRecord(record.connections) ? record.connections as InputBindingsV1['connections'] : {},
-    credentials: isRecord(record.credentials) ? record.credentials as InputBindingsV1['credentials'] : {},
-    artifacts: isRecord(record.artifacts) ? record.artifacts as InputBindingsV1['artifacts'] : {},
-  };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }

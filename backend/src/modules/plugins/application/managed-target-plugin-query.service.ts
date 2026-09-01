@@ -909,6 +909,7 @@ function summarizeCapability(resolved: ResolvedDeploymentCapability) {
     },
     binding: {
       pluginBindingId: resolved.binding.id,
+      pluginVersionId: resolved.binding.pluginVersionId,
       hostId: resolved.binding.managedContext?.hostId,
       serviceAssetId: resolved.binding.managedContext?.serviceAssetId,
       cloudAccountAssetId: resolved.binding.managedContext?.cloudAccountAssetId,

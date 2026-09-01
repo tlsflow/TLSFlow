@@ -1398,7 +1398,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
           refreshedVersions.map(toPluginRefreshVersionSnapshot),
         ).filter((change) => change.changeType !== 'UNCHANGED').map((change) => change.pluginId);
         for (const pluginId of changedPluginIds) {
-          await applicationExecutionCompatibility.recheckPluginForAssociatedTenants(pluginId, tenantId);
+          await applicationExecutionCompatibility.recheckPluginForAssociatedTenants(pluginId);
         }
         const projection = await agentsService.reprojectLatestCapabilitySnapshots(tenantId);
         const afterVersions = refreshedVersions.map(toPluginRefreshVersionSnapshot);

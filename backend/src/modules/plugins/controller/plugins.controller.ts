@@ -177,10 +177,12 @@ export class PluginsController {
       approvedPermissions: { type: 'array', required: true },
     });
     const version = await this.requirePluginVersion(security, String(body.pluginVersionId), 'control');
-    return this.unifiedPlugins.approvePermissions(
+    const approved = await this.unifiedPlugins.approvePermissions(
       version.id,
       (body.approvedPermissions as unknown[]).map(String),
-    ).then(withPluginVersionIdentity);
+    );
+    await this.recheckPluginCompatibility(security.tenantId, approved.pluginId);
+    return withPluginVersionIdentity(approved);
   }
 
   private async enableUnifiedPluginVersion(request: HttpRequest) {
@@ -725,7 +727,8 @@ export class PluginsController {
 
   private async recheckPluginCompatibility(tenantId: string, pluginId: string | undefined): Promise<void> {
     if (!this.executionCompatibility || !pluginId?.trim()) return;
-    await this.executionCompatibility.recheckPluginForAssociatedTenants(tenantId, pluginId.trim());
+    // 插件版本可能是系统级内置版本；由服务按插件关联反查租户和应用，不能只刷新当前租户。
+    await this.executionCompatibility.recheckPluginForAssociatedTenants(pluginId.trim());
   }
 
 }
