@@ -22,6 +22,7 @@ export interface BusinessMetricCard {
 export interface BusinessAction {
   readonly label: string
   readonly permission: string
+  readonly permissions?: readonly string[]
   readonly danger?: boolean
   readonly confirmText?: string
   readonly riskText?: string
@@ -34,6 +35,7 @@ export interface BusinessAction {
 export interface BusinessRowAction {
   readonly label: string
   readonly permission: string
+  readonly permissions?: readonly string[]
   readonly danger?: boolean
   readonly confirmText?: string
   readonly riskText?: string

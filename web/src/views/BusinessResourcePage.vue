@@ -40,7 +40,7 @@ const tableColumns = computed<DataTableColumn<ViewRow>[]>(() =>
 )
 const visibleActions = computed(() =>
   props.config.actions.filter((action) =>
-    permissionStore.hasPermission(action.permission)
+    hasActionPermission(action)
     && !(action.hidden?.(selectedRow.value) ?? false),
   ),
 )
@@ -147,7 +147,12 @@ function closeRowMenu() {
 }
 
 function isMenuActionHidden(row: ViewRow, action: BusinessRowAction): boolean {
-  return !permissionStore.hasPermission(action.permission) || (action.hidden?.(row) ?? false)
+  return !hasActionPermission(action) || (action.hidden?.(row) ?? false)
+}
+
+function hasActionPermission(action: Pick<BusinessAction, 'permission' | 'permissions'>): boolean {
+  const permissions = action.permissions?.length ? action.permissions : [action.permission]
+  return permissions.some((permission) => permissionStore.hasPermission(permission))
 }
 
 function hasVisibleMenuAction(row: ViewRow, actionIndex: number): boolean {
@@ -450,12 +455,13 @@ defineExpose({
         <div class="business-page__row-actions">
           <template v-for="(action, index) in config.rowActions ?? []" :key="`${row.id}-${action.label}`">
             <div
-              v-if="action.menu && permissionStore.hasPermission(action.permission) && !isRowActionHidden(row, index) && hasVisibleMenuAction(row, index)"
+              v-if="action.menu && hasActionPermission(action) && !isRowActionHidden(row, index) && hasVisibleMenuAction(row, index)"
               class="business-page__row-menu"
             >
               <GcPermissionButton
                 class="business-page__row-menu-trigger"
                 :permission="action.permission"
+                :permissions="action.permissions"
                 :danger="action.danger"
                 aria-haspopup="menu"
                 :aria-expanded="isRowMenuOpen(row, index)"
@@ -489,6 +495,7 @@ defineExpose({
                       v-else-if="!menuAction.danger && !isMenuActionHidden(row, menuAction)"
                       class="business-page__row-menu-item"
                       :permission="menuAction.permission"
+                      :permissions="menuAction.permissions"
                       :danger="menuAction.danger"
                       :disabled="Boolean(menuAction.disabledReason?.(row))"
                       role="menuitem"
@@ -501,7 +508,7 @@ defineExpose({
               </Teleport>
             </div>
             <GcConfirmAction
-              v-else-if="!action.menu && action.danger && permissionStore.hasPermission(action.permission) && !isRowActionHidden(row, index)"
+              v-else-if="!action.menu && action.danger && hasActionPermission(action) && !isRowActionHidden(row, index)"
               :action-name="action.label"
               :impact-count="1"
               :risk-text="action.riskText"
@@ -514,6 +521,7 @@ defineExpose({
             <GcPermissionButton
               v-else-if="!action.menu && !action.danger && !isRowActionHidden(row, index)"
               :permission="action.permission"
+              :permissions="action.permissions"
               :danger="action.danger"
               @click="runRowAction(row, index)"
             >
@@ -568,7 +576,7 @@ defineExpose({
       <div class="business-page__actions-list">
         <template v-for="action in visibleActions" :key="action.label">
           <GcConfirmAction
-            v-if="action.danger && permissionStore.hasPermission(action.permission)"
+            v-if="action.danger && hasActionPermission(action)"
             :action-name="action.label"
             :impact-count="action.requiresSelection ? 1 : state.total.value"
             :risk-text="action.riskText"
@@ -581,6 +589,7 @@ defineExpose({
           <GcPermissionButton
             v-else-if="!action.danger"
             :permission="action.permission"
+            :permissions="action.permissions"
             :danger="action.danger"
             :disabled="Boolean(action.disabledReason?.(selectedRow))"
             @click="runAction(action)"

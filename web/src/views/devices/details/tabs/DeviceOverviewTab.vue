@@ -13,6 +13,11 @@ function displayValue(field: DeviceDetailField): string {
   if (field.valueType === 'BOOLEAN') return field.value ? t('devices.unifiedDetail.values.yes') : t('devices.unifiedDetail.values.no')
   return String(field.value)
 }
+
+function displayField(field: DeviceDetailField): string {
+  if (field.key === 'tlsVerify' && field.value === null) return t('devices.unifiedDetail.values.notApplicable')
+  return displayValue(field)
+}
 </script>
 
 <template>
@@ -27,7 +32,7 @@ function displayValue(field: DeviceDetailField): string {
           <dd>
             <GcStatusTag v-if="field.valueType === 'STATUS'" :status="String(field.value ?? 'UNKNOWN')" />
             <template v-else>
-              <span>{{ displayValue(field) }}</span>
+              <span>{{ displayField(field) }}</span>
             </template>
           </dd>
         </div>

@@ -27,6 +27,11 @@ export function listCloudServiceAssets(query: BusinessListQuery = {}) {
   })
 }
 
+/** 读取任意 ServiceAsset 的统一详情，包含证书与受管目标关联上下文。 */
+export function getServiceAssetDetail(serviceAssetId: string): Promise<ApiRecordResult> {
+  return apiClient.get<ApiRecord>(`${toClientPath(`${SERVICE_ASSETS_PATH}/detail`)}?serviceAssetId=${encodeURIComponent(serviceAssetId)}`)
+}
+
 export function listApplications(query?: BusinessListQuery) {
   return listRecords(APPLICATIONS_PATH, query)
 }
@@ -74,11 +79,11 @@ export function createServiceAsset(payload: ApiBody) {
 }
 
 export function updateServiceAsset(serviceAssetId: string, payload: ApiBody) {
-  return patchAction(APPLICATIONS_PATH, { ...payload, id: serviceAssetId }, 'application_update')
+  return patchAction(SERVICE_ASSETS_PATH, { ...payload, id: serviceAssetId }, 'service_asset_update')
 }
 
 export function deleteServiceAsset(serviceAssetId: string) {
-  return postAction(`${APPLICATIONS_PATH}/delete`, { id: serviceAssetId }, 'application_delete')
+  return postAction(`${SERVICE_ASSETS_PATH}/delete`, { id: serviceAssetId }, 'service_asset_delete')
 }
 
 export function createHost(payload: ApiBody) {

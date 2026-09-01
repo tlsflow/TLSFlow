@@ -4,8 +4,8 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
-import { deleteManagedDeviceAsset, getManagedDevice, listManagedDevices } from '@/api/modules/devices.api'
-import { checkAgentUpgrade, deleteAgent, dispatchAgentUpgrade, listCloudServiceAssets } from '@/api/modules/assets.api'
+import { deleteManagedDeviceAsset, getManagedDevice } from '@/api/modules/devices.api'
+import { checkAgentUpgrade, deleteAgent, deleteServiceAsset, dispatchAgentUpgrade, getServiceAssetDetail, listAssets, updateServiceAsset } from '@/api/modules/assets.api'
 import { GcButton, GcModal, GcStatusTag } from '@/design-system/components'
 import DeviceOnboardingWizard from '@/views/devices/DeviceOnboardingWizard.vue'
 import DeviceAssetEditModal from '@/views/devices/DeviceAssetEditModal.vue'
@@ -35,6 +35,15 @@ const filters = ref<Record<string, string>>({
 const onboardingOpen = ref(false)
 const editOpen = ref(false)
 const editDeviceId = ref('')
+const cloudDetailOpen = ref(false)
+const cloudDetailLoading = ref(false)
+const cloudDetailError = ref('')
+const cloudDetail = ref<Record<string, unknown> | null>(null)
+const cloudEditOpen = ref(false)
+const cloudEditBusy = ref(false)
+const cloudEditError = ref('')
+const cloudEditId = ref('')
+const cloudEditDisplayName = ref('')
 const reloadKey = ref(0)
 const deviceDetailModal = ref<{ open: (deviceId: string) => Promise<void> } | null>(null)
 const upgradingAgentId = ref('')
@@ -58,73 +67,59 @@ function readQueryString(key: string): string {
   return typeof value === 'string' ? value : ''
 }
 
-async function loadUnifiedAssets() {
-  const devicesQuery = { page: 1, pageSize: 200, sort: 'displayName:asc' as const }
-  const cloudAssetsQuery = { page: 1, pageSize: 200, sort: 'updatedAt:desc' as const }
-  const [devicesResult, cloudAssetsResult] = await Promise.all([
-    listManagedDevices({ ...devicesQuery, filters: filters.value }),
-    listCloudServiceAssets(cloudAssetsQuery),
-  ])
-  const devicesPage = devicesResult.data ?? { items: [], page: 1, pageSize: 200, total: 0 }
-  const cloudAssetsPage = cloudAssetsResult.data ?? { items: [], page: 1, pageSize: 200, total: 0 }
-  const cloudAssets = cloudAssetsPage.items
-    .map(normalizeCloudServiceAsset)
-    .filter((asset) => matchesCloudServiceFilters(asset, filters.value))
-  const items = [...devicesPage.items, ...cloudAssets]
-  items.sort((left, right) => String(left.displayName ?? left.name ?? '').localeCompare(String(right.displayName ?? right.name ?? '')))
-  return {
-    ...devicesResult,
-    data: {
-      items,
-      page: 1,
-      pageSize: items.length || 1,
-      total: items.length,
-    },
-  }
-}
-
-function matchesCloudServiceFilters(asset: Record<string, unknown>, activeFilters: Record<string, string>): boolean {
-  const category = activeFilters.category?.trim().toUpperCase()
-  if (category && category !== 'CLOUD') return false
-  const managementMethod = activeFilters.managementMethod?.trim().toUpperCase()
-  if (managementMethod && managementMethod !== 'PLUGIN') return false
-  const health = activeFilters.health?.trim().toUpperCase()
-  if (health && health !== String(asset.health ?? '').toUpperCase()) return false
-  return true
+async function loadUnifiedAssets(query: { page: number; pageSize: number }) {
+  return listAssets({ page: query.page, pageSize: query.pageSize, sort: 'displayName:asc', filters: filters.value })
 }
 
 function isCloudServiceRow(row: ViewRow): boolean {
   return String(row.raw.assetKind ?? '').toUpperCase() === 'CLOUD_SERVICE'
 }
 
-function normalizeCloudServiceAsset(asset: Record<string, unknown>): Record<string, unknown> {
-  const metadata = asRecord(asset.metadata)
-  const pluginVersion = String(metadata.pluginVersion ?? asset.pluginVersion ?? '').trim()
-  const status = String(asset.status ?? '').toUpperCase()
-  return {
-    ...asset,
-    displayName: asset.displayName ?? asset.name ?? asset.id,
-    category: 'CLOUD',
-    productFamily: metadata.productFamily ?? metadata.pluginId ?? 'cloud.service',
-    managementMethod: 'PLUGIN',
-    managementAddress: asset.address,
-    livenessStatus: status === 'ACTIVE' ? 'ONLINE' : status === 'DELETED' ? 'OFFLINE' : 'UNKNOWN',
-    health: status === 'ACTIVE' ? 'HEALTHY' : 'UNKNOWN',
-    sourceStatus: status,
-    softwareVersion: '-',
-    controlVersion: pluginVersion || '-',
-    applicationAssetCount: 0,
-  }
-}
 
 async function openDetail(row: ViewRow) {
-  if (isCloudServiceRow(row)) return
+  if (isCloudServiceRow(row)) {
+    cloudDetailOpen.value = true
+    cloudDetailLoading.value = true
+    cloudDetailError.value = ''
+    cloudDetail.value = null
+    try {
+      const response = await getServiceAssetDetail(row.id)
+      cloudDetail.value = response.data ?? null
+    } catch (error) {
+      cloudDetailError.value = error instanceof Error ? error.message : t('devices.errors.detailLoadFailed')
+    } finally {
+      cloudDetailLoading.value = false
+    }
+    return
+  }
   await deviceDetailModal.value?.open(row.id)
 }
 
 function openEdit(row: ViewRow): void {
+  if (isCloudServiceRow(row)) {
+    cloudEditId.value = row.id
+    cloudEditDisplayName.value = String(row.raw.displayName ?? row.raw.name ?? '')
+    cloudEditError.value = ''
+    cloudEditOpen.value = true
+    return
+  }
   editDeviceId.value = row.id
   editOpen.value = true
+}
+
+async function saveCloudService(): Promise<void> {
+  if (!cloudEditId.value || cloudEditBusy.value) return
+  cloudEditBusy.value = true
+  cloudEditError.value = ''
+  try {
+    await updateServiceAsset(cloudEditId.value, { displayName: cloudEditDisplayName.value.trim() })
+    cloudEditOpen.value = false
+    reloadKey.value += 1
+  } catch (error) {
+    cloudEditError.value = error instanceof Error ? error.message : t('devices.errors.editSaveFailed')
+  } finally {
+    cloudEditBusy.value = false
+  }
 }
 
 onMounted(() => {
@@ -134,8 +129,11 @@ onMounted(() => {
   }
 })
 
-async function deleteDevice(row: ViewRow) {
-  if (isCloudServiceRow(row)) return
+async function deleteAsset(row: ViewRow) {
+  if (isCloudServiceRow(row)) {
+    await deleteServiceAsset(row.id)
+    return
+  }
   const response = await getManagedDevice(row.id)
   const extension = (response.data?.extension ?? {}) as Record<string, unknown>
   const extensionSummary = (response.data?.extensionSummary ?? {}) as Record<string, unknown>
@@ -222,7 +220,7 @@ const config = computed<BusinessPageConfig>(() => ({
   showDetailPanel: false,
   showActionPanel: false,
   tableFixed: true,
-  clientSidePagination: true,
+  clientSidePagination: false,
   showTotalInPagination: true,
   columns: [
     { key: 'name', title: t('devices.columns.name'), candidates: ['displayName', 'id'], width: '12%' },
@@ -303,24 +301,36 @@ const config = computed<BusinessPageConfig>(() => ({
   onFiltersChange: (next) => { filters.value = next },
   emptyTitle: t('devices.empty.title'),
   emptyDescription: t('devices.empty.description'),
-  load: () => {
+  load: (query) => {
     void reloadKey.value
-    return loadUnifiedAssets()
+    return loadUnifiedAssets(query)
   },
   actions: [],
   rowActions: [{
     label: t('devices.actions.detail'), permission: 'host.read', reloadAfterRun: false, hidden: isCloudServiceRow, run: openDetail,
+  }, {
+    label: t('devices.actions.detail'), permission: 'service_asset.read', reloadAfterRun: false,
+    hidden: (row) => !isCloudServiceRow(row), run: openDetail,
   }, {
     label: t('devices.actions.operation'), permission: 'host.read', reloadAfterRun: false, hidden: isCloudServiceRow,
     menu: [{
       label: t('devices.actions.edit'), permission: 'application.device.update', reloadAfterRun: false, run: async (row) => { openEdit(row) },
     }, {
       label: t('devices.actions.delete'), permission: 'host.delete', danger: true, confirmText: 'DELETE',
-      riskText: t('devices.detail.deleteImpact'), run: deleteDevice,
+      riskText: t('devices.detail.deleteImpact'), run: deleteAsset,
     }, {
       label: t('devices.actions.upgrade'), permission: 'host.update', reloadAfterRun: true,
       hidden: (row) => row.raw.upgradeAvailable !== true || !String(row.raw.agentId ?? '').trim(),
       run: upgradeAgent,
+    }],
+  }, {
+    label: t('devices.actions.operation'), permission: 'service_asset.manage', reloadAfterRun: false,
+    hidden: (row) => !isCloudServiceRow(row),
+    menu: [{
+      label: t('devices.actions.edit'), permission: 'service_asset.manage', reloadAfterRun: false, run: async (row) => { openEdit(row) },
+    }, {
+      label: t('devices.actions.delete'), permission: 'service_asset.manage', danger: true, confirmText: 'DELETE',
+      riskText: t('assets.actions.deleteRisk'), run: deleteAsset,
     }],
   }],
 }))
@@ -350,6 +360,29 @@ const config = computed<BusinessPageConfig>(() => ({
     <DeviceOnboardingWizard v-model:open="onboardingOpen" @completed="reloadKey += 1" />
     <DeviceAssetEditModal v-model:open="editOpen" :device-id="editDeviceId" @completed="reloadKey += 1" />
     <ManagedDeviceDetailModal ref="deviceDetailModal" />
+    <GcModal v-model:open="cloudDetailOpen" :title="t('devices.cloudService.detailTitle')" :description="t('devices.cloudService.detailDescription')" size="lg">
+      <p v-if="cloudDetailLoading" class="devices-page__cloud-state">{{ t('common.loading') }}</p>
+      <p v-else-if="cloudDetailError" class="devices-page__cloud-error">{{ cloudDetailError }}</p>
+      <dl v-else-if="cloudDetail" class="devices-page__cloud-detail">
+        <div><dt>{{ t('assets.fields.assetId') }}</dt><dd>{{ cloudDetail.id }}</dd></div>
+        <div><dt>{{ t('assets.fields.displayName') }}</dt><dd>{{ cloudDetail.displayName }}</dd></div>
+        <div><dt>{{ t('assets.fields.domain') }}</dt><dd>{{ cloudDetail.address }}</dd></div>
+        <div><dt>{{ t('assets.fields.protocol') }}</dt><dd>{{ cloudDetail.protocol }}</dd></div>
+        <div><dt>{{ t('assets.fields.currentCertificate') }}</dt><dd>{{ asRecord(cloudDetail.currentCertificate).commonName ?? '-' }}</dd></div>
+        <div><dt>{{ t('assets.fields.lastDiscoveredAt') }}</dt><dd>{{ cloudDetail.lastDiscoveredAt ?? '-' }}</dd></div>
+      </dl>
+    </GcModal>
+    <GcModal v-model:open="cloudEditOpen" :title="t('devices.cloudService.editTitle')" :description="t('devices.cloudService.editDescription')" size="sm">
+      <label class="devices-page__cloud-edit-field">
+        <span>{{ t('assets.fields.displayName') }}</span>
+        <input v-model="cloudEditDisplayName" type="text" autocomplete="off" />
+      </label>
+      <p v-if="cloudEditError" class="devices-page__cloud-error">{{ cloudEditError }}</p>
+      <template #actions>
+        <GcButton variant="secondary" :disabled="cloudEditBusy" @click="cloudEditOpen = false">{{ t('devices.actions.cancel') }}</GcButton>
+        <GcButton variant="primary" :loading="cloudEditBusy" @click="saveCloudService">{{ t('assets.actions.saveChanges') }}</GcButton>
+      </template>
+    </GcModal>
     <GcModal
       v-model:open="upgradeConfirmationOpen"
       size="sm"
@@ -467,9 +500,62 @@ const config = computed<BusinessPageConfig>(() => ({
   line-height: var(--gc-line-height-relaxed);
 }
 
+.devices-page__cloud-state,
+.devices-page__cloud-error {
+  margin: 0;
+  font-size: var(--gc-font-size-sm);
+}
+
+.devices-page__cloud-error {
+  color: var(--gc-color-danger);
+}
+
+.devices-page__cloud-detail {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gc-space-3);
+  margin: 0;
+}
+
+.devices-page__cloud-detail div {
+  display: grid;
+  gap: var(--gc-space-1);
+  min-width: 0;
+}
+
+.devices-page__cloud-detail dt,
+.devices-page__cloud-edit-field span {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+}
+
+.devices-page__cloud-detail dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.devices-page__cloud-edit-field {
+  display: grid;
+  gap: var(--gc-space-2);
+}
+
+.devices-page__cloud-edit-field input {
+  min-height: var(--gc-control-height-md);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-sm);
+  background: var(--gc-color-surface);
+  color: var(--gc-color-text-primary);
+  font: inherit;
+  padding: 0 var(--gc-space-3);
+}
+
 @media (max-width: 640px) {
   .devices-page__upgrade-versions {
     grid-template-columns: 1fr;
+  }
+
+  .devices-page__cloud-detail {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

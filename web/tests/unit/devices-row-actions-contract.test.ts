@@ -25,6 +25,15 @@ describe('设备列表操作区布局契约', () => {
     expect(source).toContain('upgradeAvailable !== true')
   })
 
+  it('云服务资产复用统一 ServiceAsset 操作，不隐藏详情或操作菜单', () => {
+    expect(source).toContain('getServiceAssetDetail(row.id)')
+    expect(source).toContain('updateServiceAsset(cloudEditId.value')
+    expect(source).toContain('await deleteServiceAsset(row.id)')
+    expect(source).toContain("permission: 'service_asset.read'")
+    expect(source).toContain("permission: 'service_asset.manage'")
+    expect(source).toContain('hidden: (row) => !isCloudServiceRow(row)')
+  })
+
   it('菜单触发器具备可访问性并复用删除确认', () => {
     expect(businessPageSource).toContain('aria-haspopup="menu"')
     expect(businessPageSource).toContain(':aria-expanded="isRowMenuOpen(row, index)"')
