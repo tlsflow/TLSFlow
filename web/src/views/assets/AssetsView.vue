@@ -5,7 +5,7 @@ import { useRoute } from 'vue-router'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import { deleteManagedDeviceAsset, getManagedDevice } from '@/api/modules/devices.api'
-import { checkAgentUpgrade, deleteAgent, deleteServiceAsset, dispatchAgentUpgrade, getServiceAssetDetail, listAssets, updateServiceAsset } from '@/api/modules/assets.api'
+import { checkAgentUpgrade, deleteAgent, deleteServiceAsset, dispatchAgentUpgrade, listAssets } from '@/api/modules/assets.api'
 import { GcButton, GcModal, GcStatusTag } from '@/design-system/components'
 import DeviceOnboardingWizard from '@/views/devices/DeviceOnboardingWizard.vue'
 import DeviceAssetEditModal from '@/views/devices/DeviceAssetEditModal.vue'
@@ -35,17 +35,9 @@ const filters = ref<Record<string, string>>({
 const onboardingOpen = ref(false)
 const editOpen = ref(false)
 const editDeviceId = ref('')
-const cloudDetailOpen = ref(false)
-const cloudDetailLoading = ref(false)
-const cloudDetailError = ref('')
-const cloudDetail = ref<Record<string, unknown> | null>(null)
-const cloudEditOpen = ref(false)
-const cloudEditBusy = ref(false)
-const cloudEditError = ref('')
-const cloudEditId = ref('')
-const cloudEditDisplayName = ref('')
+const editServiceAssetId = ref('')
 const reloadKey = ref(0)
-const deviceDetailModal = ref<{ open: (deviceId: string) => Promise<void> } | null>(null)
+const deviceDetailModal = ref<{ open: (deviceId: string) => Promise<void>; openServiceAsset: (serviceAssetId: string) => Promise<void> } | null>(null)
 const upgradingAgentId = ref('')
 const upgradeConfirmationOpen = ref(false)
 const upgradeConfirmationBusy = ref(false)
@@ -75,21 +67,14 @@ function isCloudServiceRow(row: ViewRow): boolean {
   return String(row.raw.assetKind ?? '').toUpperCase() === 'CLOUD_SERVICE'
 }
 
+function includesAction(row: ViewRow, action: string): boolean {
+  return Array.isArray(row.raw.availableActions) && (row.raw.availableActions as unknown[]).includes(action)
+}
+
 
 async function openDetail(row: ViewRow) {
   if (isCloudServiceRow(row)) {
-    cloudDetailOpen.value = true
-    cloudDetailLoading.value = true
-    cloudDetailError.value = ''
-    cloudDetail.value = null
-    try {
-      const response = await getServiceAssetDetail(row.id)
-      cloudDetail.value = response.data ?? null
-    } catch (error) {
-      cloudDetailError.value = error instanceof Error ? error.message : t('devices.errors.detailLoadFailed')
-    } finally {
-      cloudDetailLoading.value = false
-    }
+    await deviceDetailModal.value?.openServiceAsset(row.id)
     return
   }
   await deviceDetailModal.value?.open(row.id)
@@ -97,29 +82,14 @@ async function openDetail(row: ViewRow) {
 
 function openEdit(row: ViewRow): void {
   if (isCloudServiceRow(row)) {
-    cloudEditId.value = row.id
-    cloudEditDisplayName.value = String(row.raw.displayName ?? row.raw.name ?? '')
-    cloudEditError.value = ''
-    cloudEditOpen.value = true
+    editServiceAssetId.value = row.id
+    editDeviceId.value = ''
+    editOpen.value = true
     return
   }
+  editServiceAssetId.value = ''
   editDeviceId.value = row.id
   editOpen.value = true
-}
-
-async function saveCloudService(): Promise<void> {
-  if (!cloudEditId.value || cloudEditBusy.value) return
-  cloudEditBusy.value = true
-  cloudEditError.value = ''
-  try {
-    await updateServiceAsset(cloudEditId.value, { displayName: cloudEditDisplayName.value.trim() })
-    cloudEditOpen.value = false
-    reloadKey.value += 1
-  } catch (error) {
-    cloudEditError.value = error instanceof Error ? error.message : t('devices.errors.editSaveFailed')
-  } finally {
-    cloudEditBusy.value = false
-  }
 }
 
 onMounted(() => {
@@ -139,12 +109,12 @@ async function deleteAsset(row: ViewRow) {
   const extensionSummary = (response.data?.extensionSummary ?? {}) as Record<string, unknown>
   if (extension.type === 'AGENT' || response.data?.extensionType === 'AGENT') {
     const agentId = String(extension.agentId ?? extensionSummary.agentId ?? '')
-    if (!agentId) throw new Error(t('devices.errors.deleteTargetMissing'))
+    if (!agentId) throw new Error(t('assets.inventory.errors.deleteTargetMissing'))
     await deleteAgent(agentId)
     return
   }
   const deviceAssetId = String(extension.deviceAssetId ?? extensionSummary.deviceAssetId ?? '')
-  if (!deviceAssetId) throw new Error(t('devices.errors.deleteTargetMissing'))
+  if (!deviceAssetId) throw new Error(t('assets.inventory.errors.deleteTargetMissing'))
   await deleteManagedDeviceAsset(deviceAssetId)
 }
 
@@ -204,15 +174,15 @@ function closeUpgradeConfirmation(): void {
 }
 
 const config = computed<BusinessPageConfig>(() => ({
-  title: t('devices.page.title'),
-  description: t('devices.page.description'),
+  title: t('assets.inventory.title'),
+  description: t('assets.inventory.description'),
   readPermission: 'host.read',
   primaryPermission: 'host.create',
-  primaryActionLabel: t('devices.actions.add'),
+  primaryActionLabel: t('assets.inventory.actions.add'),
   primaryAction: () => { onboardingOpen.value = true },
-  moduleName: 'devices',
-  resourceName: t('devices.page.title'),
-  resourceListLabel: t('devices.page.inventory'),
+  moduleName: 'assets',
+  resourceName: t('assets.inventory.title'),
+  resourceListLabel: t('assets.inventory.list'),
   defaultStatus: 'UNKNOWN',
   defaultRisk: 'MEDIUM',
   showHeader: false,
@@ -223,19 +193,19 @@ const config = computed<BusinessPageConfig>(() => ({
   clientSidePagination: false,
   showTotalInPagination: true,
   columns: [
-    { key: 'name', title: t('devices.columns.name'), candidates: ['displayName', 'id'], width: '12%' },
+    { key: 'name', title: t('assets.inventory.columns.name'), candidates: ['displayName', 'id'], width: '12%' },
     {
       key: 'category',
-      title: t('devices.columns.category'),
+      title: t('assets.inventory.columns.category'),
       candidates: ['category'],
       format: (record) => {
         const category = String(record.category ?? '').toUpperCase()
         const categoryKeys: Readonly<Record<string, string>> = {
-          SERVER: 'devices.categories.server',
-          NETWORK_APPLIANCE: 'devices.categories.networkAppliance',
-          SECURITY_APPLIANCE: 'devices.categories.securityAppliance',
-          CLOUD: 'devices.categories.cloud',
-          APPLIANCE: 'devices.categories.appliance',
+          SERVER: 'assets.inventory.categories.server',
+          NETWORK_APPLIANCE: 'assets.inventory.categories.networkAppliance',
+          SECURITY_APPLIANCE: 'assets.inventory.categories.securityAppliance',
+          CLOUD: 'assets.inventory.categories.cloud',
+          APPLIANCE: 'assets.inventory.categories.appliance',
         }
         const labelKey = categoryKeys[category]
         return labelKey ? t(labelKey) : readString(record, ['category'])
@@ -244,7 +214,7 @@ const config = computed<BusinessPageConfig>(() => ({
     },
     {
       key: 'productFamily',
-      title: t('devices.columns.productFamily'),
+      title: t('assets.inventory.columns.productFamily'),
       candidates: ['productFamily'],
       format: (record) => {
         const productFamily = readString(record, ['productFamily'])
@@ -255,82 +225,72 @@ const config = computed<BusinessPageConfig>(() => ({
     },
     {
       key: 'managementMethod',
-      title: t('devices.columns.managementMethod'),
+      title: t('assets.inventory.columns.managementMethod'),
       candidates: ['managementMethod'],
       format: (record) => {
         const managementMethod = String(record.managementMethod ?? '').toUpperCase()
-        if (managementMethod === 'AGENT') return t('devices.managementMethods.agent')
-        if (managementMethod === 'PLUGIN') return t('devices.managementMethods.plugin')
-        if (managementMethod === 'API' || managementMethod === 'REST_API') return t('devices.managementMethods.api')
+        if (managementMethod === 'AGENT') return t('assets.inventory.managementMethods.agent')
+        if (managementMethod === 'PLUGIN') return t('assets.inventory.managementMethods.plugin')
+        if (managementMethod === 'API' || managementMethod === 'REST_API') return t('assets.inventory.managementMethods.api')
         return readString(record, ['managementMethod'])
       },
       width: '10%',
     },
-    { key: 'managementAddress', title: t('devices.columns.managementAddress'), candidates: ['managementAddress'], width: '12%' },
-    { key: 'status', title: t('devices.columns.liveness'), candidates: ['livenessStatus', 'health', 'sourceStatus'], kind: 'status', width: '8%' },
-    { key: 'deviceVersion', title: t('devices.columns.deviceVersion'), candidates: ['softwareVersion'], width: '12%', truncate: true },
-    { key: 'controlVersion', title: t('devices.columns.controlVersion'), candidates: ['controlVersion'], width: '10%' },
-    { key: 'applicationAssetCount', title: t('devices.columns.sites'), candidates: ['applicationAssetCount'], kind: 'count', width: '5%' },
-    { key: 'actions', title: t('devices.columns.actions'), candidates: [], width: '12%' },
+    { key: 'managementAddress', title: t('assets.inventory.columns.managementAddress'), candidates: ['managementAddress'], width: '12%' },
+    { key: 'status', title: t('assets.inventory.columns.status'), candidates: ['livenessStatus', 'health', 'sourceStatus'], kind: 'status', width: '8%' },
+    { key: 'deviceVersion', title: t('assets.inventory.columns.version'), candidates: ['softwareVersion'], width: '12%', truncate: true },
+    { key: 'controlVersion', title: t('assets.inventory.columns.controlVersion'), candidates: ['controlVersion'], width: '10%' },
+    { key: 'applicationAssetCount', title: t('assets.inventory.columns.sites'), candidates: ['applicationAssetCount'], kind: 'count', width: '5%' },
+    { key: 'actions', title: t('assets.inventory.columns.actions'), candidates: [], width: '12%' },
   ],
   metrics: [
-    { title: t('devices.metrics.total'), description: t('devices.metrics.totalDescription'), status: 'HEALTHY', risk: 'MEDIUM', kind: 'total' },
-    { title: t('devices.metrics.abnormal'), description: t('devices.metrics.abnormalDescription'), status: 'UNREACHABLE', risk: 'HIGH' },
+    { title: t('assets.inventory.metrics.total'), description: t('assets.inventory.metrics.totalDescription'), status: 'HEALTHY', risk: 'MEDIUM', kind: 'total' },
+    { title: t('assets.inventory.metrics.abnormal'), description: t('assets.inventory.metrics.abnormalDescription'), status: 'UNREACHABLE', risk: 'HIGH' },
   ],
   filters: [
-    { key: 'category', label: t('devices.filters.category'), type: 'select', options: [
-      { label: t('devices.categories.server'), value: 'SERVER' },
-      { label: t('devices.categories.networkAppliance'), value: 'NETWORK_APPLIANCE' },
-      { label: t('devices.categories.securityAppliance'), value: 'SECURITY_APPLIANCE' },
-      { label: t('devices.categories.cloud'), value: 'CLOUD' },
+    { key: 'category', label: t('assets.inventory.filters.category'), type: 'select', options: [
+      { label: t('assets.inventory.categories.server'), value: 'SERVER' },
+      { label: t('assets.inventory.categories.networkAppliance'), value: 'NETWORK_APPLIANCE' },
+      { label: t('assets.inventory.categories.securityAppliance'), value: 'SECURITY_APPLIANCE' },
+      { label: t('assets.inventory.categories.cloud'), value: 'CLOUD' },
     ] },
-    { key: 'managementMethod', label: t('devices.filters.managementMethod'), type: 'select', options: [
-      { label: t('devices.managementMethods.agent'), value: 'AGENT' },
-      { label: t('devices.managementMethods.api'), value: 'API' },
-      { label: t('devices.managementMethods.plugin'), value: 'PLUGIN' },
+    { key: 'managementMethod', label: t('assets.inventory.filters.managementMethod'), type: 'select', options: [
+      { label: t('assets.inventory.managementMethods.agent'), value: 'AGENT' },
+      { label: t('assets.inventory.managementMethods.api'), value: 'API' },
+      { label: t('assets.inventory.managementMethods.plugin'), value: 'PLUGIN' },
     ] },
-    { key: 'health', label: t('devices.filters.health'), type: 'select', options: [
-      { label: t('devices.health.healthy'), value: 'HEALTHY' },
-      { label: t('devices.health.degraded'), value: 'DEGRADED' },
-      { label: t('devices.health.unreachable'), value: 'UNREACHABLE' },
-      { label: t('devices.health.disabled'), value: 'DISABLED' },
-      { label: t('devices.health.unknown'), value: 'UNKNOWN' },
+    { key: 'health', label: t('assets.inventory.filters.health'), type: 'select', options: [
+      { label: t('assets.inventory.health.healthy'), value: 'HEALTHY' },
+      { label: t('assets.inventory.health.degraded'), value: 'DEGRADED' },
+      { label: t('assets.inventory.health.unreachable'), value: 'UNREACHABLE' },
+      { label: t('assets.inventory.health.disabled'), value: 'DISABLED' },
+      { label: t('assets.inventory.health.unknown'), value: 'UNKNOWN' },
     ] },
   ],
   filterValues: filters.value,
   onFiltersChange: (next) => { filters.value = next },
-  emptyTitle: t('devices.empty.title'),
-  emptyDescription: t('devices.empty.description'),
+  emptyTitle: t('assets.inventory.empty.title'),
+  emptyDescription: t('assets.inventory.empty.description'),
   load: (query) => {
     void reloadKey.value
     return loadUnifiedAssets(query)
   },
   actions: [],
   rowActions: [{
-    label: t('devices.actions.detail'), permission: 'host.read', reloadAfterRun: false, hidden: isCloudServiceRow, run: openDetail,
+    label: t('assets.inventory.actions.detail'), permission: 'host.read', permissions: ['host.read', 'service_asset.read'], reloadAfterRun: false,
+    hidden: (row) => !row.raw.availableActions || !Array.isArray(row.raw.availableActions) || !(row.raw.availableActions as unknown[]).includes('VIEW'), run: openDetail,
   }, {
-    label: t('devices.actions.detail'), permission: 'service_asset.read', reloadAfterRun: false,
-    hidden: (row) => !isCloudServiceRow(row), run: openDetail,
-  }, {
-    label: t('devices.actions.operation'), permission: 'host.read', reloadAfterRun: false, hidden: isCloudServiceRow,
+    label: t('assets.inventory.actions.operation'), permission: 'host.read', permissions: ['host.update', 'host.delete', 'service_asset.manage'], reloadAfterRun: false,
+    hidden: (row) => !row.raw.availableActions || !Array.isArray(row.raw.availableActions) || !(row.raw.availableActions as unknown[]).some((item) => ['EDIT', 'DELETE'].includes(String(item))),
     menu: [{
-      label: t('devices.actions.edit'), permission: 'application.device.update', reloadAfterRun: false, run: async (row) => { openEdit(row) },
+      label: t('assets.inventory.actions.edit'), permission: 'host.update', permissions: ['host.update', 'service_asset.manage'], reloadAfterRun: false, hidden: (row) => !includesAction(row, 'EDIT'), run: async (row) => { openEdit(row) },
     }, {
-      label: t('devices.actions.delete'), permission: 'host.delete', danger: true, confirmText: 'DELETE',
-      riskText: t('devices.detail.deleteImpact'), run: deleteAsset,
+      label: t('assets.inventory.actions.delete'), permission: 'host.delete', permissions: ['host.delete', 'service_asset.manage'], danger: true, confirmText: 'DELETE',
+      riskText: t('assets.inventory.deleteImpact'), hidden: (row) => !includesAction(row, 'DELETE'), run: deleteAsset,
     }, {
-      label: t('devices.actions.upgrade'), permission: 'host.update', reloadAfterRun: true,
+      label: t('assets.inventory.actions.upgrade'), permission: 'host.update', reloadAfterRun: true,
       hidden: (row) => row.raw.upgradeAvailable !== true || !String(row.raw.agentId ?? '').trim(),
       run: upgradeAgent,
-    }],
-  }, {
-    label: t('devices.actions.operation'), permission: 'service_asset.manage', reloadAfterRun: false,
-    hidden: (row) => !isCloudServiceRow(row),
-    menu: [{
-      label: t('devices.actions.edit'), permission: 'service_asset.manage', reloadAfterRun: false, run: async (row) => { openEdit(row) },
-    }, {
-      label: t('devices.actions.delete'), permission: 'service_asset.manage', danger: true, confirmText: 'DELETE',
-      riskText: t('assets.actions.deleteRisk'), run: deleteAsset,
     }],
   }],
 }))
@@ -358,31 +318,8 @@ const config = computed<BusinessPageConfig>(() => ({
       </template>
     </BusinessResourcePage>
     <DeviceOnboardingWizard v-model:open="onboardingOpen" @completed="reloadKey += 1" />
-    <DeviceAssetEditModal v-model:open="editOpen" :device-id="editDeviceId" @completed="reloadKey += 1" />
+    <DeviceAssetEditModal v-model:open="editOpen" :device-id="editDeviceId" :service-asset-id="editServiceAssetId" @completed="reloadKey += 1" />
     <ManagedDeviceDetailModal ref="deviceDetailModal" />
-    <GcModal v-model:open="cloudDetailOpen" :title="t('devices.cloudService.detailTitle')" :description="t('devices.cloudService.detailDescription')" size="lg">
-      <p v-if="cloudDetailLoading" class="devices-page__cloud-state">{{ t('common.loading') }}</p>
-      <p v-else-if="cloudDetailError" class="devices-page__cloud-error">{{ cloudDetailError }}</p>
-      <dl v-else-if="cloudDetail" class="devices-page__cloud-detail">
-        <div><dt>{{ t('assets.fields.assetId') }}</dt><dd>{{ cloudDetail.id }}</dd></div>
-        <div><dt>{{ t('assets.fields.displayName') }}</dt><dd>{{ cloudDetail.displayName }}</dd></div>
-        <div><dt>{{ t('assets.fields.domain') }}</dt><dd>{{ cloudDetail.address }}</dd></div>
-        <div><dt>{{ t('assets.fields.protocol') }}</dt><dd>{{ cloudDetail.protocol }}</dd></div>
-        <div><dt>{{ t('assets.fields.currentCertificate') }}</dt><dd>{{ asRecord(cloudDetail.currentCertificate).commonName ?? '-' }}</dd></div>
-        <div><dt>{{ t('assets.fields.lastDiscoveredAt') }}</dt><dd>{{ cloudDetail.lastDiscoveredAt ?? '-' }}</dd></div>
-      </dl>
-    </GcModal>
-    <GcModal v-model:open="cloudEditOpen" :title="t('devices.cloudService.editTitle')" :description="t('devices.cloudService.editDescription')" size="sm">
-      <label class="devices-page__cloud-edit-field">
-        <span>{{ t('assets.fields.displayName') }}</span>
-        <input v-model="cloudEditDisplayName" type="text" autocomplete="off" />
-      </label>
-      <p v-if="cloudEditError" class="devices-page__cloud-error">{{ cloudEditError }}</p>
-      <template #actions>
-        <GcButton variant="secondary" :disabled="cloudEditBusy" @click="cloudEditOpen = false">{{ t('devices.actions.cancel') }}</GcButton>
-        <GcButton variant="primary" :loading="cloudEditBusy" @click="saveCloudService">{{ t('assets.actions.saveChanges') }}</GcButton>
-      </template>
-    </GcModal>
     <GcModal
       v-model:open="upgradeConfirmationOpen"
       size="sm"
@@ -523,39 +460,10 @@ const config = computed<BusinessPageConfig>(() => ({
   min-width: 0;
 }
 
-.devices-page__cloud-detail dt,
-.devices-page__cloud-edit-field span {
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-sm);
-}
-
-.devices-page__cloud-detail dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.devices-page__cloud-edit-field {
-  display: grid;
-  gap: var(--gc-space-2);
-}
-
-.devices-page__cloud-edit-field input {
-  min-height: var(--gc-control-height-md);
-  border: var(--gc-border-width-default) solid var(--gc-color-border);
-  border-radius: var(--gc-radius-sm);
-  background: var(--gc-color-surface);
-  color: var(--gc-color-text-primary);
-  font: inherit;
-  padding: 0 var(--gc-space-3);
-}
-
 @media (max-width: 640px) {
   .devices-page__upgrade-versions {
     grid-template-columns: 1fr;
   }
 
-  .devices-page__cloud-detail {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 </style>

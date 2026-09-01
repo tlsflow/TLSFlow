@@ -4,9 +4,9 @@ import { describe, expect, it } from 'vitest'
 
 const source = readFileSync(resolve(process.cwd(), 'src/views/assets/AssetsView.vue'), 'utf8')
 const businessPageSource = readFileSync(resolve(process.cwd(), 'src/views/BusinessResourcePage.vue'), 'utf8')
-const devicesLocaleSource = readFileSync(resolve(process.cwd(), 'src/i18n/devices.locale.ts'), 'utf8')
+const zhLocaleSource = readFileSync(resolve(process.cwd(), 'src/i18n/zh-CN.ts'), 'utf8')
 
-describe('设备列表操作区布局契约', () => {
+describe('统一资产列表操作区契约', () => {
   it('操作按钮组保持单行并按内容宽度布局', () => {
     expect(source).toContain('flex-wrap: nowrap;')
     expect(source).toContain('min-width: max-content;')
@@ -15,23 +15,25 @@ describe('设备列表操作区布局契约', () => {
   })
 
   it('将编辑、删除和条件升级收纳到操作菜单，详情保持独立', () => {
-    expect(devicesLocaleSource).toContain("operation: '操作'")
-    expect(source).toContain("label: t('devices.actions.detail')")
-    expect(source).toContain("label: t('devices.actions.operation')")
+    expect(zhLocaleSource).toContain("title: '资产中心'")
+    expect(source).toContain("label: t('assets.inventory.actions.detail')")
+    expect(source).toContain("label: t('assets.inventory.actions.operation')")
     expect(source).toContain('menu: [{')
-    expect(source).toContain("label: t('devices.actions.edit')")
-    expect(source).toContain("label: t('devices.actions.delete')")
-    expect(source).toContain("label: t('devices.actions.upgrade')")
+    expect(source).toContain("label: t('assets.inventory.actions.edit')")
+    expect(source).toContain("label: t('assets.inventory.actions.delete')")
+    expect(source).toContain("label: t('assets.inventory.actions.upgrade')")
     expect(source).toContain('upgradeAvailable !== true')
   })
 
-  it('云服务资产复用统一 ServiceAsset 操作，不隐藏详情或操作菜单', () => {
+  it('资产列表只调用统一入口并按服务端动作显示按钮', () => {
+    expect(source).toContain('listAssets({ page: query.page')
+    expect(source).not.toContain('listManagedDevices')
+    expect(source).not.toContain('listCloudServiceAssets')
+    expect(source).toContain("permissions: ['host.read', 'service_asset.read']")
+    expect(source).toContain('availableActions')
     expect(source).toContain('getServiceAssetDetail(row.id)')
     expect(source).toContain('updateServiceAsset(cloudEditId.value')
     expect(source).toContain('await deleteServiceAsset(row.id)')
-    expect(source).toContain("permission: 'service_asset.read'")
-    expect(source).toContain("permission: 'service_asset.manage'")
-    expect(source).toContain('hidden: (row) => !isCloudServiceRow(row)')
   })
 
   it('菜单触发器具备可访问性并复用删除确认', () => {

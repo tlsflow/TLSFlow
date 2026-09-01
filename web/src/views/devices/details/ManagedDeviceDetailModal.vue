@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { listCertificateVersions } from '@/api/modules/certificates.api'
 import { executeManagedDeviceCapability, getManagedDevice } from '@/api/modules/devices.api'
+import { getServiceAssetDetail } from '@/api/modules/assets.api'
 import type { ApiRecord } from '@/api/modules/common'
 import { GcModal, GcStatusTag, type DevicePresentationSchema } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
@@ -20,6 +21,7 @@ const error = ref('')
 const discoveryFeedback = ref<{ tone: 'success' | 'warning' | 'danger' | 'info'; message: string } | null>(null)
 const detail = ref<ApiRecord | null>(null)
 const openedDeviceId = ref('')
+const openedResourceKind = ref<'DEVICE' | 'SERVICE_ASSET'>('DEVICE')
 const activeTab = ref('overview')
 const loadedIncludes = ref(new Set<string>())
 const sitesByFrameworkId = ref(new Map<string, ApiRecord[]>())
@@ -83,7 +85,16 @@ watch(tabs, (next) => {
 })
 
 async function open(deviceId: string) {
-  openedDeviceId.value = deviceId
+  await openWithLoader(deviceId, () => getManagedDevice(deviceId, locale.value, ['frameworks']), false)
+}
+
+async function openServiceAsset(serviceAssetId: string) {
+  await openWithLoader(serviceAssetId, () => getServiceAssetDetail(serviceAssetId), true)
+}
+
+async function openWithLoader(resourceId: string, loadDetail: () => Promise<{ data?: ApiRecord }>, loadAllResources: boolean) {
+  openedDeviceId.value = resourceId
+  openedResourceKind.value = loadAllResources ? 'SERVICE_ASSET' : 'DEVICE'
   opened.value = true
   activeTab.value = 'overview'
   loading.value = true
@@ -94,9 +105,9 @@ async function open(deviceId: string) {
   sitesByFrameworkId.value = new Map()
   try {
     // 框架是设备识别的轻量概览，首包返回；日志、证书和站点仍由相应标签按需读取。
-    const response = await getManagedDevice(deviceId, locale.value, ['frameworks'])
+    const response = await loadDetail()
     detail.value = response.data ?? null
-    if (detail.value) loadedIncludes.value = new Set(['frameworks'])
+    if (detail.value) loadedIncludes.value = loadAllResources ? new Set(DETAIL_RESOURCE_INCLUDES) : new Set(['frameworks'])
     if (!detail.value) error.value = t('devices.errors.detailLoadFailed')
   } catch {
     error.value = t('devices.errors.detailLoadFailed')
@@ -111,6 +122,7 @@ async function selectTab(tab: string) {
 }
 
 async function loadTabResources(tab: string) {
+  if (openedResourceKind.value === 'SERVICE_ASSET') return
   const frameworkId = frameworkIdForDetailTab(tab)
   if (frameworkId) {
     const cachedSites = sitesByFrameworkId.value.get(frameworkId)
@@ -257,7 +269,7 @@ function asRecord(value: unknown): ApiRecord {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as ApiRecord : {}
 }
 
-defineExpose({ open })
+defineExpose({ open, openServiceAsset })
 </script>
 
 <template>

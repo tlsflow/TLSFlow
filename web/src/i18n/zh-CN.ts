@@ -3085,6 +3085,19 @@ export default {
     }
   },
   assets: {
+    inventory: {
+      title: '资产中心', description: '统一查看和管理设备、服务器与云服务资产。', list: '资产列表',
+      columns: { name: '名称', category: '资产类别', productFamily: '产品族', managementMethod: '管理方式', managementAddress: '管理地址', status: '状态', version: '版本', controlVersion: '控制版本', sites: '站点', actions: '操作' },
+      categories: { server: '服务器', networkAppliance: '网络设备', securityAppliance: '安全设备', cloud: '云服务', appliance: '设备' },
+      managementMethods: { agent: 'Agent', api: 'API', plugin: '插件' },
+      filters: { category: '资产类别', managementMethod: '管理方式', health: '健康状态' },
+      health: { healthy: '健康', degraded: '降级', unreachable: '不可达', disabled: '已禁用', unknown: '未知' },
+      metrics: { total: '资产总数', totalDescription: '当前有权访问的全部资产', abnormal: '需要关注' },
+      empty: { title: '暂无资产', description: '当前没有可显示的资产。' },
+      actions: { add: '添加资产', detail: '详情', operation: '操作', edit: '编辑', delete: '删除', upgrade: '升级 Agent' },
+      deleteImpact: '删除资产会移除管理记录，并可能导致关联受管目标不可用。',
+      errors: { detailLoadFailed: '加载资产详情失败', editSaveFailed: '保存资产失败', deleteTargetMissing: '资产管理目标缺失' },
+    },
     presentation: {
       cards: '卡片视图',
       list: '表格视图'

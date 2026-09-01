@@ -3063,6 +3063,19 @@ export default {
     }
   },
   assets: {
+    inventory: {
+      title: 'Asset center', description: 'View and manage devices, servers, and cloud services in one inventory.', list: 'Asset list',
+      columns: { name: 'Name', category: 'Asset type', productFamily: 'Product family', managementMethod: 'Managed via', managementAddress: 'Management address', status: 'Status', version: 'Version', controlVersion: 'Control version', sites: 'Sites', actions: 'Actions' },
+      categories: { server: 'Server', networkAppliance: 'Network appliance', securityAppliance: 'Security appliance', cloud: 'Cloud service', appliance: 'Device' },
+      managementMethods: { agent: 'Agent', api: 'API', plugin: 'Plugin' },
+      filters: { category: 'Asset type', managementMethod: 'Managed via', health: 'Health' },
+      health: { healthy: 'Healthy', degraded: 'Degraded', unreachable: 'Unreachable', disabled: 'Disabled', unknown: 'Unknown' },
+      metrics: { total: 'Total assets', totalDescription: 'All authorized assets', abnormal: 'Needs attention' },
+      empty: { title: 'No assets', description: 'There are no assets to display.' },
+      actions: { add: 'Add asset', detail: 'Details', operation: 'Actions', edit: 'Edit', delete: 'Delete', upgrade: 'Upgrade Agent' },
+      deleteImpact: 'Deleting the asset removes its management record and may make related targets unavailable.',
+      errors: { detailLoadFailed: 'Failed to load asset details', editSaveFailed: 'Failed to save asset', deleteTargetMissing: 'Asset management target is missing' },
+    },
     presentation: {
       cards: 'Card view',
       list: 'Table view',

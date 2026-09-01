@@ -3,10 +3,11 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { GcButton, GcModal, GcPluginForm, type PluginFormSchema } from '@/design-system/components'
 import { getDeviceAsset, getManagedDevice, updateDeviceAsset } from '@/api/modules/devices.api'
+import { getServiceAssetDetail, updateServiceAsset } from '@/api/modules/assets.api'
 import { getUnifiedPluginUiResources, getPluginBinding, updatePluginBinding } from '@/api/modules/plugins.api'
 import type { ApiBody } from '@/api/modules/common'
 
-const props = defineProps<{ open: boolean; deviceId: string }>()
+const props = defineProps<{ open: boolean; deviceId?: string; serviceAssetId?: string }>()
 const emit = defineEmits<{ 'update:open': [value: boolean]; completed: [] }>()
 const { t, locale } = useI18n()
 
@@ -19,11 +20,12 @@ const binding = ref<Record<string, unknown> | null>(null)
 const schema = ref<PluginFormSchema | null>(null)
 const pluginMessages = ref<Record<string, string>>({})
 const values = ref<Record<string, unknown>>({})
+const isServiceAsset = computed(() => Boolean(props.serviceAssetId))
 
 const missingFields = computed(() => (schema.value?.sections ?? []).flatMap((section) => section.fields)
   .filter((field) => field.required && isEmpty(values.value[field.key] ?? field.defaultValue))
   .map((field) => field.key))
-const canSave = computed(() => !loading.value && !saving.value && !unsupported.value && Boolean(schema.value) && missingFields.value.length === 0)
+const canSave = computed(() => !loading.value && !saving.value && !unsupported.value && (isServiceAsset.value || Boolean(schema.value)) && missingFields.value.length === 0)
 
 watch(() => props.open, (open) => {
   if (open) void load()
@@ -40,6 +42,21 @@ async function load(): Promise<void> {
   pluginMessages.value = {}
   values.value = {}
   try {
+    if (props.serviceAssetId) {
+      const response = await getServiceAssetDetail(props.serviceAssetId)
+      const loadedAsset = asRecord(response.data)
+      if (!loadedAsset.id) {
+        unsupported.value = true
+        return
+      }
+      asset.value = loadedAsset
+      values.value = { displayName: loadedAsset.displayName ?? loadedAsset.address ?? '' }
+      return
+    }
+    if (!props.deviceId) {
+      unsupported.value = true
+      return
+    }
     const deviceResponse = await getManagedDevice(props.deviceId)
     const device = asRecord(deviceResponse.data)
     const extension = asRecord(device.extension)
@@ -85,10 +102,17 @@ async function load(): Promise<void> {
 }
 
 async function save(): Promise<void> {
-  if (!canSave.value || !asset.value || !binding.value || !schema.value) return
+  if (!canSave.value || !asset.value) return
   saving.value = true
   error.value = ''
   try {
+    if (props.serviceAssetId) {
+      await updateServiceAsset(props.serviceAssetId, { displayName: stringValue(values.value.displayName).trim() })
+      emit('update:open', false)
+      emit('completed')
+      return
+    }
+    if (!binding.value || !schema.value) return
     const nextBinding = buildBinding(schema.value, binding.value, values.value)
     const nextAsset = buildAssetPatch(schema.value, values.value)
     const bindingId = stringValue(binding.value.id)
@@ -242,6 +266,10 @@ function isEmpty(value: unknown): boolean {
   >
     <p v-if="loading" class="device-edit__notice">{{ t('common.loading') }}</p>
     <p v-else-if="unsupported" class="device-edit__notice">{{ t('devices.edit.unsupported') }}</p>
+    <label v-else-if="isServiceAsset" class="device-edit__field">
+      <span>{{ t('assets.fields.displayName') }}</span>
+      <input v-model="values.displayName" type="text" autocomplete="off" />
+    </label>
     <GcPluginForm
       v-else-if="schema"
       v-model="values"
@@ -268,4 +296,8 @@ function isEmpty(value: unknown): boolean {
   margin-top: var(--gc-space-3);
   color: var(--gc-color-danger);
 }
+
+.device-edit__field { display: grid; gap: var(--gc-space-2); }
+.device-edit__field span { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); }
+.device-edit__field input { min-height: var(--gc-control-height-md); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-sm); background: var(--gc-color-surface); color: var(--gc-color-text-primary); font: inherit; padding: 0 var(--gc-space-3); }
 </style>
