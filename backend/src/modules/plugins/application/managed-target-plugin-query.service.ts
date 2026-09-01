@@ -900,7 +900,8 @@ function normalizeManagementMethod(value: string | undefined): 'AGENT' | 'PLUGIN
   return 'MANUAL';
 }
 
-function managedTargetCapabilityOwnerRefs(context: ResolvedManagedTargetContext): { hostId?: string; cloudAccountAssetId?: string } {
+function managedTargetCapabilityOwnerRefs(context: ResolvedManagedTargetContext): { hostId?: string; cloudAccountAssetId?: string; applicationAssetId?: string } {
+  if (context.serviceAsset) return { applicationAssetId: context.serviceAsset.id };
   if (context.cloudAccountAsset) return { cloudAccountAssetId: context.cloudAccountAsset.id };
   if (context.host) return { hostId: context.host.id };
   throw new AppError('VALIDATION_FAILED', '受管目标没有可解析的资源所有者', {
@@ -909,7 +910,8 @@ function managedTargetCapabilityOwnerRefs(context: ResolvedManagedTargetContext)
   });
 }
 
-function managedTargetOwnerRefs(context: ResolvedManagedTargetContext): { deviceId?: string; cloudAccountAssetId?: string } {
+function managedTargetOwnerRefs(context: ResolvedManagedTargetContext): { deviceId?: string; cloudAccountAssetId?: string; applicationAssetId?: string } {
+  if (context.serviceAsset) return { applicationAssetId: context.serviceAsset.id };
   if (context.cloudAccountAsset) return { cloudAccountAssetId: context.cloudAccountAsset.id };
   if (context.host) return { deviceId: context.host.id };
   throw new AppError('VALIDATION_FAILED', '受管目标没有可解析的资源所有者', {
@@ -919,6 +921,7 @@ function managedTargetOwnerRefs(context: ResolvedManagedTargetContext): { device
 }
 
 function managedTargetBindingContext(context: ResolvedManagedTargetContext): NonNullable<PluginBindingV1['managedContext']> {
+  if (context.serviceAsset) return { serviceAssetId: context.serviceAsset.id, managedTargetId: context.managedTarget.id };
   if (context.cloudAccountAsset) return { cloudAccountAssetId: context.cloudAccountAsset.id, managedTargetId: context.managedTarget.id };
   if (context.host) return { hostId: context.host.id, managedTargetId: context.managedTarget.id };
   throw new AppError('VALIDATION_FAILED', '受管目标没有可解析的资源所有者', {

@@ -77,7 +77,7 @@ export class PluginResourceOnboardingApplicationService implements PluginResourc
           credentials: { cloud: { credentialId } },
           variables: { displayName },
         },
-        managedContext: { assetId: asset.id },
+        managedContext: { serviceAssetId: asset.id },
       });
       for (const capability of plugin.manifest.capabilities) {
         if (!capability.key.startsWith('cloud.service.')) continue;

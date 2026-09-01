@@ -30,18 +30,19 @@ export class DeploymentCapabilityResolver {
     capabilityKey: string;
     /** 设备目标的 Host；云目标不提供该字段。 */
     hostId?: string;
-    /** 云目标所有者；与 hostId 二选一。 */
+    /** 历史云目标所有者；新标准插件资产使用 applicationAssetId。 */
     cloudAccountAssetId?: string;
-    managedTargetId: string;
+    /** 标准 ServiceAsset 所有者。 */
     applicationAssetId?: string;
+    managedTargetId: string;
     executionLocations: Array<'AGENT' | 'CONTROL_PLANE' | 'GATEWAY'>;
     compatibility: Omit<PluginCompatibilityContext, 'executionLocation'>;
   }): Promise<ResolvedDeploymentCapability> {
     const candidates = await this.bindings.listAssignmentCandidates(input.tenantId, input.capabilityKey, {
       deviceId: input.hostId,
       cloudAccountAssetId: input.cloudAccountAssetId,
-      managedTargetId: input.managedTargetId,
       applicationAssetId: input.applicationAssetId,
+      managedTargetId: input.managedTargetId,
     });
     const rejected: Array<{ assignmentId: string; pluginBindingId: string; reason: string }> = [];
     for (const assignment of candidates) {
@@ -94,16 +95,16 @@ export class DeploymentCapabilityResolver {
         capabilityKey: input.capabilityKey,
         hostId: input.hostId,
         cloudAccountAssetId: input.cloudAccountAssetId,
-        managedTargetId: input.managedTargetId,
         applicationAssetId: input.applicationAssetId,
+        managedTargetId: input.managedTargetId,
       });
     }
     throw new AppError('CAPABILITY_MISSING', '受管目标没有上下文匹配的插件能力指派', {
       capabilityKey: input.capabilityKey,
       hostId: input.hostId,
       cloudAccountAssetId: input.cloudAccountAssetId,
-      managedTargetId: input.managedTargetId,
       applicationAssetId: input.applicationAssetId,
+      managedTargetId: input.managedTargetId,
       rejected,
     });
   }
@@ -111,13 +112,14 @@ export class DeploymentCapabilityResolver {
 
 function isBindingInTargetContext(
   binding: PluginBindingV1,
-  input: { hostId?: string; cloudAccountAssetId?: string; managedTargetId: string },
+  input: { hostId?: string; cloudAccountAssetId?: string; applicationAssetId?: string; managedTargetId: string },
 ): boolean {
   if (binding.mode !== 'MANAGED') return false;
   const context = binding.managedContext;
   if (!context) return false;
   if (input.hostId && context.hostId !== input.hostId) return false;
   if (input.cloudAccountAssetId && context.cloudAccountAssetId !== input.cloudAccountAssetId) return false;
-  if (!input.hostId && !input.cloudAccountAssetId) return false;
+  if (input.applicationAssetId && (context.serviceAssetId ?? context.assetId) !== input.applicationAssetId) return false;
+  if (!input.hostId && !input.cloudAccountAssetId && !input.applicationAssetId) return false;
   return !context.managedTargetId || context.managedTargetId === input.managedTargetId;
 }

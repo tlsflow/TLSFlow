@@ -185,7 +185,7 @@ export class CloudAccountDiscoveryApplicationService {
        where tenant_id=$1 and owner_type=$2 and owner_id=$3 and capability_key=$4 and status='ACTIVE'`,
       [tenantId, ownerType, asset.id, capabilityKey],
     )).rows[0];
-    if (!assignment) throw new AppError('PLUGIN_CAPABILITY_EXECUTION_FAILED', '云账号没有冻结的插件能力指派', { assetId: asset.id, operation });
+    if (!assignment) throw new AppError('PLUGIN_CAPABILITY_EXECUTION_FAILED', '云服务资产没有冻结的插件能力指派', { assetId: asset.id, operation });
     const plugin = await this.dependencies.plugins.getVersionForTenant(tenantId, assignment.plugin_version_id);
     if (plugin.pluginId !== asset.providerKey || plugin.status !== 'ENABLED' || !plugin.manifest.capabilities.some((capability) => capability.key === capabilityKey)) {
       throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', '云账号冻结的插件版本不可执行', { pluginVersionId: assignment.plugin_version_id, capabilityKey });

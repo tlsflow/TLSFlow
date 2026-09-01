@@ -149,6 +149,8 @@ export interface FrameworkInstanceDto {
   id: string;
   tenantId: string;
   assetId?: string;
+  /** 标准插件资源的 ServiceAsset 所有者。 */
+  serviceAssetId?: string;
   assetOwner?: AssetOwnerDto;
   /** 设备宿主；云资产宿主不设置该字段。 */
   deviceId?: string;
@@ -171,6 +173,7 @@ export interface CreateFrameworkInstanceDto {
   /** 设备宿主和云资产宿主必须且只能提供一个。 */
   deviceId?: string;
   assetId?: string;
+  serviceAssetId?: string;
   frameworkType: string;
   frameworkKey: string;
   discoveryProviderKey: string;
@@ -759,7 +762,7 @@ export interface RefreshAssetsFromAgentResultDto {
 }
 
 export interface AssetOwnerDto {
-  kind: 'HOST' | 'CLOUD_ACCOUNT';
+  kind: 'HOST' | 'CLOUD_ACCOUNT' | 'SERVICE_ASSET';
   id: string;
 }
 

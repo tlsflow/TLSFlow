@@ -11,6 +11,8 @@ export interface ResolvedManagedTargetTopology {
   /** 设备目标有 Host；云目标不创建或伪造 Host。 */
   host?: HostDto;
   cloudAccountAsset?: CloudAccountAsset;
+  /** 标准插件 ServiceAsset 所有者；云目标不创建或伪造 Host。 */
+  serviceAsset?: import('../dto/assets.dto.js').ServiceAssetDto;
   siteAsset?: SiteAssetDto;
   serviceInstance?: FrameworkInstanceDto;
   deviceAsset?: DeviceAssetDto;
@@ -27,6 +29,7 @@ export interface ManagedTargetAssetsPort {
   getManagedTarget(tenantId: string, managedTargetId: string): Promise<ManagedTargetDto | undefined>;
   getHost(tenantId: string, hostId: string): Promise<HostDto | undefined>;
   getCloudAccountAsset?(tenantId: string, assetId: string): Promise<CloudAccountAsset | undefined>;
+  getServiceAsset?(tenantId: string, serviceAssetId: string): Promise<import('../dto/assets.dto.js').ServiceAssetDto | undefined>;
   getSiteAsset(tenantId: string, siteAssetId: string): Promise<SiteAssetDto | undefined>;
   getFrameworkInstance(tenantId: string, serviceInstanceId: string): Promise<FrameworkInstanceDto | undefined>;
 }
@@ -59,7 +62,11 @@ export class ManagedTargetContextResolver {
       ? await this.assets.getCloudAccountAsset(tenantId, managedTarget.assetId)
       : undefined;
     if (managedTarget.assetId && !cloudAccountAsset) throw targetError('受管目标关联的 CloudAccountAsset 不存在', 'MANAGED_TARGET_RELATION_INVALID', { managedTargetId, assetId: managedTarget.assetId });
-    if (!host && !cloudAccountAsset) throw targetError('受管目标没有合法所有者', 'MANAGED_TARGET_OWNER_UNAVAILABLE', { managedTargetId });
+    const serviceAsset = managedTarget.serviceAssetId && this.assets.getServiceAsset
+      ? await this.assets.getServiceAsset(tenantId, managedTarget.serviceAssetId)
+      : undefined;
+    if (managedTarget.serviceAssetId && !serviceAsset) throw targetError('受管目标关联的 ServiceAsset 不存在', 'MANAGED_TARGET_RELATION_INVALID', { managedTargetId, serviceAssetId: managedTarget.serviceAssetId });
+    if (!host && !cloudAccountAsset && !serviceAsset) throw targetError('受管目标没有合法所有者', 'MANAGED_TARGET_OWNER_UNAVAILABLE', { managedTargetId });
     const [siteAsset, deviceAsset] = await Promise.all([
       managedTarget.siteId ? this.assets.getSiteAsset(tenantId, managedTarget.siteId) : undefined,
       managedTarget.deviceId ? this.devices.findByHostId(tenantId, managedTarget.deviceId) : undefined,
@@ -78,6 +85,7 @@ export class ManagedTargetContextResolver {
       managedTarget,
       host,
       cloudAccountAsset,
+      serviceAsset,
       siteAsset,
       serviceInstance,
       deviceAsset,
@@ -88,7 +96,7 @@ export class ManagedTargetContextResolver {
 
   async resolve(tenantId: string, managedTargetId: string): Promise<ResolvedManagedTargetContext> {
     const topology = await this.resolveTopology(tenantId, managedTargetId);
-    const connections = await this.resolveExecutionConnections(tenantId, topology.managedTarget, topology.host, topology.deviceAsset, topology.cloudAccountAsset);
+    const connections = await this.resolveExecutionConnections(tenantId, topology.managedTarget, topology.host, topology.deviceAsset, topology.cloudAccountAsset, topology.serviceAsset);
     return {
       ...topology,
       agent: connections.agent,
@@ -96,7 +104,7 @@ export class ManagedTargetContextResolver {
     };
   }
 
-  private async resolveExecutionConnections(tenantId: string, target: ManagedTargetDto, host?: HostDto, deviceAsset?: DeviceAssetDto, cloudAccountAsset?: CloudAccountAsset): Promise<ResolvedExecutionConnections> {
+  private async resolveExecutionConnections(tenantId: string, target: ManagedTargetDto, host?: HostDto, deviceAsset?: DeviceAssetDto, cloudAccountAsset?: CloudAccountAsset, serviceAsset?: import('../dto/assets.dto.js').ServiceAssetDto): Promise<ResolvedExecutionConnections> {
     let agent: AgentRegistration | undefined;
     if (target.executionLocations.includes('AGENT') && host?.agentId) {
       const registration = await this.agents.getRegistration(tenantId, host.agentId);
@@ -104,7 +112,7 @@ export class ManagedTargetContextResolver {
     }
     const availableExecutionLocations = [
       ...(agent ? ['AGENT' as const] : []),
-      ...collectDeviceExecutionLocations(target, deviceAsset, cloudAccountAsset),
+      ...collectDeviceExecutionLocations(target, deviceAsset, cloudAccountAsset, serviceAsset),
     ];
     if (availableExecutionLocations.length > 0) return { agent, availableExecutionLocations };
     throw targetError('受管目标没有可用的管理连接和执行位置交集', 'MANAGED_TARGET_OWNER_UNAVAILABLE', {
@@ -121,8 +129,8 @@ interface ResolvedExecutionConnections {
   availableExecutionLocations: ExecutionLocation[];
 }
 
-function collectDeviceExecutionLocations(target: ManagedTargetDto, deviceAsset?: DeviceAssetDto, cloudAccountAsset?: CloudAccountAsset): ExecutionLocation[] {
-  if (cloudAccountAsset && target.executionLocations.includes('CONTROL_PLANE')) return ['CONTROL_PLANE'];
+function collectDeviceExecutionLocations(target: ManagedTargetDto, deviceAsset?: DeviceAssetDto, cloudAccountAsset?: CloudAccountAsset, serviceAsset?: import('../dto/assets.dto.js').ServiceAssetDto): ExecutionLocation[] {
+  if ((cloudAccountAsset || serviceAsset) && target.executionLocations.includes('CONTROL_PLANE')) return ['CONTROL_PLANE'];
   if (!deviceAsset) return [];
   const locations: ExecutionLocation[] = [];
   if (target.executionLocations.includes('GATEWAY') && deviceAsset.gatewayId) locations.push('GATEWAY');

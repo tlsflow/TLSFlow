@@ -65,7 +65,8 @@ export interface CloudResourceProjection {
   framework: {
     id: string;
     tenantId: string;
-    assetId: string;
+    assetId?: string;
+    serviceAssetId?: string;
     deviceId?: string;
     frameworkType: 'cloud.resource';
     frameworkKey: string;
@@ -78,7 +79,8 @@ export interface CloudResourceProjection {
   site: {
     id: string;
     tenantId: string;
-    assetId: string;
+    assetId?: string;
+    serviceAssetId?: string;
     deviceId?: string;
     frameworkId: string;
     siteType: 'cloud.resource';
@@ -91,7 +93,8 @@ export interface CloudResourceProjection {
   managedTarget?: {
     id: string;
     tenantId: string;
-    assetId: string;
+    assetId?: string;
+    serviceAssetId?: string;
     frameworkInstanceId?: string;
     siteId?: string;
     discoveryProviderKey: string;
@@ -219,7 +222,7 @@ export class CloudResourceProjectionService {
         frameworks.push({
           id: frameworkId,
           tenantId: context.tenantId,
-          assetId: ownerAssetId,
+          ...projectionOwnerFields(context),
           deviceId: undefined,
           frameworkType: 'cloud.resource',
           frameworkKey,
@@ -243,7 +246,7 @@ export class CloudResourceProjectionService {
           sites.push({
             id: siteId,
             tenantId: context.tenantId,
-            assetId: ownerAssetId,
+            ...projectionOwnerFields(context),
             deviceId: undefined,
             frameworkId,
             siteType: 'cloud.resource',
@@ -332,8 +335,8 @@ export class CloudResourceProjectionService {
           device_id=excluded.device_id, asset_id=excluded.asset_id, service_asset_id=excluded.service_asset_id,
           deleted_at=null, updated_at=excluded.updated_at, version=pg_framework_instances.version+1`, [
         framework.id, framework.tenantId, framework.deviceId ?? null,
-        context.cloudAccountAssetId ? framework.assetId : null,
-        context.serviceAssetId ? framework.assetId : null,
+        framework.assetId ?? null,
+        framework.serviceAssetId ?? null,
         framework.discoveryProviderKey, framework.frameworkKey, framework.displayName, framework.versionText,
         framework.frameworkKey, framework.frameworkType, framework.discoverySource, now, JSON.stringify(framework.rawFacts),
       ]);
@@ -349,8 +352,8 @@ export class CloudResourceProjectionService {
           deleted_at=null,
           updated_at=excluded.updated_at, version=pg_site_assets.version+1`, [
         site.id, site.tenantId, site.frameworkId, site.deviceId ?? null,
-        context.cloudAccountAssetId ? site.assetId : null,
-        context.serviceAssetId ? site.assetId : null,
+        site.assetId ?? null,
+        site.serviceAssetId ?? null,
         site.discoveryProviderKey,
         site.siteType, site.siteName, site.siteKey, site.discoverySource, now,
         JSON.stringify(site.metadata),
@@ -370,8 +373,8 @@ export class CloudResourceProjectionService {
             last_seen_at=excluded.last_seen_at, status='ACTIVE', metadata=excluded.metadata,
             deleted_at=null, updated_at=excluded.updated_at, version=pg_managed_targets.version+1`, [
           target.id, target.tenantId,
-          context.cloudAccountAssetId ? target.assetId : null,
-          context.serviceAssetId ? target.assetId : null,
+          target.assetId ?? null,
+          target.serviceAssetId ?? null,
           target.frameworkInstanceId ?? null, target.siteId ?? null,
           target.discoveryProviderKey, target.targetType, target.targetKey, target.bindingKey ?? null,
           JSON.stringify(target.supportedCapabilities), JSON.stringify(target.executionLocations), now,
@@ -507,7 +510,7 @@ function projectAccountFrameworkTopology(
     const scopeName = scope === 'mainland' ? '中国大陆' : '国际站';
     const frameworkId = `fw_${stableId(ownerAssetId, `cloud.account:framework:cdn:${scope}`)}`;
     const frameworkMetadata = {
-      assetId: ownerAssetId,
+      ...projectionOwnerFields(context),
       ...(context.cloudAccountAssetId ? { cloudAccountAssetId: context.cloudAccountAssetId } : {}),
       pluginId: context.pluginId,
       pluginVersionId: context.pluginVersionId,
@@ -520,7 +523,7 @@ function projectAccountFrameworkTopology(
     frameworks.push({
       id: frameworkId,
       tenantId: context.tenantId,
-      assetId: ownerAssetId,
+      ...projectionOwnerFields(context),
       deviceId: undefined,
       frameworkType: 'cloud.resource',
       frameworkKey: `cdn.${scope}`,
@@ -537,7 +540,7 @@ function projectAccountFrameworkTopology(
       sites.push({
         id: siteId,
         tenantId: context.tenantId,
-        assetId: ownerAssetId,
+        ...projectionOwnerFields(context),
         deviceId: undefined,
         frameworkId,
         siteType: 'cloud.resource',
@@ -587,7 +590,7 @@ function projectCertificateEndpoints(
   return endpoints.map((endpoint) => ({
     id: `mtg_${stableId(projectionOwnerAssetId(context), `${resource.stableKey}:certificate-endpoint:${endpoint.endpointKey}`)}`,
     tenantId: context.tenantId,
-    assetId: projectionOwnerAssetId(context),
+    ...projectionOwnerFields(context),
     frameworkInstanceId: frameworkId,
     siteId,
     discoveryProviderKey: providerKey,
@@ -671,12 +674,12 @@ async function retirePreviousProjection(tx: DatabasePort, context: CloudResource
   );
   await tx.query(
     `update pg_framework_instances set status='RETIRED', deleted_at=$3, updated_at=$3, version=version+1
-       where tenant_id=$1 and asset_id=$2 and framework_type='cloud.resource' and deleted_at is null`,
+       where tenant_id=$1 and (asset_id=$2 or service_asset_id=$2) and framework_type='cloud.resource' and deleted_at is null`,
     [context.tenantId, projectionOwnerAssetId(context), now],
   );
   await tx.query(
     `update pg_managed_targets set status='DELETED', deleted_at=$3, updated_at=$3, version=version+1
-       where tenant_id=$1 and service_asset_id=$2 and deleted_at is null`,
+       where tenant_id=$1 and (service_asset_id=$2 or asset_id=$2) and deleted_at is null`,
     [context.tenantId, projectionOwnerAssetId(context), now],
   );
 }
@@ -725,6 +728,13 @@ function projectionOwnerAssetId(context: CloudResourceProjectionContext): string
   const assetId = context.serviceAssetId ?? context.cloudAccountAssetId;
   if (!assetId) throw invalid('serviceAssetId 或 cloudAccountAssetId 至少提供一个');
   return assetId;
+}
+
+/** 中文说明：将投影所有者映射到统一资产列；标准链路只产生 serviceAssetId，旧云账号仅保留兼容列。 */
+function projectionOwnerFields(context: CloudResourceProjectionContext): { serviceAssetId?: string; assetId?: string } {
+  return context.serviceAssetId
+    ? { serviceAssetId: context.serviceAssetId }
+    : { assetId: context.cloudAccountAssetId };
 }
 
 function stableId(assetId: string, stableKey: string): string {
