@@ -3305,12 +3305,36 @@ export default {
       },
       errors: {
         missingApplicationAssetId: '缺少应用资产 ID，无法创建证书部署。',
+        missingCertificateVersion: '当前证书供应策略没有可部署的证书版本。',
         loadOptionsFailed: '加载可部署证书版本失败。',
         createPlanMissingId: '创建部署快照后未返回计划 ID。',
         deployFailed: '证书部署操作失败。',
         preflightFailed: '证书部署预检未通过。',
         preflightTimeout: '证书部署预检等待超时。',
         loadRecordsFailed: '加载应用资产部署记录失败。'
+      },
+      dedicated: {
+        kicker: '专属证书',
+        title: '应用专属证书',
+        providerTypes: { acme: 'ACME', internalCa: '受管 CA' },
+        fields: {
+          providerType: '证书生成方式',
+          ca: '指定 CA',
+          caStatus: 'CA 状态',
+          custodyMode: '私钥管理方式',
+          certificate: '证书状态',
+          issuedAt: '申请时间',
+          expiresAt: '过期时间',
+          remainingDays: '剩余天数'
+        },
+        status: { available: '可用', unavailable: '不可用', unknown: '未知' },
+        custody: { agentLocal: 'Agent 本地管理', managedSecret: '平台托管' },
+        certificate: { exists: '已存在', missing: '尚未签发' },
+        remainingDays: '剩余 {days} 天',
+        reapply: '重新申请证书',
+        reapplyHint: '部署时将重新生成专属域名证书。',
+        deployCurrentHint: '部署当前已生成的专属域名证书。',
+        issuancePending: '专属证书申请已提交，等待签发完成后再部署。'
       }
     },
     compatibilityModes: {

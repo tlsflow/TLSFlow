@@ -10,14 +10,28 @@ const props = withDefaults(defineProps<{
   applicationAsset: ApiRecord | null
   siteName?: string
   certificate: ApiRecord | null
-  certificates?: readonly ApiRecord[]
+  certificateAssetId?: string
   certificateVersions: readonly ApiRecord[]
+  supplyMode?: 'manual' | 'dedicated'
+  dedicatedDetails?: {
+    providerType?: 'acme' | 'internal_ca' | string
+    providerName?: string
+    providerStatus?: string
+    custodyMode?: string
+    hasCertificate?: boolean
+    issuedAt?: string
+    expiresAt?: string
+    remainingDays?: number | null
+    certificateVersionId?: string
+  } | null
   preflightChecks?: readonly ApiRecord[]
   loading?: boolean
   submitLabel?: string
 }>(), {
   siteName: '',
-  certificates: () => [],
+  certificateAssetId: '',
+  supplyMode: 'manual',
+  dedicatedDetails: null,
   preflightChecks: () => [],
   loading: false,
   submitLabel: '',
@@ -26,32 +40,18 @@ const props = withDefaults(defineProps<{
 type CertificateVersionSelectionMode = 'EXPLICIT' | 'LATEST_AUTO'
 
 const emit = defineEmits<{
-  submit: [selection: { certificateAssetId: string; selectionMode: CertificateVersionSelectionMode; certificateVersionId: string }]
+  submit: [selection: { certificateAssetId: string; selectionMode: CertificateVersionSelectionMode; certificateVersionId: string; reapply?: boolean }]
   cancel: []
 }>()
 
 const { t } = useI18n()
 const LATEST_VERSION_MARKER = '__LATEST__'
-const selectedCertificateAssetId = ref('')
 const selectedVersionId = ref('')
+const reapplyDedicatedCertificate = ref(false)
 
-const certificateOptions = computed(() => {
-  const deployableAssetIds = new Set(
-    props.certificateVersions
-      .filter((item) => sortDeployableCertificateVersions([item]).length > 0)
-      .map((item) => certificateAssetId(item))
-      .filter(Boolean),
-  )
-  const listed = props.certificates.filter((item) => {
-    const id = certificateAssetId(item)
-    return Boolean(id) && deployableAssetIds.has(id)
-  })
-  if (listed.length > 0) return listed
-  const currentId = certificateAssetId(props.certificate)
-  return currentId && deployableAssetIds.has(currentId) && props.certificate
-    ? [props.certificate]
-    : []
-})
+const isDedicated = computed(() => props.supplyMode === 'dedicated')
+
+const selectedCertificateAssetId = computed(() => String(props.certificateAssetId ?? '').trim())
 const selectedCertificateVersions = computed(() => sortDeployableCertificateVersions(
   props.certificateVersions.filter((item) => certificateAssetId(item) === selectedCertificateAssetId.value),
 ))
@@ -59,18 +59,15 @@ const latestVersion = computed(() => selectedCertificateVersions.value[0] ?? nul
 const selectedVersion = computed(() => selectedVersionId.value === LATEST_VERSION_MARKER
   ? latestVersion.value
   : selectedCertificateVersions.value.find((item) => versionId(item) === selectedVersionId.value) ?? null)
-const canSubmit = computed(() => Boolean(selectedCertificateAssetId.value && selectedVersionId.value)
-  && (selectedVersionId.value !== LATEST_VERSION_MARKER || Boolean(versionId(latestVersion.value)))
-  && !props.loading)
-
-watch([certificateOptions, () => certificateAssetId(props.certificate)], ([items, currentCertificateId]) => {
-  const preferredId = currentCertificateId && items.some((item) => certificateAssetId(item) === currentCertificateId)
-    ? currentCertificateId
-    : certificateAssetId(items[0])
-  if (!selectedCertificateAssetId.value || !items.some((item) => certificateAssetId(item) === selectedCertificateAssetId.value)) {
-    selectedCertificateAssetId.value = preferredId
+const dedicatedVersionId = computed(() => String(props.dedicatedDetails?.certificateVersionId ?? '').trim())
+const canSubmit = computed(() => {
+  if (isDedicated.value) {
+    return !props.loading && Boolean(reapplyDedicatedCertificate.value || dedicatedVersionId.value)
   }
-}, { immediate: true })
+  return Boolean(selectedCertificateAssetId.value && selectedVersionId.value)
+    && (selectedVersionId.value !== LATEST_VERSION_MARKER || Boolean(versionId(latestVersion.value)))
+    && !props.loading
+})
 
 watch(selectedCertificateAssetId, () => {
   selectedVersionId.value = selectedCertificateVersions.value.length > 0 ? LATEST_VERSION_MARKER : ''
@@ -88,6 +85,15 @@ watch(selectedCertificateVersions, (items) => {
 
 function submit(): void {
   if (!canSubmit.value) return
+  if (isDedicated.value) {
+    emit('submit', {
+      certificateAssetId: selectedCertificateAssetId.value,
+      selectionMode: 'EXPLICIT',
+      certificateVersionId: dedicatedVersionId.value,
+      reapply: reapplyDedicatedCertificate.value,
+    })
+    return
+  }
   const followsLatest = selectedVersionId.value === LATEST_VERSION_MARKER
   emit('submit', {
     certificateAssetId: selectedCertificateAssetId.value,
@@ -102,12 +108,6 @@ function certificateAssetId(item: ApiRecord | null | undefined): string {
 
 function versionId(item: ApiRecord | null | undefined): string {
   return readString(item, ['id', 'certificateVersionId'])
-}
-
-function certificateOptionLabel(item: ApiRecord): string {
-  const name = readString(item, ['name', 'displayName', 'primaryDomain', 'commonName', 'id'])
-  const domain = readString(item, ['primaryDomain', 'commonName'])
-  return name && domain && name !== domain ? `${name} (${domain})` : name
 }
 
 function versionLabel(item: ApiRecord): string {
@@ -143,7 +143,36 @@ function certificateLabel(): string {
 
 function formatDate(value: string): string {
   if (!value) return ''
-  return formatBrowserLocalTime(value, { includeTime: false }) || value
+  return formatBrowserLocalTime(value, { includeTime: false })
+}
+
+function providerTypeLabel(value: string | undefined): string {
+  return value === 'acme'
+    ? t('assets.deployment.dedicated.providerTypes.acme')
+    : t('assets.deployment.dedicated.providerTypes.internalCa')
+}
+
+function statusLabel(value: string | undefined): string {
+  const status = String(value ?? '').trim().toLowerCase()
+  if (status === 'active' || status === 'ready' || status === 'healthy') return t('assets.deployment.dedicated.status.available')
+  if (status === 'disabled' || status === 'inactive' || status === 'error') return t('assets.deployment.dedicated.status.unavailable')
+  return t('assets.deployment.dedicated.status.unknown')
+}
+
+function custodyModeLabel(value: string | undefined): string {
+  const mode = String(value ?? '').trim().toLowerCase()
+  if (mode === 'agent_local' || mode === 'local_agent') return t('assets.deployment.dedicated.custody.agentLocal')
+  if (mode === 'managed_secret') return t('assets.deployment.dedicated.custody.managedSecret')
+  return value || t('common.notAvailable')
+}
+
+function certificatePresenceLabel(value: boolean | undefined): string {
+  return value ? t('assets.deployment.dedicated.certificate.exists') : t('assets.deployment.dedicated.certificate.missing')
+}
+
+function remainingDaysLabel(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return t('common.notAvailable')
+  return t('assets.deployment.dedicated.remainingDays', { days: Number(value) })
 }
 
 function readString(record: ApiRecord | null | undefined, candidates: readonly string[], fallback = ''): string {
@@ -199,16 +228,7 @@ function readString(record: ApiRecord | null | undefined, candidates: readonly s
       </dl>
     </section>
 
-    <section class="gc-certificate-deployment-form__section gc-certificate-deployment-form__section--version">
-      <label class="gc-certificate-deployment-form__field">
-        <span>{{ t('designSystem.deploymentWizard.fields.certificateAsset') }}</span>
-        <select v-model="selectedCertificateAssetId" :disabled="loading || certificateOptions.length === 0">
-          <option v-if="certificateOptions.length === 0" value="">{{ t('assets.deployment.noCertificateAsset') }}</option>
-          <option v-for="option in certificateOptions" :key="certificateAssetId(option)" :value="certificateAssetId(option)">
-            {{ certificateOptionLabel(option) }}
-          </option>
-        </select>
-      </label>
+    <section v-if="!isDedicated" class="gc-certificate-deployment-form__section gc-certificate-deployment-form__section--version">
       <label class="gc-certificate-deployment-form__field">
         <span>{{ t('designSystem.deploymentWizard.fields.certificateVersion') }}</span>
         <select v-model="selectedVersionId" :disabled="loading || selectedCertificateVersions.length === 0">
@@ -223,6 +243,61 @@ function readString(record: ApiRecord | null | undefined, candidates: readonly s
       </label>
       <p class="gc-certificate-deployment-form__hint">
         {{ selectedVersion ? versionLabel(selectedVersion) : t('designSystem.deploymentWizard.version.noDeployableVersion') }}
+      </p>
+    </section>
+
+    <section v-else class="gc-certificate-deployment-form__section gc-certificate-deployment-form__section--dedicated">
+      <div class="gc-certificate-deployment-form__section-heading">
+        <div>
+          <span class="gc-certificate-deployment-form__section-kicker">{{ t('assets.deployment.dedicated.kicker') }}</span>
+          <h3>{{ t('assets.deployment.dedicated.title') }}</h3>
+        </div>
+        <span class="gc-certificate-deployment-form__section-mark">2</span>
+      </div>
+
+      <dl class="gc-certificate-deployment-form__details">
+        <div>
+          <dt>{{ t('assets.deployment.dedicated.fields.providerType') }}</dt>
+          <dd>{{ providerTypeLabel(dedicatedDetails?.providerType) }}</dd>
+        </div>
+        <template v-if="dedicatedDetails?.providerType === 'internal_ca'">
+          <div>
+            <dt>{{ t('assets.deployment.dedicated.fields.ca') }}</dt>
+            <dd>{{ dedicatedDetails?.providerName || t('common.notAvailable') }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('assets.deployment.dedicated.fields.caStatus') }}</dt>
+            <dd>{{ statusLabel(dedicatedDetails?.providerStatus) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('assets.deployment.dedicated.fields.custodyMode') }}</dt>
+            <dd>{{ custodyModeLabel(dedicatedDetails?.custodyMode) }}</dd>
+          </div>
+        </template>
+        <div>
+          <dt>{{ t('assets.deployment.dedicated.fields.certificate') }}</dt>
+          <dd>{{ certificatePresenceLabel(dedicatedDetails?.hasCertificate) }}</dd>
+        </div>
+        <div>
+          <dt>{{ t('assets.deployment.dedicated.fields.issuedAt') }}</dt>
+          <dd>{{ formatDate(dedicatedDetails?.issuedAt ?? '') || t('common.notAvailable') }}</dd>
+        </div>
+        <div>
+          <dt>{{ t('assets.deployment.dedicated.fields.expiresAt') }}</dt>
+          <dd>{{ formatDate(dedicatedDetails?.expiresAt ?? '') || t('common.notAvailable') }}</dd>
+        </div>
+        <div>
+          <dt>{{ t('assets.deployment.dedicated.fields.remainingDays') }}</dt>
+          <dd>{{ remainingDaysLabel(dedicatedDetails?.remainingDays) }}</dd>
+        </div>
+      </dl>
+
+      <label class="gc-certificate-deployment-form__checkbox">
+        <input v-model="reapplyDedicatedCertificate" type="checkbox" :disabled="loading">
+        <span>{{ t('assets.deployment.dedicated.reapply') }}</span>
+      </label>
+      <p class="gc-certificate-deployment-form__hint">
+        {{ reapplyDedicatedCertificate ? t('assets.deployment.dedicated.reapplyHint') : t('assets.deployment.dedicated.deployCurrentHint') }}
       </p>
     </section>
 
@@ -363,6 +438,58 @@ function readString(record: ApiRecord | null | undefined, candidates: readonly s
   font-size: var(--gc-font-size-xs);
 }
 
+.gc-certificate-deployment-form__details {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--gc-space-2);
+  margin: 0;
+}
+
+.gc-certificate-deployment-form__details > div {
+  min-width: 0;
+  padding: var(--gc-space-2) var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
+  border-radius: var(--gc-radius-sm);
+  background: var(--gc-color-surface-field);
+}
+
+.gc-certificate-deployment-form__details dt {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
+.gc-certificate-deployment-form__details dd {
+  margin: var(--gc-space-1) 0 0;
+  overflow-wrap: anywhere;
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-sm);
+  font-weight: var(--gc-font-weight-semibold);
+}
+
+.gc-certificate-deployment-form__section--dedicated {
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-3);
+}
+
+.gc-certificate-deployment-form__section--dedicated .gc-certificate-deployment-form__section-heading {
+  padding-bottom: var(--gc-space-2);
+}
+
+.gc-certificate-deployment-form__checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--gc-space-2);
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-sm);
+  font-weight: var(--gc-font-weight-semibold);
+}
+
+.gc-certificate-deployment-form__checkbox input {
+  width: var(--gc-size-icon-sm);
+  height: var(--gc-size-icon-sm);
+  accent-color: var(--gc-color-primary);
+}
+
 .gc-certificate-deployment-form__section--version {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -409,6 +536,10 @@ function readString(record: ApiRecord | null | undefined, candidates: readonly s
   }
 
   .gc-certificate-deployment-form__summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .gc-certificate-deployment-form__details {
     grid-template-columns: minmax(0, 1fr);
   }
 
