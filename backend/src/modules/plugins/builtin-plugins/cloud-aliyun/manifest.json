@@ -46,7 +46,6 @@
     "forms": { "cloud": "forms/cloud.json" },
     "presentations": { "cloud": "presentations/cloud.json" },
     "discoveryMappings": { "aliyun.cdn": "discovery/aliyun-cdn.json" },
-    "onboarding": { "cloudAccount": "onboarding/cloud-account.json" },
     "locales": { "zh-CN": "locales/zh-CN.json", "en-US": "locales/en-US.json" }
   }
 }

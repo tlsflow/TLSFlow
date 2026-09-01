@@ -363,18 +363,20 @@ export class PluginsController {
     const security = this.securityContext(request);
     await assertRouteAction(security, 'plugin.read', 'plugin');
     const body = validateObject(request.body, {
-      capabilityKey: { type: 'string', required: true }, deviceId: { type: 'string' }, managedTargetId: { type: 'string' }, applicationAssetId: { type: 'string' }, cloudAccountAssetId: { type: 'string' },
+      capabilityKey: { type: 'string', required: true }, deviceId: { type: 'string' }, managedTargetId: { type: 'string' }, applicationAssetId: { type: 'string' }, serviceAssetId: { type: 'string' }, cloudAccountAssetId: { type: 'string' },
     });
     const owners = {
       deviceId: typeof body.deviceId === 'string' ? body.deviceId : undefined,
       managedTargetId: typeof body.managedTargetId === 'string' ? body.managedTargetId : undefined,
       applicationAssetId: typeof body.applicationAssetId === 'string' ? body.applicationAssetId : undefined,
+      serviceAssetId: typeof body.serviceAssetId === 'string' ? body.serviceAssetId : undefined,
       cloudAccountAssetId: typeof body.cloudAccountAssetId === 'string' ? body.cloudAccountAssetId : undefined,
     };
     for (const [ownerType, ownerId] of [
       ['DEVICE', owners.deviceId],
       ['MANAGED_TARGET', owners.managedTargetId],
       ['APPLICATION_ASSET', owners.applicationAssetId],
+      ['SERVICE_ASSET', owners.serviceAssetId],
       ['CLOUD_ACCOUNT_ASSET', owners.cloudAccountAssetId],
     ] as const) {
       if (ownerId) await this.assertObjectReadForOwner(security, ownerType, ownerId);
@@ -664,6 +666,8 @@ export class PluginsController {
         ? 'managed_target'
       : ownerType === 'APPLICATION_ASSET'
           ? 'application_asset'
+          : ownerType === 'SERVICE_ASSET'
+            ? 'service_asset'
           : ownerType === 'CLOUD_ACCOUNT_ASSET'
             ? 'cloud_account_asset'
           : undefined;
@@ -871,9 +875,9 @@ function pluginBindingSchema(): OpenApiSchema {
 
 function createBindingSchema(): OpenApiSchema { return strictSchema({ pluginVersionId: idSchema(), mode: { type: 'string', enum: ['MANAGED', 'STANDALONE'] }, inputBindings: inputBindingsSchema(), managedContext: strictSchema({ hostId: idSchema(), managedTargetId: idSchema(), serviceAssetId: idSchema(), assetId: idSchema(), cloudAccountAssetId: idSchema() }) }, ['pluginVersionId', 'mode', 'inputBindings']); }
 function updateBindingSchema(): OpenApiSchema { return strictSchema({ bindingId: idSchema(), expectedVersion: { type: 'number' }, inputBindings: inputBindingsSchema(), managedContext: strictSchema({ hostId: idSchema(), managedTargetId: idSchema(), serviceAssetId: idSchema(), assetId: idSchema(), cloudAccountAssetId: idSchema() }), status: { type: 'string', enum: ['ACTIVE', 'DISABLED', 'MIGRATING', 'ERROR'] } }, ['bindingId', 'expectedVersion']); }
-function capabilityAssignmentInputSchema(): OpenApiSchema { return strictSchema({ ownerType: { type: 'string', enum: ['DEVICE', 'MANAGED_TARGET', 'APPLICATION_ASSET', 'CLOUD_ACCOUNT_ASSET'] }, ownerId: idSchema(), capabilityKey: { type: 'string' }, pluginVersionId: idSchema(), pluginBindingId: idSchema(), precedence: { type: 'string', enum: ['DEVICE_DEFAULT', 'TARGET_OVERRIDE', 'ASSET_OVERRIDE'] } }, ['ownerType', 'ownerId', 'capabilityKey', 'pluginVersionId', 'pluginBindingId', 'precedence']); }
+function capabilityAssignmentInputSchema(): OpenApiSchema { return strictSchema({ ownerType: { type: 'string', enum: ['DEVICE', 'MANAGED_TARGET', 'APPLICATION_ASSET', 'SERVICE_ASSET', 'CLOUD_ACCOUNT_ASSET'] }, ownerId: idSchema(), capabilityKey: { type: 'string' }, pluginVersionId: idSchema(), pluginBindingId: idSchema(), precedence: { type: 'string', enum: ['DEVICE_DEFAULT', 'TARGET_OVERRIDE', 'ASSET_OVERRIDE'] } }, ['ownerType', 'ownerId', 'capabilityKey', 'pluginVersionId', 'pluginBindingId', 'precedence']); }
 function capabilityAssignmentSchema(): OpenApiSchema { return strictSchema({ id: idSchema(), tenantId: idSchema(), ...capabilityAssignmentInputSchema().properties, status: { type: 'string' }, createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' } }, ['id', 'tenantId', 'ownerType', 'ownerId', 'capabilityKey', 'pluginVersionId', 'pluginBindingId', 'precedence', 'status', 'createdAt', 'updatedAt']); }
-function resolveCapabilitySchema(): OpenApiSchema { return strictSchema({ capabilityKey: { type: 'string' }, deviceId: idSchema(), managedTargetId: idSchema(), applicationAssetId: idSchema(), cloudAccountAssetId: idSchema() }, ['capabilityKey']); }
+function resolveCapabilitySchema(): OpenApiSchema { return strictSchema({ capabilityKey: { type: 'string' }, deviceId: idSchema(), managedTargetId: idSchema(), applicationAssetId: idSchema(), serviceAssetId: idSchema(), cloudAccountAssetId: idSchema() }, ['capabilityKey']); }
 function cloudAccountCapabilityBindingSchema(): OpenApiSchema { return strictSchema({ pluginVersionId: idSchema(), capabilityKey: { type: 'string' }, inputBindings: inputBindingsSchema() }, ['pluginVersionId', 'capabilityKey', 'inputBindings']); }
 function promotionActionSchema(): OpenApiSchema { return strictSchema({ promotionId: idSchema() }, ['promotionId']); }
 function promotionPreviewInputSchema(): OpenApiSchema { return strictSchema({ sourcePluginBindingId: idSchema(), displayName: { type: 'string' }, deviceFamily: { type: 'string' }, managementAddress: { type: 'string' }, managementPort: { type: 'number' }, authMode: { type: 'string' }, tlsVerify: { type: 'boolean' }, gatewayId: idSchema(), applicationAssetId: idSchema(), discovery: jsonObjectSchema() }, ['sourcePluginBindingId', 'displayName', 'deviceFamily', 'managementAddress', 'managementPort', 'authMode', 'tlsVerify', 'discovery']); }

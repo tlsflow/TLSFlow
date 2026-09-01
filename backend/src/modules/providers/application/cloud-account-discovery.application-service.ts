@@ -76,14 +76,14 @@ export class CloudAccountDiscoveryApplicationService {
   async executeServiceAsset(tenantId: string, serviceAssetId: string, operation: CloudAccountDiscoveryOperation): Promise<CloudAccountDiscoveryResult> {
     const asset = await this.dependencies.serviceAssets?.getServiceAsset(tenantId, serviceAssetId);
     if (!asset) throw new AppError('RESOURCE_NOT_FOUND', '标准 ServiceAsset 不存在', { serviceAssetId });
-    return this.executeForAsset(tenantId, toDiscoveryAsset(asset), operation, 'APPLICATION_ASSET');
+    return this.executeForAsset(tenantId, toDiscoveryAsset(asset), operation, 'SERVICE_ASSET');
   }
 
   private async executeForAsset(
     tenantId: string,
     asset: DiscoveryAsset,
     operation: CloudAccountDiscoveryOperation,
-    ownerType: 'CLOUD_ACCOUNT_ASSET' | 'APPLICATION_ASSET',
+    ownerType: 'CLOUD_ACCOUNT_ASSET' | 'SERVICE_ASSET',
   ): Promise<CloudAccountDiscoveryResult> {
     assertActiveAsset(asset);
     const current = await this.resolveCurrentExecution(tenantId, asset, operation, ownerType);
@@ -110,7 +110,7 @@ export class CloudAccountDiscoveryApplicationService {
     });
     const outputByStep = new Map<string, Record<string, unknown>>();
     const stepName = readSinglePluginActionStep(workflow.content.steps, operation).name;
-    const resolvedInput = buildResolvedInput(asset, credentials, buildCloudRequest(asset, plugin), idempotencyKey);
+    const resolvedInput = buildResolvedInput(asset, credentials, buildCloudRequest(asset), idempotencyKey);
     const run = await this.dependencies.workflows.runWithDispatcher({
       templateVersionId: workflow.id,
       resolvedInput,
@@ -136,7 +136,7 @@ export class CloudAccountDiscoveryApplicationService {
     if (operation === 'discover') {
       projection = await this.dependencies.projection.persistBatch({
         tenantId,
-        ...(ownerType === 'APPLICATION_ASSET' ? { serviceAssetId: asset.id } : { cloudAccountAssetId: asset.id }),
+        ...(ownerType === 'SERVICE_ASSET' ? { serviceAssetId: asset.id } : { cloudAccountAssetId: asset.id }),
         pluginId: plugin.pluginId,
         pluginVersionId: plugin.id,
         provider: asset.providerKey,
@@ -178,7 +178,7 @@ export class CloudAccountDiscoveryApplicationService {
     return this.dependencies.projection.listForAsset(tenantId, serviceAssetId, 'SERVICE_ASSET');
   }
 
-  private async resolveCurrentExecution(tenantId: string, asset: DiscoveryAsset, operation: CloudAccountDiscoveryOperation, ownerType: 'CLOUD_ACCOUNT_ASSET' | 'APPLICATION_ASSET'): Promise<{ pluginVersionId: string; workflowTemplateId: string; workflowVersionId: string }> {
+  private async resolveCurrentExecution(tenantId: string, asset: DiscoveryAsset, operation: CloudAccountDiscoveryOperation, ownerType: 'CLOUD_ACCOUNT_ASSET' | 'SERVICE_ASSET'): Promise<{ pluginVersionId: string; workflowTemplateId: string; workflowVersionId: string }> {
     const capabilityKey = operationCapability(operation);
     const assignment = (await this.dependencies.db.query<{ plugin_version_id: string }>(
       `select plugin_version_id from plugin_capability_assignments
@@ -288,34 +288,14 @@ function assertActiveAsset(asset: DiscoveryAsset): void {
   if (asset.status !== 'ACTIVE') throw new AppError('VALIDATION_FAILED', '云账号资产不是 ACTIVE 状态，拒绝执行云服务动作', { assetId: asset.id, status: asset.status });
 }
 
-function buildCloudRequest(asset: DiscoveryAsset, plugin: { manifest: { resources: Record<string, unknown> }; resources: Record<string, string> }): Record<string, unknown> {
+function buildCloudRequest(asset: DiscoveryAsset): Record<string, unknown> {
   const configured = asset.scope?.metadata?.request ?? asset.metadata.request;
   if (configured && typeof configured === 'object' && !Array.isArray(configured)) return structuredClone(configured as Record<string, unknown>);
-  const onboardingPath = readStringPath(plugin.manifest.resources, ['onboarding', 'cloudAccount']);
-  if (onboardingPath) {
-    try {
-      const onboarding = JSON.parse(plugin.resources[onboardingPath] ?? '') as { defaults?: { request?: unknown } };
-      if (onboarding.defaults?.request && typeof onboarding.defaults.request === 'object' && !Array.isArray(onboarding.defaults.request)) {
-        return structuredClone(onboarding.defaults.request as Record<string, unknown>);
-      }
-    } catch {
-      // 插件资源校验已在版本装载阶段执行；此处仅在缺少默认请求时回退到最小合同。
-    }
-  }
   return {
     method: 'POST',
     uri: '/',
     body: {},
   };
-}
-
-function readStringPath(value: unknown, path: string[]): string | undefined {
-  let current: unknown = value;
-  for (const key of path) {
-    if (!current || typeof current !== 'object' || Array.isArray(current)) return undefined;
-    current = (current as Record<string, unknown>)[key];
-  }
-  return typeof current === 'string' && current.trim() ? current : undefined;
 }
 
 function resolveProductFamily(
@@ -399,15 +379,18 @@ function randomToken(): string {
 }
 
 function toDiscoveryAsset(asset: CloudAccountAsset | ServiceAssetDto): DiscoveryAsset {
-  if ('assetKind' in asset) {
+  if (asset.assetKind === 'CLOUD_SERVICE') {
+    const metadata = asset.metadata ?? {};
+    const pluginId = typeof metadata.pluginId === 'string' ? metadata.pluginId.trim() : '';
+    const credentialRef = typeof metadata.credentialRef === 'string' ? metadata.credentialRef.trim() : '';
+    if (!pluginId || !credentialRef) throw new AppError('VALIDATION_FAILED', '标准 ServiceAsset 缺少插件或凭据引用', { serviceAssetId: asset.id });
     return {
       id: asset.id,
       tenantId: asset.tenantId,
-      providerKey: asset.providerKey,
-      displayName: asset.displayName,
-      credentialRef: asset.credentialRef,
+      providerKey: pluginId,
+      displayName: asset.displayName ?? pluginId,
+      credentialRef,
       metadata: asset.metadata,
-      scope: asset.scope,
       status: asset.status,
     };
   }

@@ -118,8 +118,9 @@ export class AssetsDomainService {
   normalizeServiceInstance(input: CreateFrameworkInstanceDto): CreateFrameworkInstanceDto {
     const deviceId = normalizeOptionalString(input.deviceId);
     const assetId = normalizeOptionalString(input.assetId);
-    if ((deviceId ? 1 : 0) + (assetId ? 1 : 0) !== 1) {
-      throw new AppError('VALIDATION_FAILED', 'FrameworkInstance 必须且只能绑定 Device 或 CloudAccountAsset', { code: 'FRAMEWORK_OWNER_CONFLICT' });
+    const serviceAssetId = normalizeOptionalString(input.serviceAssetId);
+    if ((deviceId ? 1 : 0) + (assetId ? 1 : 0) + (serviceAssetId ? 1 : 0) !== 1) {
+      throw new AppError('VALIDATION_FAILED', 'FrameworkInstance 必须且只能绑定一个资产所有者', { code: 'FRAMEWORK_OWNER_CONFLICT' });
     }
     const frameworkType = normalizeNamespaceValue(input.frameworkType, 'frameworkType');
     const frameworkKey = normalizeRequiredString(input.frameworkKey, 'frameworkKey');
@@ -132,6 +133,7 @@ export class AssetsDomainService {
       ...input,
       ...(deviceId ? { deviceId } : { deviceId: undefined }),
       ...(assetId ? { assetId } : { assetId: undefined }),
+      ...(serviceAssetId ? { serviceAssetId } : { serviceAssetId: undefined }),
       frameworkType,
       frameworkKey,
       discoveryProviderKey,
@@ -147,8 +149,10 @@ export class AssetsDomainService {
     const normalized: UpdateFrameworkInstanceDto = { ...input };
     if (input.deviceId !== undefined) normalized.deviceId = normalizeOptionalString(input.deviceId);
     if (input.assetId !== undefined) normalized.assetId = normalizeOptionalString(input.assetId);
-    if (input.deviceId !== undefined && input.assetId !== undefined && input.deviceId && input.assetId) {
-      throw new AppError('VALIDATION_FAILED', 'FrameworkInstance 不能同时绑定 Device 和 CloudAccountAsset', { code: 'FRAMEWORK_OWNER_CONFLICT' });
+    if (input.serviceAssetId !== undefined) normalized.serviceAssetId = normalizeOptionalString(input.serviceAssetId);
+    const ownerValues = [normalized.deviceId, normalized.assetId, normalized.serviceAssetId].filter(Boolean);
+    if (ownerValues.length > 1) {
+      throw new AppError('VALIDATION_FAILED', 'FrameworkInstance 不能同时绑定多个资产所有者', { code: 'FRAMEWORK_OWNER_CONFLICT' });
     }
     if (input.frameworkType !== undefined) normalized.frameworkType = normalizeNamespaceValue(input.frameworkType, 'frameworkType');
     if (input.frameworkKey !== undefined) normalized.frameworkKey = normalizeRequiredString(input.frameworkKey, 'frameworkKey');
@@ -286,15 +290,16 @@ export class AssetsDomainService {
   normalizeSiteAsset(input: CreateSiteAssetDto): CreateSiteAssetDto {
     const deviceId = normalizeOptionalString(input.deviceId);
     const assetId = normalizeOptionalString(input.assetId);
-    if (deviceId && assetId) {
-      throw new AppError('VALIDATION_FAILED', 'SiteAsset 不能同时绑定 Device 和 CloudAccountAsset', { code: 'SITE_OWNER_CONFLICT' });
+    const serviceAssetId = normalizeOptionalString(input.serviceAssetId);
+    if ((deviceId ? 1 : 0) + (assetId ? 1 : 0) + (serviceAssetId ? 1 : 0) > 1) {
+      throw new AppError('VALIDATION_FAILED', 'SiteAsset 不能同时绑定多个资产所有者', { code: 'SITE_OWNER_CONFLICT' });
     }
     return {
       ...input,
       frameworkInstanceId: normalizeRequiredString(input.frameworkInstanceId, 'frameworkInstanceId'),
       ...(deviceId ? { deviceId } : { deviceId: undefined }),
       ...(assetId ? { assetId } : { assetId: undefined }),
-      serviceAssetId: normalizeOptionalString(input.serviceAssetId),
+      ...(serviceAssetId ? { serviceAssetId } : { serviceAssetId: undefined }),
       discoveryProviderKey: normalizeRequiredString(input.discoveryProviderKey, 'discoveryProviderKey'),
       siteType: normalizeNamespaceValue(input.siteType, 'siteType'),
       siteName: normalizeRequiredString(input.siteName, 'siteName'),
@@ -318,10 +323,10 @@ export class AssetsDomainService {
     if (input.frameworkInstanceId !== undefined) normalized.frameworkInstanceId = normalizeRequiredString(input.frameworkInstanceId, 'frameworkInstanceId');
     if (input.deviceId !== undefined) normalized.deviceId = normalizeOptionalString(input.deviceId);
     if (input.assetId !== undefined) normalized.assetId = normalizeOptionalString(input.assetId);
-    if (input.deviceId !== undefined && input.assetId !== undefined && input.deviceId && input.assetId) {
-      throw new AppError('VALIDATION_FAILED', 'SiteAsset 不能同时绑定 Device 和 CloudAccountAsset', { code: 'SITE_OWNER_CONFLICT' });
-    }
     if (input.serviceAssetId !== undefined) normalized.serviceAssetId = normalizeOptionalString(input.serviceAssetId);
+    if ([normalized.deviceId, normalized.assetId, normalized.serviceAssetId].filter(Boolean).length > 1) {
+      throw new AppError('VALIDATION_FAILED', 'SiteAsset 不能同时绑定多个资产所有者', { code: 'SITE_OWNER_CONFLICT' });
+    }
     if (input.discoveryProviderKey !== undefined) normalized.discoveryProviderKey = normalizeRequiredString(input.discoveryProviderKey, 'discoveryProviderKey');
     if (input.siteType !== undefined) normalized.siteType = normalizeNamespaceValue(input.siteType, 'siteType');
     if (input.siteName !== undefined) normalized.siteName = normalizeRequiredString(input.siteName, 'siteName');
@@ -343,13 +348,14 @@ export class AssetsDomainService {
   normalizeManagedTarget(input: CreateManagedTargetDto): CreateManagedTargetDto {
     const deviceId = normalizeOptionalString(input.deviceId);
     const assetId = normalizeOptionalString(input.assetId);
-    if (!deviceId && !assetId) throw new AppError('VALIDATION_FAILED', 'ManagedTarget 必须绑定 Device 或 CloudAccountAsset', { code: 'MANAGED_TARGET_OWNER_REQUIRED' });
-    if (deviceId && assetId) throw new AppError('VALIDATION_FAILED', 'ManagedTarget 不能同时绑定 Device 和 CloudAccountAsset', { code: 'MANAGED_TARGET_OWNER_CONFLICT' });
+    const serviceAssetId = normalizeOptionalString(input.serviceAssetId);
+    if (!deviceId && !assetId && !serviceAssetId) throw new AppError('VALIDATION_FAILED', 'ManagedTarget 必须绑定一个资产所有者', { code: 'MANAGED_TARGET_OWNER_REQUIRED' });
+    if ([deviceId, assetId, serviceAssetId].filter(Boolean).length > 1) throw new AppError('VALIDATION_FAILED', 'ManagedTarget 不能同时绑定多个资产所有者', { code: 'MANAGED_TARGET_OWNER_CONFLICT' });
     return {
       ...input,
       ...(deviceId ? { deviceId } : { deviceId: undefined }),
       ...(assetId ? { assetId } : { assetId: undefined }),
-      serviceAssetId: normalizeOptionalString(input.serviceAssetId),
+      ...(serviceAssetId ? { serviceAssetId } : { serviceAssetId: undefined }),
       frameworkInstanceId: normalizeOptionalString(input.frameworkInstanceId),
       siteId: normalizeOptionalString(input.siteId),
       discoveryProviderKey: normalizeRequiredString(input.discoveryProviderKey, 'discoveryProviderKey'),
@@ -369,6 +375,9 @@ export class AssetsDomainService {
     if (input.deviceId !== undefined) normalized.deviceId = normalizeOptionalString(input.deviceId);
     if (input.assetId !== undefined) normalized.assetId = normalizeOptionalString(input.assetId);
     if (input.serviceAssetId !== undefined) normalized.serviceAssetId = normalizeOptionalString(input.serviceAssetId);
+    if ([normalized.deviceId, normalized.assetId, normalized.serviceAssetId].filter(Boolean).length > 1) {
+      throw new AppError('VALIDATION_FAILED', 'ManagedTarget 不能同时绑定多个资产所有者', { code: 'MANAGED_TARGET_OWNER_CONFLICT' });
+    }
     if (input.frameworkInstanceId !== undefined) normalized.frameworkInstanceId = normalizeOptionalString(input.frameworkInstanceId);
     if (input.siteId !== undefined) normalized.siteId = normalizeOptionalString(input.siteId);
     if (input.discoveryProviderKey !== undefined) normalized.discoveryProviderKey = normalizeRequiredString(input.discoveryProviderKey, 'discoveryProviderKey');

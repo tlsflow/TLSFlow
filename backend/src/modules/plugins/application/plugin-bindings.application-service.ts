@@ -86,9 +86,9 @@ export class PluginBindingsApplicationService {
         cloudAccountAssetId: binding.managedContext?.cloudAccountAssetId,
       });
     }
-    if (input.ownerType === 'APPLICATION_ASSET' && (binding.managedContext?.serviceAssetId ?? binding.managedContext?.assetId)
+    if ((input.ownerType === 'APPLICATION_ASSET' || input.ownerType === 'SERVICE_ASSET') && binding.managedContext?.serviceAssetId
       && (binding.managedContext.serviceAssetId ?? binding.managedContext.assetId) !== input.ownerId) {
-      throw new AppError('VALIDATION_FAILED', '标准资产 Capability Assignment 必须绑定同一 ServiceAsset', {
+      throw new AppError('VALIDATION_FAILED', 'ServiceAsset Capability Assignment 必须绑定同一 ServiceAsset', {
         ownerId: input.ownerId,
         serviceAssetId: binding.managedContext.serviceAssetId ?? binding.managedContext.assetId,
       });
@@ -101,17 +101,18 @@ export class PluginBindingsApplicationService {
     await this.repository.disableAssignment(tenantId, input.ownerType, input.ownerId, input.capabilityKey, new Date().toISOString());
   }
 
-  async listAssignmentCandidates(tenantId: string, capabilityKey: string, owners: { deviceId?: string; managedTargetId?: string; applicationAssetId?: string; cloudAccountAssetId?: string }): Promise<CapabilityAssignmentV1[]> {
+  async listAssignmentCandidates(tenantId: string, capabilityKey: string, owners: { deviceId?: string; managedTargetId?: string; applicationAssetId?: string; serviceAssetId?: string; cloudAccountAssetId?: string }): Promise<CapabilityAssignmentV1[]> {
     const assignments = await this.repository.listAssignments(tenantId, capabilityKey);
     return [
       assignments.find((item) => item.ownerType === 'APPLICATION_ASSET' && item.ownerId === owners.applicationAssetId),
+      assignments.find((item) => item.ownerType === 'SERVICE_ASSET' && item.ownerId === owners.serviceAssetId),
       assignments.find((item) => item.ownerType === 'CLOUD_ACCOUNT_ASSET' && item.ownerId === owners.cloudAccountAssetId),
       assignments.find((item) => item.ownerType === 'MANAGED_TARGET' && item.ownerId === owners.managedTargetId),
       assignments.find((item) => item.ownerType === 'DEVICE' && item.ownerId === owners.deviceId),
     ].filter((item): item is CapabilityAssignmentV1 => Boolean(item));
   }
 
-  async resolveAssignment(tenantId: string, capabilityKey: string, owners: { deviceId?: string; managedTargetId?: string; applicationAssetId?: string; cloudAccountAssetId?: string }): Promise<CapabilityAssignmentV1 | undefined> {
+  async resolveAssignment(tenantId: string, capabilityKey: string, owners: { deviceId?: string; managedTargetId?: string; applicationAssetId?: string; serviceAssetId?: string; cloudAccountAssetId?: string }): Promise<CapabilityAssignmentV1 | undefined> {
     return (await this.listAssignmentCandidates(tenantId, capabilityKey, owners))[0];
   }
 }

@@ -25,7 +25,7 @@ export interface PluginBindingV1 {
 export interface CapabilityAssignmentV1 {
   id: string;
   tenantId: string;
-  ownerType: 'DEVICE' | 'MANAGED_TARGET' | 'APPLICATION_ASSET' | 'CLOUD_ACCOUNT_ASSET';
+  ownerType: 'DEVICE' | 'MANAGED_TARGET' | 'APPLICATION_ASSET' | 'SERVICE_ASSET' | 'CLOUD_ACCOUNT_ASSET';
   ownerId: string;
   capabilityKey: string;
   pluginVersionId: string;

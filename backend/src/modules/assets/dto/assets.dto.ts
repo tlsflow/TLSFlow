@@ -18,6 +18,8 @@ export type DiscoverySource = 'AGENT' | 'SSH' | 'MANUAL' | 'GATEWAY' | 'WINRM' |
 export type ServiceEndpointProtocol = 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP';
 export type ServiceAssetAddressType = 'DNS' | 'IPV4' | 'IPV6' | 'UNKNOWN';
 export type ServiceAssetPlatform = 'WINDOWS' | 'LINUX' | 'APPLIANCE';
+/** ServiceAsset 的业务类别。APPLICATION 供应用资产使用，DEVICE 供设备兼容层使用，CLOUD_SERVICE 供云服务插件使用。 */
+export type ServiceAssetKind = 'APPLICATION' | 'DEVICE' | 'CLOUD_SERVICE';
 export type SiteAssetType = string;
 export type SiteAssetStatus = 'ACTIVE' | 'INACTIVE' | 'UNKNOWN' | 'STALE' | 'DISABLED' | 'RETIRED' | 'DELETED';
 export type ManagedTargetType = string;
@@ -190,6 +192,7 @@ export type UpdateFrameworkInstanceDto = Partial<CreateFrameworkInstanceDto>;
 export interface ServiceAssetDto {
   id: string;
   tenantId: string;
+  assetKind: ServiceAssetKind;
   address: string;
   addressType: ServiceAssetAddressType;
   port: number;
@@ -252,6 +255,7 @@ export interface ServiceAssetDetailDto extends ServiceAssetDto {
 
 export interface CreateServiceAssetDto {
   address: string;
+  assetKind?: ServiceAssetKind;
   addressType?: ServiceAssetAddressType;
   port: number;
   protocol: ServiceEndpointProtocol;

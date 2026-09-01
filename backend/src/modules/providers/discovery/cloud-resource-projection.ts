@@ -263,7 +263,7 @@ export class CloudResourceProjectionService {
     return { devices, frameworks, sites, managedTargets };
   }
 
-  /** 中文说明：云资源发现维护 CloudAccountAsset 下的 Framework/Site；只有真实证书端点才创建 ManagedTarget。 */
+  /** 中文说明：云资源发现维护 ServiceAsset 下的 Framework/Site；只有真实证书端点才创建 ManagedTarget。 */
   async persist(context: CloudResourceProjectionContext, input: unknown): Promise<CloudResourceProjection> {
     const batch = await this.persistBatch(context, [input]);
     const device = batch.devices[0];
@@ -293,38 +293,7 @@ export class CloudResourceProjectionService {
     const now = context.discoveredAt ?? new Date().toISOString();
     await this.db.transaction(async (tx) => {
       await retirePreviousProjection(tx, context, now);
-      for (const device of projection.devices) {
-        await tx.query(`insert into pg_hosts
-          (id, tenant_id, hostname, display_name, primary_ip, ip_addresses, os_type, os_name, os_version,
-           management_channels, discovery_source, agent_id, asset_fingerprint, compatibility_level,
-           management_mode, status, last_discovered_at, tags, created_at, updated_at, version)
-          values ($1,$2,$3,$4,null,'[]'::jsonb,'NETWORK_DEVICE',$5,null,$6::jsonb,'PROVIDER',null,$7,'L1','AGENTLESS','ACTIVE',$8,'[]'::jsonb,$8,$8,1)
-          on conflict (id) do update set hostname=excluded.hostname, display_name=excluded.display_name,
-            management_channels=excluded.management_channels, asset_fingerprint=excluded.asset_fingerprint,
-            status='ACTIVE', last_discovered_at=excluded.last_discovered_at, deleted_at=null, updated_at=excluded.updated_at, version=pg_hosts.version+1`, [
-          device.hostId, device.tenantId, device.managementAddress, device.displayName, device.provider,
-          JSON.stringify([{ type: 'CONTROL_PLANE', enabled: true, refId: device.cloudAccountAssetId }]),
-          `cloud:${device.cloudAccountAssetId}:${device.region}`, now,
-        ]);
-        await tx.query(`insert into pg_service_assets
-          (id, tenant_id, address, address_type, port, protocol, display_name, host_id, status, tags, metadata, asset_kind, discovery_source, created_at, updated_at, version)
-          values ($1,$2,$3,'DNS',443,'HTTPS',$4,$5,'ACTIVE','[]'::jsonb,$6::jsonb,'DEVICE','PROVIDER',$7,$7,1)
-          on conflict (id) do update set address=excluded.address, display_name=excluded.display_name,
-            host_id=excluded.host_id, status='ACTIVE', metadata=excluded.metadata, deleted_at=null,
-            updated_at=excluded.updated_at, version=pg_service_assets.version+1`, [
-          device.id, device.tenantId, device.managementAddress, device.displayName, device.hostId,
-          JSON.stringify(device.metadata), now,
-        ]);
-        await tx.query(`insert into pg_device_assets
-          (service_asset_id, tenant_id, host_id, device_family, management_port, auth_mode, tls_verify,
-           support_tier, capability_profile, product_name, product_family, last_discovered_at, metadata, created_at, updated_at, version)
-          values ($1,$2,$3,$4,443,'AUTO',true,'READ_ONLY','{}'::jsonb,$5,$6,$7,$8::jsonb,$9,$9,1)
-          on conflict (service_asset_id) do update set host_id=excluded.host_id, device_family=excluded.device_family,
-            product_name=excluded.product_name, product_family=excluded.product_family, last_discovered_at=excluded.last_discovered_at, metadata=excluded.metadata,
-            updated_at=excluded.updated_at, version=pg_device_assets.version+1`, [
-          device.id, device.tenantId, device.hostId, device.deviceFamily, device.provider, device.provider, now, JSON.stringify(device.metadata), now,
-        ]);
-      }
+      // 云服务投影只维护统一资产的 Framework/Site/ManagedTarget 拓扑；Host、DeviceAsset 永远由设备接入流程创建。
       for (const framework of projection.frameworks) {
         await tx.query(`insert into pg_framework_instances
         (id, tenant_id, device_id, asset_id, service_asset_id, discovery_provider_key, service_name, display_name, version_text, ports, framework_key, framework_type,
@@ -483,14 +452,13 @@ export class CloudResourceProjectionService {
   }
 }
 
-/** 中文说明：账号级 CDN 只有一个控制面设备，CDN 覆盖范围是 Framework，域名实例是 Site。 */
+/** 中文说明：账号级 CDN 资产本身是 ServiceAsset，覆盖范围是 Framework，域名实例是 Site。 */
 function projectAccountFrameworkTopology(
   context: CloudResourceProjectionContext,
   resources: CloudServiceResourceV1[],
   providerKey: string,
 ): CloudResourceProjectionBatch {
   const ownerAssetId = projectionOwnerAssetId(context);
-  const root = stableId(ownerAssetId, 'cloud.account');
   const providerDisplayName = context.providerDisplayName ?? `${context.provider} CDN`;
   const byScope = new Map<string, CloudServiceResourceV1[]>([
     ['mainland', []],

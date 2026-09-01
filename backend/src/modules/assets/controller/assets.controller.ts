@@ -43,7 +43,7 @@ export class AssetsController {
   register(router: Router): void {
     // 新语义入口。旧 service-assets、application-assets 路径继续保留，避免破坏历史客户端。
     router.get('/api/v1/assets', '查询统一资产入口', tags, (request) => this.listServiceAssets(request));
-    router.get('/api/v1/applications', '查询 Application 列表', tags, (request) => this.listServiceAssets(request));
+    router.get('/api/v1/applications', '查询 Application 列表', tags, (request) => this.listServiceAssets(request, 'APPLICATION'));
     router.get('/api/v1/applications/detail', '查询 Application 详情', tags, (request) => this.getApplicationDetail(request));
     router.get('/api/v1/applications/:applicationAssetId/linkage-status', '查询插件 Agent 联动状态', tags, (request) => this.getLinkageStatus(request));
     router.post('/api/v1/applications/:applicationAssetId/rescan', '重扫应用关联资产', tags, (request) => this.rescanApplicationAsset(request));
@@ -294,13 +294,16 @@ export class AssetsController {
     });
   }
 
-  private async listServiceAssets(request: HttpRequest) {
+  private async listServiceAssets(request: HttpRequest, forcedAssetKind?: 'APPLICATION' | 'CLOUD_SERVICE') {
     const query = parsePageQuery(request.query, {
       allowedSortFields: ['address', 'port', 'protocol', 'createdAt', 'updatedAt', 'status', 'serviceInstanceId', 'hostId'],
-      allowedFilterFields: ['id', 'address', 'addressType', 'port', 'protocol', 'sniName', 'serviceInstanceId', 'serviceEndpointId', 'hostId', 'environment', 'discoverySource', 'status', 'tag'],
+      allowedFilterFields: ['id', 'address', 'addressType', 'port', 'protocol', 'sniName', 'serviceInstanceId', 'serviceEndpointId', 'hostId', 'environment', 'discoverySource', 'status', 'assetKind', 'tag'],
     });
+    const scopedQuery = forcedAssetKind
+      ? { ...query, filter: { ...query.filter, assetKind: forcedAssetKind } }
+      : query;
     const subject = this.subjectFromRequest(request);
-    const authorized = await this.authorizedQuery(subject, 'service_asset', 'read', query);
+    const authorized = await this.authorizedQuery(subject, 'service_asset', 'read', scopedQuery);
     if (!hasAuthorizedReadScope(authorized.authorization) && !await this.canReadObject(subject, 'application.read', 'service_asset', request)) {
       await this.assertCan(subject, 'application.read', 'service_asset', request);
     }

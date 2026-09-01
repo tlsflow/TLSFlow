@@ -240,7 +240,8 @@ async function signRequest(hostApi, service, secretRefs, requestInput, body, ide
   const endpoint = requestInput.endpoint === undefined ? serviceEndpoint : requiredEndpoint(requestInput.endpoint);
   const url = new URL(requiredPath(requestInput.uri), endpoint);
   const method = requiredMethod(requestInput.method ?? 'POST');
-  const action = requiredIdentifier(requestInput.action ?? operation, 'request.action');
+  // 阿里云 RPC 的发现和连接测试都使用只读 DescribeUserDomains；动作默认值属于插件，不由宿主拼接。
+  const action = requiredIdentifier(requestInput.action ?? 'DescribeUserDomains', 'request.action');
   const timestamp = aliTimestamp(requestInput.timestamp ?? new Date().toISOString());
   const query = sanitizeQuery(requestInput.query);
   const bodyText = stableJson(body);

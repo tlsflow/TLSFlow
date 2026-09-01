@@ -1,5 +1,4 @@
 import { AppError } from '../../../common/errors/app-error.js';
-import { newId } from '../../../shared/id.js';
 import type { UnifiedPluginVersionRecord } from '../../plugins/dto/unified-plugins.dto.js';
 import type { PluginFormSchemaV1 } from '../../plugins/forms/plugin-form.dto.js';
 import type { PluginPackageResourcesService } from '../../plugins/application/plugin-package-resources.service.js';
@@ -48,13 +47,14 @@ export class PluginResourceOnboardingApplicationService implements PluginResourc
     const displayName = requiredText(values.displayName, 'displayName');
     const credentialId = requiredText(values.credentialId, 'credentialId');
     const endpoints = plugin.manifest.compatibility?.serviceEndpoints ?? [];
-    const request = readPluginRequest(plugin);
+    const managementEndpoint = parseManagementEndpoint(endpoints[0]);
     const asset = await this.assets.createServiceAsset(tenantId, {
-      // ServiceAsset 要求网络身份；资源实例本身不伪装成设备，地址只作为标准资产唯一键。
-      address: `resource.${plugin.pluginId}.${newId('onboard')}`,
+      // 云服务资产的管理地址就是插件声明的控制面端点，不生成虚假的 Host/Device 地址。
+      address: managementEndpoint.address,
       addressType: 'DNS',
-      port: 443,
-      protocol: 'HTTPS',
+      port: managementEndpoint.port,
+      protocol: managementEndpoint.protocol,
+      assetKind: 'CLOUD_SERVICE',
       displayName,
       discoverySource: 'PROVIDER',
       metadata: {
@@ -63,7 +63,6 @@ export class PluginResourceOnboardingApplicationService implements PluginResourc
         pluginVersionId: plugin.id,
         credentialRef: `credential://${credentialId}`,
         ...(endpoints.length > 0 ? { serviceEndpoints: endpoints } : {}),
-        ...(request ? { request } : {}),
         onboardingState: 'PENDING',
         createdBy: actorId,
       },
@@ -82,7 +81,7 @@ export class PluginResourceOnboardingApplicationService implements PluginResourc
       for (const capability of plugin.manifest.capabilities) {
         if (!capability.key.startsWith('cloud.service.')) continue;
         await this.bindings.assignCapability(tenantId, {
-          ownerType: 'APPLICATION_ASSET',
+          ownerType: 'SERVICE_ASSET',
           ownerId: asset.id,
           capabilityKey: capability.key,
           pluginVersionId: plugin.id,
@@ -135,15 +134,15 @@ function requiredText(value: unknown, field: string): string {
   return value.trim();
 }
 
-function readPluginRequest(plugin: UnifiedPluginVersionRecord): Record<string, unknown> | undefined {
-  const path = plugin.manifest.resources.onboarding?.cloudAccount;
-  if (!path) return undefined;
+function parseManagementEndpoint(value: string | undefined): { address: string; port: number; protocol: 'HTTPS' | 'TLS' | 'HTTP' } {
+  if (!value) return { address: 'localhost', port: 443, protocol: 'HTTPS' };
   try {
-    const resource = JSON.parse(plugin.resources[path] ?? '') as { defaults?: { request?: unknown } };
-    const request = resource.defaults?.request;
-    return request && typeof request === 'object' && !Array.isArray(request) ? structuredClone(request as Record<string, unknown>) : undefined;
+    const endpoint = new URL(value);
+    const protocol = endpoint.protocol.toUpperCase().replace(':', '');
+    if (protocol !== 'HTTPS' && protocol !== 'TLS' && protocol !== 'HTTP') throw new Error('unsupported protocol');
+    return { address: endpoint.hostname.toLowerCase(), port: Number(endpoint.port) || (protocol === 'HTTP' ? 80 : 443), protocol };
   } catch {
-    return undefined;
+    throw new AppError('VALIDATION_FAILED', '插件声明的管理端点无效', { endpoint: value });
   }
 }
 
