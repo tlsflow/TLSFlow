@@ -2966,7 +2966,7 @@ export default {
       presentation: { cards: 'Cartes', list: 'Tableau' },
       total: '{count} au total',
       status: { valid: 'Valide', attention: 'Attention', unknown: 'Inconnu' },
-      days: { expired: 'Expiré depuis {days} j', expiresToday: 'Expire aujourd’hui', notRecorded: 'Non enregistré', remaining: '{days} j restants' },
+      days: { expired: 'Expiré depuis {days} j', expiresToday: 'Expire aujourd’hui', notRecorded: 'Non enregistré', remaining: '{days} j' },
       fields: { certificate: 'Certificat', validity: 'Validité', device: 'Appareil' },
       actions: { add: 'Ajouter', upToDate: 'À jour', deployUpdate: 'Déployer la mise à jour' }
     },

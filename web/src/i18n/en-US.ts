@@ -3069,7 +3069,7 @@ export default {
       presentation: { cards: 'Cards', list: 'Table' },
       total: '{count} total',
       status: { valid: 'Valid', attention: 'Attention', unknown: 'Unknown' },
-      days: { expired: 'Expired {days}d ago', expiresToday: 'Expires today', notRecorded: 'Not recorded', remaining: '{days}d left' },
+      days: { expired: 'Expired {days}d ago', expiresToday: 'Expires today', notRecorded: 'Not recorded', remaining: '{days}d' },
       fields: { certificate: 'Certificate', validity: 'Validity', device: 'Device' },
       actions: { add: 'Add', upToDate: 'Up to date', deployUpdate: 'Deploy update' }
     },

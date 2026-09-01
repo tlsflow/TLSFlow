@@ -376,7 +376,7 @@ describe('资产与证书产物视图', () => {
     expect(card.find('.asset-page__card-meta').exists()).toBe(false)
     expect(card.find('[role="progressbar"]').exists()).toBe(false)
     expect(card.find('[data-testid="asset-card-select-asset-card-1"]').exists()).toBe(true)
-    expect(card.find('.asset-page__card-certificate-remaining').text()).toMatch(/\d+ 天/)
+    expect(card.find('.asset-page__card-certificate-remaining').text()).toMatch(/^\d+ 天$/)
     expect(card.find('.asset-page__card-certificate-state').text()).toBe('正常')
     expect(wrapper.find('.asset-page__workspace-selected-count').exists()).toBe(false)
     const latestAction = card.find('[data-testid="asset-card-deploy-asset-card-1"]')

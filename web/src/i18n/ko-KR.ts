@@ -2899,7 +2899,7 @@ export default {
       presentation: { cards: '카드', list: '표' },
       total: '총 {count}개',
       status: { valid: '유효', attention: '주의', unknown: '알 수 없음' },
-      days: { expired: '{days}일 전 만료', expiresToday: '오늘 만료', notRecorded: '기록 없음', remaining: '{days}일 남음' },
+      days: { expired: '{days}일 전 만료', expiresToday: '오늘 만료', notRecorded: '기록 없음', remaining: '{days}일' },
       fields: { certificate: '인증서', validity: '유효 기간', device: '장치' },
       actions: { add: '추가', upToDate: '최신 상태', deployUpdate: '업데이트 배포' }
     },
