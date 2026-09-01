@@ -34,6 +34,15 @@ export interface CertificateSupplyCandidateDto {
   commonName?: string;
   sans: string[];
   sourceType: string;
+  issuer?: {
+    raw?: string;
+    commonName?: string;
+    organization?: string;
+    organizationalUnit?: string;
+    country?: string;
+    state?: string;
+    locality?: string;
+  };
   notAfter?: string;
   deployable: boolean;
   matchesPrimaryDomain: boolean;

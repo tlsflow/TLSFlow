@@ -126,7 +126,7 @@ export class ApplicationCertificateSupplyRepository implements ApplicationCertif
     const rows = (await this.db.query<Record<string, unknown>>(
       `select a.id as certificate_asset_id, a.name, a.primary_domain, a.source_type,
               a.current_version_id, v.id as certificate_version_id, v.common_name,
-              v.sans as version_sans, v.not_after, v.deployable, v.status as version_status,
+              v.sans as version_sans, v.issuer, v.not_after, v.deployable, v.status as version_status,
               a.sans as asset_sans, v.version_no
          from pg_certificate_assets a
          join pg_certificate_versions v
@@ -148,6 +148,7 @@ export class ApplicationCertificateSupplyRepository implements ApplicationCertif
       ...(typeof row.common_name === 'string' ? { commonName: row.common_name } : {}),
       sans: jsonStrings(row.version_sans ?? row.asset_sans),
       sourceType: String(row.source_type),
+      ...(Object.keys(asRecord(row.issuer)).length > 0 ? { issuer: issuerRecord(row.issuer) } : {}),
       ...(row.not_after ? { notAfter: String(row.not_after) } : {}),
       deployable: row.deployable !== false && row.version_status !== 'revoked' && row.version_status !== 'deleted',
       matchesPrimaryDomain: false,
@@ -336,4 +337,18 @@ function jsonStrings(value: unknown): string[] {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function issuerRecord(value: unknown): NonNullable<CertificateSupplyCandidateDto['issuer']> {
+  const issuer = asRecord(value);
+  const text = (key: string): string | undefined => typeof issuer[key] === 'string' && issuer[key].trim() ? issuer[key].trim() : undefined;
+  return {
+    ...(text('raw') ? { raw: text('raw') } : {}),
+    ...(text('commonName') ?? text('common_name') ?? text('CN') ? { commonName: text('commonName') ?? text('common_name') ?? text('CN') } : {}),
+    ...(text('organization') ?? text('O') ? { organization: text('organization') ?? text('O') } : {}),
+    ...(text('organizationalUnit') ?? text('organizational_unit') ?? text('OU') ? { organizationalUnit: text('organizationalUnit') ?? text('organizational_unit') ?? text('OU') } : {}),
+    ...(text('country') ?? text('C') ? { country: text('country') ?? text('C') } : {}),
+    ...(text('state') ?? text('ST') ? { state: text('state') ?? text('ST') } : {}),
+    ...(text('locality') ?? text('L') ? { locality: text('locality') ?? text('L') } : {}),
+  };
 }

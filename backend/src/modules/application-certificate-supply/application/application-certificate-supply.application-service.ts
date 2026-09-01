@@ -53,8 +53,7 @@ export class ApplicationCertificateSupplyApplicationService {
       this.repository.resolveCustodyCapability(tenantId, applicationAssetId),
       this.loadProviders(tenantId),
     ]);
-    const filtered = candidates.filter((candidate) => candidateMatches(candidate, application.primaryDomain))
-      .map((candidate) => ({ ...candidate, matchesPrimaryDomain: true }));
+    const filtered = selectLatestCandidates(candidates, application.primaryDomain);
     const current = policy?.currentVersion;
     const currentInput = current ? versionToInput(current) : { supplyMode: 'manual' as const };
     const dnsAuthorization = await this.resolveDnsAuthorization(tenantId, currentInput, 'system:application-certificate-supply');
@@ -82,8 +81,7 @@ export class ApplicationCertificateSupplyApplicationService {
       this.repository.resolveCustodyCapability(tenantId, applicationAssetId),
       this.loadProviders(tenantId),
     ]);
-    const filtered = candidates.filter((candidate) => candidateMatches(candidate, application.primaryDomain))
-      .map((candidate) => ({ ...candidate, matchesPrimaryDomain: true }));
+    const filtered = selectLatestCandidates(candidates, application.primaryDomain);
     const merged = { ...(currentPolicy?.currentVersion ? versionToInput(currentPolicy.currentVersion) : {}), ...input };
     const dnsAuthorization = await this.resolveDnsAuthorization(tenantId, merged, 'system:application-certificate-supply-preview');
     const readiness = this.evaluate(merged, application.primaryDomain, filtered, capability.mode, capability.evidence, providers, dnsAuthorization);
@@ -122,8 +120,7 @@ export class ApplicationCertificateSupplyApplicationService {
       this.repository.resolveCustodyCapability(tenantId, applicationAssetId),
       this.loadProviders(tenantId),
     ]);
-    const filtered = candidates.filter((candidate) => candidateMatches(candidate, application.primaryDomain))
-      .map((candidate) => ({ ...candidate, matchesPrimaryDomain: true }));
+    const filtered = selectLatestCandidates(candidates, application.primaryDomain);
     const dnsAuthorization = await this.resolveDnsAuthorization(tenantId, input, actorId);
     const normalized = this.normalizeInput(input, application.primaryDomain, filtered, capability.mode, capability.evidence, providers, dnsAuthorization);
     // 相同配置的重复保存必须收敛到当前不可变版本，尤其是 provisioning
@@ -608,6 +605,36 @@ function sameProvisioningConfig(
 function candidateMatches(candidate: CertificateSupplyCandidateDto, domain: string): boolean {
   const names = [candidate.primaryDomain, candidate.commonName, ...candidate.sans].filter((item): item is string => Boolean(item));
   return names.some((name) => dnsNameMatches(name, domain));
+}
+
+function selectLatestCandidates(candidates: CertificateSupplyCandidateDto[], domain: string): CertificateSupplyCandidateDto[] {
+  const latestByCertificateAndIssuer = new Map<string, CertificateSupplyCandidateDto>();
+  for (const candidate of candidates) {
+    if (!candidateMatches(candidate, domain)) continue;
+    const key = `${normalizeDomain(candidate.primaryDomain)}|${issuerKey(candidate)}`;
+    const previous = latestByCertificateAndIssuer.get(key);
+    if (!previous || compareCandidateExpiry(candidate, previous) > 0) {
+      latestByCertificateAndIssuer.set(key, { ...candidate, matchesPrimaryDomain: true });
+    }
+  }
+  return [...latestByCertificateAndIssuer.values()];
+}
+
+function issuerKey(candidate: CertificateSupplyCandidateDto): string {
+  const issuer = candidate.issuer;
+  const structuredValues = [issuer?.commonName, issuer?.organization, issuer?.organizationalUnit, issuer?.country, issuer?.state, issuer?.locality]
+    .filter((value): value is string => Boolean(value));
+  return (structuredValues.length > 0 ? structuredValues : [issuer?.raw || candidate.sourceType])
+    .map((value) => value.trim().toLowerCase())
+    .join('|');
+}
+
+function compareCandidateExpiry(left: CertificateSupplyCandidateDto, right: CertificateSupplyCandidateDto): number {
+  const leftTime = left.notAfter ? Date.parse(left.notAfter) : Number.NEGATIVE_INFINITY;
+  const rightTime = right.notAfter ? Date.parse(right.notAfter) : Number.NEGATIVE_INFINITY;
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) return leftTime - rightTime;
+  if (Number.isFinite(leftTime) !== Number.isFinite(rightTime)) return Number.isFinite(leftTime) ? 1 : -1;
+  return Number(left.versionNo ?? 0) - Number(right.versionNo ?? 0);
 }
 
 function normalizeDomain(value: string): string {

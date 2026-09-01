@@ -53,14 +53,14 @@ describe('应用证书供应策略', () => {
     await assert.rejects(() => service.get(tenantB, 'app-supply-a'), /Application 不存在/);
   });
 
-  it('手动候选返回同一证书资产的全部可部署版本', async () => {
+  it('手动候选按证书域名和颁发者仅返回到期时间最新的版本', async () => {
     const { db, service } = await fixture();
     await db.exec(`
       insert into pg_certificate_versions (id, tenant_id, certificate_asset_id, version_no, common_name, sans, issuer, subject, serial_number, not_before, not_after, fingerprint_sha256, public_key_algorithm, signature_algorithm, leaf_storage_ref, chain_status, deployable, source_type, status, created_by)
       values ('version-supply-a-2', '${tenantA}', 'cert-supply-a', 2, 'other.example.test', '["app.example.test"]', '{}', '{}', '02', now(), now() + interval '730 days', repeat('b', 64), 'rsa', 'sha256', 'artifact://cert-supply-a-2', 'valid', true, 'manual', 'active', 'test');
     `);
     const response = await service.get(tenantA, 'app-supply-a');
-    assert.deepEqual(new Set(response.certificateCandidates.map((item) => item.certificateVersionId)), new Set(['version-supply-a-2', 'version-supply-a']));
+    assert.deepEqual(new Set(response.certificateCandidates.map((item) => item.certificateVersionId)), new Set(['version-supply-a-2']));
   });
 
   it('应用主域名变化时创建新策略版本并清除失配手动证书引用', async () => {
