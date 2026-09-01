@@ -4,6 +4,7 @@ import test from 'node:test';
 import { runMigrations } from '../../../database/migration-runner.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
 import { PgAssetsRepository } from '../../assets/repository/assets.repository.js';
+import { PgDeviceAssetsRepository } from '../../device-assets/repository/device-assets.repository.js';
 import { StandardDeviceDiscoveryProjector } from '../../plugins/discovery/standard-device-discovery.projector.js';
 import { MANAGED_DEVICE_SITE_KIND_PATTERN, type ManagedDeviceSiteKind } from '../dto/devices.dto.js';
 import { managedDeviceDetailSchema } from '../schema/devices.schema.js';
@@ -85,6 +86,55 @@ test('设备详情 OpenAPI 使用开放命名空间约束而不是产品枚举',
   assert.equal(kindSchema?.enum, undefined);
   assert.match('nas.share', new RegExp(MANAGED_DEVICE_SITE_KIND_PATTERN));
   assert.doesNotMatch('IIS', new RegExp(MANAGED_DEVICE_SITE_KIND_PATTERN));
+});
+
+test('设备详情从 ACTIVE Binding 显示管理协议，HTTP 不适用 TLS 校验', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const devices = new PgDeviceAssetsRepository(database);
+  const tenantId = 'tenant_detail_management_protocol';
+  const httpDevice = await devices.create(tenantId, {
+    displayName: 'HTTP DSM', managementAddress: '10.255.0.77', managementPort: 5000,
+    deviceFamily: 'device.synology-dsm', authMode: 'PLUGIN', tlsVerify: true,
+  });
+  const httpsDevice = await devices.create(tenantId, {
+    displayName: 'HTTPS DSM', managementAddress: '10.255.0.78', managementPort: 5001,
+    deviceFamily: 'device.synology-dsm', authMode: 'PLUGIN', tlsVerify: false,
+  });
+  await database.query(`insert into unified_plugin_versions
+    (id,tenant_id,plugin_id,plugin_version,source,runtime,scope,trust,support,manifest,package_sha256,manifest_sha256,resource_sha256,status,permission_approval_status,approved_permissions,validation_report,created_at,updated_at)
+    values ('version-detail-protocol',$1,'device.synology-dsm','2.0.22','USER','WORKFLOW_DSL','BOTH','UNSIGNED','SELF_MANAGED',
+      '{"pluginId":"device.synology-dsm"}',
+      'sha256:0000000000000000000000000000000000000000000000000000000000000000',
+      'sha256:1111111111111111111111111111111111111111111111111111111111111111',
+      '{}','ENABLED','NOT_REQUIRED','[]','{}',now(),now())`, [tenantId]);
+  const inputBindings = (enabled: boolean) => JSON.stringify({
+    apiVersion: 'gcac.input-bindings/v1', variables: {}, credentials: {}, artifacts: {},
+    connections: { management: { host: '10.255.0.77', port: enabled ? 5001 : 5000, tls: { enabled, verifyPeer: true } } },
+  });
+  await database.query(`insert into unified_plugin_bindings
+    (id,tenant_id,plugin_version_id,mode,input_bindings,status,version,created_at,updated_at)
+    values ('binding-detail-http',$1,'version-detail-protocol','MANAGED',$2::jsonb,'ACTIVE',1,now(),now()),
+           ('binding-detail-https',$1,'version-detail-protocol','MANAGED',$3::jsonb,'ACTIVE',1,now(),now())`, [tenantId, inputBindings(false), inputBindings(true)]);
+  await database.query(
+    `update pg_device_assets set plugin_version_id='version-detail-protocol', plugin_binding_id=$1 where tenant_id=$2 and service_asset_id=$3`,
+    ['binding-detail-http', tenantId, httpDevice.id],
+  );
+  await database.query(
+    `update pg_device_assets set plugin_version_id='version-detail-protocol', plugin_binding_id=$1 where tenant_id=$2 and service_asset_id=$3`,
+    ['binding-detail-https', tenantId, httpsDevice.id],
+  );
+
+  const repository = new PgDevicesRepository(database);
+  const httpDetail = await repository.get(tenantId, httpDevice.hostId);
+  const httpsDetail = await repository.get(tenantId, httpsDevice.hostId);
+  const field = (detail: Awaited<ReturnType<PgDevicesRepository['get']>>, key: string) =>
+    detail?.informationSections.find((section) => section.key === 'networkAppliance')?.fields.find((item) => item.key === key);
+
+  assert.deepEqual(field(httpDetail, 'managementProtocol')?.value, 'HTTP');
+  assert.equal(field(httpDetail, 'tlsVerify')?.value, null);
+  assert.deepEqual(field(httpsDetail, 'managementProtocol')?.value, 'HTTPS');
+  assert.equal(field(httpsDetail, 'tlsVerify')?.value, false);
 });
 
 test('设备详情以配置证书为主并单独返回运行证书和漂移状态', async () => {
