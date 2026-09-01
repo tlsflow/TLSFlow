@@ -18,7 +18,7 @@ export function validatePlatformWebhookEndpoint(
   }
   const trustedPrivateOrigins = normalizePrivateOrigins(configuredOrigins);
   if (!trustedPrivateOrigins.includes(url.origin)) {
-    throw invalidEndpoint(platform, 'Webhook URL 未被系统管理员私有化 Origin 白名单批准');
+    throw invalidEndpoint(platform, 'Webhook URL 不属于此渠道配置的私有化 Origin');
   }
   return { trustedPrivateOrigins, isPrivateDeployment: true };
 }

@@ -1,13 +1,25 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { NotificationsApplicationService } from './notifications.application-service.js';
 
-export const certificateNotificationEventTypes = [
-  'certificate.renewal.result',
-  'certificate.status',
-  'certificate.report',
+/**
+ * 证书通知事件是系统能力，不允许由租户自行创造。
+ * 每项只描述稳定事件合同和默认模板键；租户只配置投递渠道、模板覆盖和启停状态。
+ */
+export const certificateNotificationEventDefinitions = [
+  { eventType: 'certificate.renewal.result', templateKey: 'certificate.renewal.result' },
+  { eventType: 'certificate.status', templateKey: 'certificate.status' },
+  { eventType: 'certificate.report', templateKey: 'certificate.report' },
+  { eventType: 'certificate.expiry.warning', templateKey: 'certificate.expiry.warning' },
+  { eventType: 'certificate.expired', templateKey: 'certificate.expired' },
+  { eventType: 'certificate.revoked', templateKey: 'certificate.revoked' },
+  { eventType: 'certificate.binding.drift', templateKey: 'certificate.binding.drift' },
+  { eventType: 'certificate.report.failed', templateKey: 'certificate.report.failed' },
 ] as const;
 
-export type CertificateNotificationEventType = typeof certificateNotificationEventTypes[number];
+export const certificateNotificationEventTypes = certificateNotificationEventDefinitions.map((item) => item.eventType);
+
+export type CertificateNotificationEventType = typeof certificateNotificationEventDefinitions[number]['eventType'];
+export type CertificateNotificationEventDefinition = typeof certificateNotificationEventDefinitions[number];
 
 export interface CertificateNotificationEvent {
   tenantId: string;
@@ -42,8 +54,16 @@ export class DeferredCertificateNotificationPort implements CertificateNotificat
 }
 
 export class CertificateNotificationEventRegistry {
+  list(): readonly CertificateNotificationEventDefinition[] {
+    return certificateNotificationEventDefinitions;
+  }
+
+  find(eventType: string): CertificateNotificationEventDefinition | undefined {
+    return certificateNotificationEventDefinitions.find((item) => item.eventType === eventType);
+  }
+
   isRegistered(eventType: string): eventType is CertificateNotificationEventType {
-    return (certificateNotificationEventTypes as readonly string[]).includes(eventType);
+    return Boolean(this.find(eventType));
   }
 }
 

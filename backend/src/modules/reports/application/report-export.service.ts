@@ -63,6 +63,7 @@ export class ReportExportService {
       await this.generate(run, input.query, input.subject, first.total);
     } catch (error) {
       await this.markFailed(run.id, error);
+      await this.publishReportFailed(run, error);
       throw error;
     }
     return (await this.repository.getReportRun(run.tenantId, run.id))!;
@@ -80,6 +81,7 @@ export class ReportExportService {
       await this.generate(run, parsed.query, parsed.subject, parsed.total);
     } catch (error) {
       await this.markFailed(run.id, error);
+      await this.publishReportFailed(run, error);
       throw error;
     }
   }
@@ -141,6 +143,7 @@ export class ReportExportService {
         errorMessage: error instanceof Error ? error.message : String(error),
         finishedAt: finalAttempt ? new Date().toISOString() : undefined,
       });
+      if (finalAttempt) await this.publishReportFailed(run, error);
       return { jobId: job.jobId, success: false, errorCode: 'REPORT_EXPORT_GENERATION_FAILED' };
     }
   }
@@ -151,6 +154,25 @@ export class ReportExportService {
       errorMessage: error instanceof Error ? error.message : String(error),
       finishedAt: new Date().toISOString(),
     });
+  }
+
+  private publishReportFailed(run: ReportRun, error: unknown): Promise<void> {
+    return this.notifications?.publish({
+      tenantId: run.tenantId,
+      eventId: `report:${run.id}:failed`,
+      eventType: 'certificate.report.failed',
+      occurredAt: new Date().toISOString(),
+      payloadVersion: 1,
+      idempotencyKey: `certificate.report.failed:${run.id}`,
+      templateKey: 'certificate.report.failed',
+      payload: {
+        reportId: run.id,
+        reportType: run.reportType,
+        status: 'failed',
+        errorMessage: error instanceof Error ? error.message : String(error),
+      },
+      sourceRefs: { reportId: run.id },
+    }).then(() => undefined).catch(() => undefined) ?? Promise.resolve();
   }
 }
 

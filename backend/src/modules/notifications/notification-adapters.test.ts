@@ -86,17 +86,17 @@ describe('通知渠道 Adapter', () => {
       new FeishuNotificationAdapter(new FakeHttpClient({ statusCode: 200, body: '{"code":0}', headers: {} })).send(sendInput('feishu', {
         secrets: { webhookUrl: 'https://attacker.example/open-apis/bot/v2/hook/test' },
       })),
-      /未被系统管理员私有化 Origin 白名单批准/,
+      /不属于此渠道配置的私有化 Origin/,
     );
     await assert.rejects(
       new DingTalkNotificationAdapter(new FakeHttpClient({ statusCode: 200, body: '{"errcode":0}', headers: {} })).send(sendInput('dingtalk', {
         secrets: { webhookUrl: 'https://attacker.example/robot/send?access_token=test' },
       })),
-      /未被系统管理员私有化 Origin 白名单批准/,
+      /不属于此渠道配置的私有化 Origin/,
     );
   });
 
-  it('企微、飞书和钉钉私有化地址必须由系统设置中的 Origin 白名单批准', async () => {
+  it('企微、飞书和钉钉私有化地址只由各自渠道配置的 Origin 批准', async () => {
     assert.deepEqual(
       validatePlatformWebhookEndpoint('wecom', 'https://wecom.internal.example/cgi-bin/webhook/send?key=test', ['https://wecom.internal.example']),
       { trustedPrivateOrigins: ['https://wecom.internal.example'], isPrivateDeployment: true },
@@ -111,7 +111,7 @@ describe('通知渠道 Adapter', () => {
     );
     assert.throws(
       () => validatePlatformWebhookEndpoint('wecom', 'https://unapproved.internal.example/hook', ['https://wecom.internal.example']),
-      /未被系统管理员私有化 Origin 白名单批准/,
+      /不属于此渠道配置的私有化 Origin/,
     );
   });
 
@@ -144,7 +144,7 @@ describe('通知渠道 Adapter', () => {
     );
   });
 
-  it('私有化平台 Adapter 把系统设置批准的 Origin 传递给安全 HTTP 客户端', async () => {
+  it('私有化平台 Adapter 把渠道配置的 Origin 传递给安全 HTTP 客户端', async () => {
     const client = new FakeHttpClient({ statusCode: 200, body: '{"errcode":0,"errmsg":"ok"}', headers: {} });
     const result = await new WeComNotificationAdapter(client).send(sendInput('wecom', {
       secrets: { webhookUrl: 'https://wecom.internal.example/custom/webhook?key=test' },

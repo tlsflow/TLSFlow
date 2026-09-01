@@ -120,9 +120,11 @@ export class NotificationsApplicationService implements NotificationPort, Certif
   }
 
   async createChannel(input: CreateNotificationChannelInput) {
-    this.domain.assertChannelSecrets(input.config ?? {}, input.secretRefs ?? {});
-    await this.adapters?.get(input.type).validateConfig(channelForValidation(input));
-    return this.repository.createChannel(input);
+    const config = normalizeChannelConfig(input.type, input.config ?? {});
+    const normalized = { ...input, config };
+    this.domain.assertChannelSecrets(config, input.secretRefs ?? {});
+    await this.adapters?.get(input.type).validateConfig(channelForValidation(normalized));
+    return this.repository.createChannel(normalized);
   }
   getSettings(tenantId: string) { return this.repository.getSettings(tenantId); }
   updateSettings(input: UpdateNotificationSettingsInput) {
@@ -138,11 +140,11 @@ export class NotificationsApplicationService implements NotificationPort, Certif
   async updateChannel(input: UpdateNotificationChannelInput) {
     const current = await this.repository.getChannel(input.tenantId, input.id);
     if (!current) throw new AppError('RESOURCE_NOT_FOUND', '通知渠道不存在', { id: input.id });
-    const config = input.config ?? current.config;
+    const config = normalizeChannelConfig(current.type, input.config ?? current.config);
     const secretRefs = input.secretRefs ?? current.secretRefs;
     this.domain.assertChannelSecrets(config, secretRefs);
     await this.adapters?.get(current.type).validateConfig({ ...current, ...input, config, secretRefs });
-    return this.repository.updateChannel(input);
+    return this.repository.updateChannel({ ...input, config });
   }
   deleteChannel(tenantId: string, id: string, version: number) { return this.repository.deleteChannel(tenantId, id, version); }
   listChannels(tenantId: string) { return this.repository.listChannels(tenantId); }
@@ -353,6 +355,20 @@ function channelForValidation(input: CreateNotificationChannelInput): Notificati
   };
 }
 
+function normalizeChannelConfig(type: NotificationChannel['type'], config: Record<string, unknown>): Record<string, unknown> {
+  if (type !== 'wecom' && type !== 'feishu' && type !== 'dingtalk') return config;
+  const rawOrigin = config.privateOrigin;
+  if (rawOrigin === undefined || rawOrigin === null || rawOrigin === '') {
+    const { privateOrigin: _privateOrigin, ...remaining } = config;
+    return remaining;
+  }
+  if (typeof rawOrigin !== 'string') {
+    throw new AppError('NOTIFICATION_CHANNEL_INVALID', '通知渠道私有化 Origin 必须是字符串');
+  }
+  const [privateOrigin] = validatePrivateOrigins([rawOrigin]);
+  return { ...config, privateOrigin };
+}
+
 function normalizeRequest(input: EnqueueNotificationInput) {
   return {
     tenantId: input.tenantId,
@@ -416,6 +432,41 @@ function builtinTemplate(templateKey: string): { titleTemplate: string; bodyTemp
       titleTemplate: '证书报表已生成',
       bodyTemplate: '报表 {{reportId}}（{{reportType}}）已生成完成。',
       requiredVariables: ['reportId', 'reportType'],
+    };
+  }
+  if (templateKey === 'certificate.expiry.warning') {
+    return {
+      titleTemplate: '证书即将过期：{{domain}}',
+      bodyTemplate: '证书 {{domain}} 将在 {{daysRemaining}} 天后过期，请及时续期。',
+      requiredVariables: ['domain', 'daysRemaining'],
+    };
+  }
+  if (templateKey === 'certificate.expired') {
+    return {
+      titleTemplate: '证书已过期：{{domain}}',
+      bodyTemplate: '证书 {{domain}} 已过期，请立即处理。',
+      requiredVariables: ['domain'],
+    };
+  }
+  if (templateKey === 'certificate.revoked') {
+    return {
+      titleTemplate: '证书已吊销：{{resourceId}}',
+      bodyTemplate: '证书资源 {{resourceId}} 已被吊销，相关服务可能无法继续使用。',
+      requiredVariables: ['resourceId'],
+    };
+  }
+  if (templateKey === 'certificate.binding.drift') {
+    return {
+      titleTemplate: '证书绑定漂移：{{resourceId}}',
+      bodyTemplate: '绑定 {{resourceId}} 当前使用的证书与期望版本不一致。',
+      requiredVariables: ['resourceId'],
+    };
+  }
+  if (templateKey === 'certificate.report.failed') {
+    return {
+      titleTemplate: '证书报表生成失败：{{reportId}}',
+      bodyTemplate: '报表 {{reportId}}（{{reportType}}）生成失败：{{errorMessage}}',
+      requiredVariables: ['reportId', 'reportType', 'errorMessage'],
     };
   }
   if (templateKey === 'monitor.risk') {

@@ -6,6 +6,7 @@ import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { pageResponseSchema } from '../../../common/openapi/schemas.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
 import type { NotificationsApplicationService } from '../application/notifications.application-service.js';
+import { certificateNotificationEventDefinitions } from '../application/certificate-notification-event.js';
 import { notificationChannelStatuses, notificationChannelTypes } from '../schema/notifications.schema.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import {
@@ -32,6 +33,7 @@ export class NotificationsController {
     router.post('/api/v1/notification-channels/:id/actions/enable', '启用通知渠道', tags, (request) => this.setChannelStatus(request, 'active'));
     router.post('/api/v1/notification-channels/:id/actions/disable', '停用通知渠道', tags, (request) => this.setChannelStatus(request, 'disabled'));
     router.get('/api/v1/notification-routes', '查询通知路由', tags, (request) => this.listRoutes(request));
+    router.get('/api/v1/notification-event-definitions', '查询预置证书事件定义', tags, (request) => this.listEventDefinitions(request));
     router.post('/api/v1/notification-routes', '创建通知路由', tags, (request) => this.createRoute(request));
     router.patch('/api/v1/notification-routes/:id', '更新通知路由', tags, (request) => this.updateRoute(request));
     router.delete('/api/v1/notification-routes/:id', '删除通知路由', tags, (request) => this.deleteRoute(request));
@@ -150,6 +152,12 @@ export class NotificationsController {
     const security = requireRouteSecurity(request, this.security);
     await assertRouteAction(security, 'notification.route.read', 'notification_route');
     return filterAuthorizedItems(security, await this.service.listRoutes(security.tenantId), 'notification_route', 'read');
+  }
+
+  private async listEventDefinitions(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
+    await assertRouteAction(security, 'notification.route.read', 'notification_route');
+    return certificateNotificationEventDefinitions.map((definition) => ({ ...definition, source: 'certificate' }));
   }
 
   private async createRoute(request: HttpRequest) {
@@ -353,6 +361,7 @@ export function getNotificationRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/notification-channels/:id/actions/enable', operationId: 'enableNotificationChannel', summary: '启用通知渠道', tags, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/notification-channels/:id/actions/disable', operationId: 'disableNotificationChannel', summary: '停用通知渠道', tags, responseSchema: objectSchema },
     { method: 'GET', path: '/api/v1/notification-routes', operationId: 'listNotificationRoutes', summary: '查询通知路由', tags, responseSchema: { type: 'array', items: objectSchema } },
+    { method: 'GET', path: '/api/v1/notification-event-definitions', operationId: 'listNotificationEventDefinitions', summary: '查询预置证书事件定义', tags, responseSchema: { type: 'array', items: objectSchema } },
     { method: 'POST', path: '/api/v1/notification-routes', operationId: 'createNotificationRoute', summary: '创建通知路由', tags, requestSchema, responseSchema: objectSchema },
     { method: 'PATCH', path: '/api/v1/notification-routes/:id', operationId: 'updateNotificationRoute', summary: '更新通知路由', tags, requestSchema, responseSchema: objectSchema },
     { method: 'DELETE', path: '/api/v1/notification-routes/:id', operationId: 'deleteNotificationRoute', summary: '删除通知路由', tags, requestSchema, responseSchema: objectSchema },

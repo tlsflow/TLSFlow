@@ -1152,6 +1152,19 @@ export class CertificatesApplicationService {
       payload: { resourceId, status },
       sourceRefs,
     });
+    if (status === 'revoked') {
+      await this.dependencies.certificateNotifications?.publish({
+        tenantId,
+        eventId: `${eventId}:revoked`,
+        eventType: 'certificate.revoked',
+        occurredAt: new Date().toISOString(),
+        payloadVersion: 1,
+        idempotencyKey: `certificate.revoked:${eventId}`,
+        templateKey: 'certificate.revoked',
+        payload: { resourceId, status },
+        sourceRefs,
+      });
+    }
   }
 
   private async writeLifecycleAudit(action: string, resourceType: string, resourceId: string, actorId: string, status: string, context?: RequestContext): Promise<void> {

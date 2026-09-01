@@ -1,7 +1,7 @@
 import type { SecretService } from '../../secrets/secret.service.js';
 import type { NotificationsRepository } from '../repository/notifications.repository.js';
 import type { ChannelAdapterRegistry } from './channel-adapter-registry.js';
-import type { NotificationChannel } from '../schema/notifications.schema.js';
+import type { NotificationChannel, NotificationSettings } from '../schema/notifications.schema.js';
 
 export interface NotificationSecretResolver {
   resolve(secretRef: string, tenantId: string, channelId: string): Promise<string>;
@@ -76,9 +76,7 @@ export class NotificationWorker {
         key,
         await this.secretResolver.resolve(secretRef, delivery.tenantId, activeChannel.id),
       ])));
-      const privateOrigins = activeChannel.type === 'wecom' || activeChannel.type === 'feishu' || activeChannel.type === 'dingtalk'
-        ? settings.privateOrigins[activeChannel.type]
-        : [];
+      const privateOrigins = trustedPrivateOriginsForChannel(activeChannel, settings);
       const result = await adapter.send({ channel: activeChannel, request, delivery, secrets, privateOrigins });
       const latencyMs = Date.now() - startedAt;
       await this.repository.completeDeliveryAttempt({
@@ -104,6 +102,17 @@ export class NotificationWorker {
     }
     return true;
   }
+}
+
+/**
+ * 私有化地址属于具体渠道，而非整租户的通用开关。
+ * 历史设置仅在旧渠道尚未写入 privateOrigin 时作为兼容回退，避免升级后存量渠道立即失效。
+ */
+export function trustedPrivateOriginsForChannel(channel: NotificationChannel, legacySettings: NotificationSettings): string[] {
+  if (channel.type !== 'wecom' && channel.type !== 'feishu' && channel.type !== 'dingtalk') return [];
+  const configured = channel.config.privateOrigin;
+  if (typeof configured === 'string' && configured.trim()) return [configured.trim()];
+  return legacySettings.privateOrigins[channel.type];
 }
 
 function retryAt(attemptCount: number): string {

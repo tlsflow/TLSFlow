@@ -10,13 +10,31 @@ import { NotificationsDomainService } from './domain/notifications.domain-servic
 import { NotificationsApplicationService } from './application/notifications.application-service.js';
 import { PgNotificationsRepository } from './repository/notifications.repository.js';
 import { NotificationRouteMatcher } from './application/notification-route-matcher.js';
+import { CertificateNotificationEventRegistry } from './application/certificate-notification-event.js';
 import { WebhookTargetPolicy, isBlockedAddress } from './security/webhook-target-policy.js';
 import { AutomationNotificationPort } from './application/notification.port.js';
+import { trustedPrivateOriginsForChannel } from './application/notification-worker.js';
 import { NotificationsController } from './controller/notifications.controller.js';
 import { Router } from '../../common/http/router.js';
 import type { SecurityServices } from '../security/security.controller.js';
 
 describe('通知核心', () => {
+  it('事件定义目录只暴露系统预置的证书场景', () => {
+    const registry = new CertificateNotificationEventRegistry();
+    assert.deepEqual(registry.list().map((item) => item.eventType), [
+      'certificate.renewal.result',
+      'certificate.status',
+      'certificate.report',
+      'certificate.expiry.warning',
+      'certificate.expired',
+      'certificate.revoked',
+      'certificate.binding.drift',
+      'certificate.report.failed',
+    ]);
+    assert.equal(registry.find('certificate.status')?.templateKey, 'certificate.status');
+    assert.equal(registry.find('certificate.custom'), undefined);
+  });
+
   it('迁移后 NotificationPort 持久化并保持幂等', async () => {
     const fixture = await createFixture();
     try {
@@ -109,6 +127,29 @@ describe('通知核心', () => {
     } finally { await fixture.close(); }
   });
 
+  it('私有化 Origin 属于具体渠道并优先于历史租户设置', async () => {
+    const fixture = await createFixture();
+    try {
+      const repository = new PgNotificationsRepository(fixture.db);
+      const service = new NotificationsApplicationService(repository);
+      const channel = await service.createChannel({
+        tenantId: 'tenant-1', name: '私有企业微信', type: 'wecom', status: 'disabled',
+        config: { privateOrigin: 'https://wecom.internal.example/' },
+        secretRefs: { webhookUrl: 'secret://api_token/wecom#current' },
+      });
+      assert.deepEqual(channel.config, { privateOrigin: 'https://wecom.internal.example' });
+      assert.deepEqual(trustedPrivateOriginsForChannel(channel, {
+        tenantId: 'tenant-1', version: 1,
+        privateOrigins: { wecom: ['https://legacy.internal.example'], feishu: [], dingtalk: [] },
+      }), ['https://wecom.internal.example']);
+      await assert.rejects(service.createChannel({
+        tenantId: 'tenant-1', name: '错误地址', type: 'wecom', status: 'disabled',
+        config: { privateOrigin: 'https://wecom.internal.example/hook?key=test' },
+        secretRefs: { webhookUrl: 'secret://api_token/wecom-invalid#current' },
+      }), /精确 HTTPS Origin/);
+    } finally { await fixture.close(); }
+  });
+
   it('通知设置读取和保存使用不同的 RBAC 权限', async () => {
     const fixture = await createFixture();
     try {
@@ -138,6 +179,40 @@ describe('通知核心', () => {
         { action: 'notification.channel.read', resourceType: 'settings' },
         { action: 'settings.write', resourceType: 'settings' },
       ]);
+    } finally { await fixture.close(); }
+  });
+
+  it('事件定义接口只返回系统预置的证书场景', async () => {
+    const fixture = await createFixture();
+    try {
+      const actions: Array<{ action: string; resourceType: string }> = [];
+      const security = {
+        rbac: {
+          assertCan: async (_subject: unknown, action: string, resource: { type: string }) => {
+            actions.push({ action, resourceType: resource.type });
+          },
+        },
+      } as unknown as SecurityServices;
+      const service = new NotificationsApplicationService(new PgNotificationsRepository(fixture.db));
+      const router = new Router();
+      new NotificationsController(service, security).register(router);
+      const context = { requestId: 'req-events', traceId: 'trace-events', tenantId: 'tenant-1', actorId: 'admin-1' };
+
+      const result = await router.match('GET', '/api/v1/notification-event-definitions')!.handler({
+        method: 'GET', path: '/api/v1/notification-event-definitions', query: {}, headers: {}, context,
+      });
+
+      assert.deepEqual(result, [
+        { eventType: 'certificate.renewal.result', templateKey: 'certificate.renewal.result', source: 'certificate' },
+        { eventType: 'certificate.status', templateKey: 'certificate.status', source: 'certificate' },
+        { eventType: 'certificate.report', templateKey: 'certificate.report', source: 'certificate' },
+        { eventType: 'certificate.expiry.warning', templateKey: 'certificate.expiry.warning', source: 'certificate' },
+        { eventType: 'certificate.expired', templateKey: 'certificate.expired', source: 'certificate' },
+        { eventType: 'certificate.revoked', templateKey: 'certificate.revoked', source: 'certificate' },
+        { eventType: 'certificate.binding.drift', templateKey: 'certificate.binding.drift', source: 'certificate' },
+        { eventType: 'certificate.report.failed', templateKey: 'certificate.report.failed', source: 'certificate' },
+      ]);
+      assert.deepEqual(actions, [{ action: 'notification.route.read', resourceType: 'notification_route' }]);
     } finally { await fixture.close(); }
   });
 

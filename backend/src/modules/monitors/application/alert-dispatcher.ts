@@ -27,6 +27,8 @@ export class AlertDispatcher {
       return { ruleId, riskId: risk.id, status: 'failed', reason: 'notification_port_unavailable' };
     }
     const notificationKind = risk.status === 'RESOLVED' ? 'recovered' : 'active';
+    const certificateEvent = certificateEventTypeForRisk(risk.type);
+    const eventType = certificateEvent ?? 'monitor.risk';
     const idempotencyKey = `monitor:${risk.id}:${ruleId}:${notificationKind}:${risk.severity}`;
     if (!risk.scope.tenantId) {
       return { ruleId, riskId: risk.id, status: 'failed', reason: 'tenant_context_missing' };
@@ -34,7 +36,8 @@ export class AlertDispatcher {
     try {
       const result = await this.notifications.enqueue({
         tenantId: risk.scope.tenantId,
-        templateKey: 'monitor.risk',
+        eventType,
+        templateKey: eventType,
         eventKey: idempotencyKey,
         idempotencyKey,
         source: 'monitor',
@@ -49,6 +52,9 @@ export class AlertDispatcher {
           riskId: risk.id,
           ruleId,
           notificationKind,
+          domain: risk.metadata.primaryDomain,
+          daysRemaining: risk.metadata.diffDays,
+          resourceId: risk.scope.bindingId ?? risk.scope.certificateVersionId ?? risk.scope.certificateAssetId ?? risk.id,
         },
       });
       return { ruleId, riskId: risk.id, status: 'persisted', requestId: result.requestId, reason: 'notification_request_persisted' };
@@ -57,4 +63,11 @@ export class AlertDispatcher {
       return { ruleId, riskId: risk.id, status: 'failed', reason: `notification_request_failed:${errorCode}` };
     }
   }
+}
+
+function certificateEventTypeForRisk(type: RiskEvent['type']): 'certificate.expiry.warning' | 'certificate.expired' | 'certificate.binding.drift' | undefined {
+  if (type === 'certificate_expiring') return 'certificate.expiry.warning';
+  if (type === 'certificate_expired') return 'certificate.expired';
+  if (type === 'binding_drift') return 'certificate.binding.drift';
+  return undefined;
 }

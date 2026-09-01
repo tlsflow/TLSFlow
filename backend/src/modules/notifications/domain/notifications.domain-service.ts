@@ -14,7 +14,9 @@ export class NotificationsDomainService {
   }
 
   matches(matcher: NotificationMatcher, event: Record<string, unknown>): boolean {
-    return includesOrEmpty(matcher.sources, event.source)
+    const sourceMatches = includesOrEmpty(matcher.sources, event.source)
+      || (event.source === 'monitor' && typeof event.eventType === 'string' && event.eventType.startsWith('certificate.') && matcher.sources?.includes('certificate') === true);
+    return sourceMatches
       && includesOrEmpty(matcher.eventTypes, event.eventType ?? event.eventKey)
       && includesOrEmpty(matcher.severities, event.severity)
       && includesOrEmpty(matcher.environments, event.environment)
