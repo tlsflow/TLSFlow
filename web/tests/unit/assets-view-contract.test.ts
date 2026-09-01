@@ -49,6 +49,14 @@ describe('应用资产卡片契约', () => {
     expect(source).not.toContain('assetCertificateLifecycleProgress')
   })
 
+  it('证书有效期状态行不参与自动字号调整，避免 ResizeObserver 反馈抖动', () => {
+    expect(source).not.toContain('v-auto-fit-card-fact-text class="asset-page__card-fact-value asset-page__card-certificate-status"')
+    expect(source).toContain('const cardFactTextObservedWidths = new WeakMap<HTMLElement, number>()')
+    expect(source).toContain('entry?.contentRect.width')
+    expect(source).toContain('overflow: hidden;')
+    expect(source).toContain('text-overflow: ellipsis;')
+  })
+
   it('为多选资产提供删除和同域名证书批量更新入口', () => {
     expect(source).toContain('data-testid="asset-selection-actions"')
     expect(source).toContain("t('assets.selection.actions.bulkDelete')")

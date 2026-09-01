@@ -116,6 +116,7 @@ interface DeploymentInputIssueDetail {
 const ASSET_WORKSPACE_PAGE_SIZE = 20
 const cardFactTextObservers = new WeakMap<HTMLElement, ResizeObserver>()
 const cardFactTextBaseFontSizes = new WeakMap<HTMLElement, number>()
+const cardFactTextObservedWidths = new WeakMap<HTMLElement, number>()
 
 function fitCardFactText(element: HTMLElement): void {
   const baseFontSize = cardFactTextBaseFontSizes.get(element)
@@ -141,9 +142,17 @@ const vAutoFitCardFactText: Directive<HTMLElement> = {
     element.style.textOverflow = 'clip'
     fitCardFactText(element)
     if (typeof ResizeObserver !== 'function') return
-    const observer = new ResizeObserver(() => fitCardFactText(element))
-    observer.observe(element)
-    if (element.parentElement) observer.observe(element.parentElement)
+    const parent = element.parentElement
+    if (!parent) return
+    cardFactTextObservedWidths.set(element, parent.clientWidth)
+    // 字体调整会改变事实区高度，因此只响应父容器宽度变化，避免形成 ResizeObserver 反馈循环。
+    const observer = new ResizeObserver(([entry]) => {
+      const width = Math.round(entry?.contentRect.width ?? 0)
+      if (width <= 0 || width === cardFactTextObservedWidths.get(element)) return
+      cardFactTextObservedWidths.set(element, width)
+      fitCardFactText(element)
+    })
+    observer.observe(parent)
     cardFactTextObservers.set(element, observer)
   },
   updated(element) {
@@ -153,6 +162,7 @@ const vAutoFitCardFactText: Directive<HTMLElement> = {
     cardFactTextObservers.get(element)?.disconnect()
     cardFactTextObservers.delete(element)
     cardFactTextBaseFontSizes.delete(element)
+    cardFactTextObservedWidths.delete(element)
   },
 }
 
@@ -3646,7 +3656,7 @@ function managedTargetLabel(target: ApiRecord): string {
                   </div>
                   <div>
                     <dt>{{ t('assets.card.fields.validity') }}</dt>
-                    <dd v-auto-fit-card-fact-text class="asset-page__card-fact-value asset-page__card-certificate-status">
+                    <dd class="asset-page__card-fact-value asset-page__card-certificate-status">
                       <strong class="asset-page__card-certificate-remaining">{{ card.certificate.remainingLabel }}</strong>
                       <GcStatusTag
                         class="asset-page__card-certificate-state"
@@ -5259,6 +5269,7 @@ function managedTargetLabel(target: ApiRecord): string {
   align-items: center;
   flex-wrap: nowrap;
   gap: var(--gc-space-1);
+  overflow: hidden;
   min-width: 0;
   width: 100%;
 }
@@ -5269,12 +5280,17 @@ function managedTargetLabel(target: ApiRecord): string {
 }
 
 .asset-page__card-certificate-status .asset-page__card-certificate-state {
+  flex: 0 0 auto;
   padding-inline: var(--gc-space-1);
 }
 
 .asset-page__card-certificate-remaining {
+  min-width: 0;
+  overflow: hidden;
   color: var(--gc-color-success);
   font-size: var(--gc-font-size-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .asset-page__card :deep(.gc-pro-card__footer) {
