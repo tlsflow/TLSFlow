@@ -381,14 +381,14 @@ export class ApplicationExecutionCompatibilityService {
         console.log(`[ApplicationExecutionCompatibility] 自动更新插件绑定版本: ${effective.binding.pluginVersionId} -> ${effective.plugin.pluginVersionId}`, {
           applicationAssetId,
           managedTargetId,
-          bindingId: effective.binding.id,
+          bindingId: effective.binding.pluginBindingId,
         });
         // 更新 unified_plugin_bindings 表中的 plugin_version_id
         await this.db.query(`
           update unified_plugin_bindings
              set plugin_version_id=$1, updated_at=now()
            where tenant_id=$2 and id=$3
-        `, [effective.plugin.pluginVersionId, tenantId, effective.binding.id]);
+        `, [effective.plugin.pluginVersionId, tenantId, effective.binding.pluginBindingId]);
         // 更新 effective.binding 对象，使后续逻辑使用新版本
         effective.binding.pluginVersionId = effective.plugin.pluginVersionId;
       }
