@@ -79,6 +79,20 @@ describe('GcModal', () => {
     wrapper.unmount()
   })
 
+  it('无标题或无操作区时由正文补齐模态框外缘留白状态', () => {
+    const wrapper = mount(GcModal, {
+      attachTo: document.body,
+      props: { open: true },
+      slots: { default: '<p>模态框内容</p>' },
+    })
+
+    const modal = document.body.querySelector<HTMLElement>('.gc-modal')
+    expect(modal?.classList.contains('gc-modal--without-header')).toBe(true)
+    expect(modal?.classList.contains('gc-modal--without-actions')).toBe(true)
+
+    wrapper.unmount()
+  })
+
   it('显式传入 closeOnBackdrop 也不能通过遮罩关闭', async () => {
     const wrapper = mount(GcModal, {
       attachTo: document.body,

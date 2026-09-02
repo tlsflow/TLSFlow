@@ -238,13 +238,14 @@ describe('统一设备详情动作边界', () => {
     expect(assetsSource).toContain('void loadDeploymentRecords(applicationAssetId)')
   })
 
-  it('设备详情弹窗使用紧凑的十五像素上下间距', () => {
-    const modalSource = readFileSync(resolve(process.cwd(), 'src/views/devices/details/ManagedDeviceDetailModal.vue'), 'utf8')
+  it('设备详情弹窗复用统一模态框间距', () => {
+    const modalSource = readFileSync(resolve(process.cwd(), 'src/design-system/components/GcModal.vue'), 'utf8')
+    const deviceModalSource = readFileSync(resolve(process.cwd(), 'src/views/devices/details/ManagedDeviceDetailModal.vue'), 'utf8')
 
-    expect(modalSource).toContain('dialog-class="device-detail-dialog"')
-    expect(modalSource).toContain(':global(.device-detail-dialog .gc-modal__header)')
-    expect(modalSource).toContain(':global(.device-detail-dialog .gc-modal__body)')
-    expect(modalSource).toContain('padding-block: var(--gc-space-modal-detail-y)')
+    expect(deviceModalSource).not.toContain('dialog-class="device-detail-dialog"')
+    expect(modalSource).toContain('padding: var(--gc-space-modal-edge-y) var(--gc-space-modal-x) var(--gc-space-modal-y)')
+    expect(modalSource).toContain('padding: var(--gc-space-modal-y) var(--gc-space-modal-x);')
+    expect(modalSource).toContain('padding: var(--gc-space-modal-y) var(--gc-space-modal-x) var(--gc-space-modal-edge-y)')
   })
 
   it('应用资产向导进入部署模式时刷新当前 ACTIVE 发现数据', () => {
