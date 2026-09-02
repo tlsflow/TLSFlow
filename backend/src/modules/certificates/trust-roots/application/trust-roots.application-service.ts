@@ -136,7 +136,7 @@ export class TrustRootsApplicationService {
 
   async importRoot(input: ImportRootCertificateInput): Promise<RootCertificateRecordDto> {
     const candidate = this.parseInputCertificate(input.certificatePem, input.certificateDerBase64);
-    if (!candidate.ca) {
+    if (!candidate.ca || candidate.subject.raw !== candidate.issuer.raw) {
       throw new AppError('CERT_PARSE_FAILED', '导入材料不是有效的 CA 根证书', {
         fingerprintSha256: candidate.fingerprintSha256,
       });
@@ -181,18 +181,21 @@ export class TrustRootsApplicationService {
 
   async syncImportedVersionRoot(version: CertificateVersionEntity, bundle: ParsedMaterialBundle, actorId: string): Promise<void> {
     const rootCandidate = resolveBundleRoot(bundle);
-    if (!rootCandidate) return;
+    if (!rootCandidate) {
+      await this.backfillManagedVersionRoot(version, actorId);
+      return;
+    }
     await this.persistManagedVersionRoot(version, rootCandidate, actorId, 'import_chain_root');
   }
 
   private async backfillRootsFromManagedCertificates(createdBy: string): Promise<void> {
     const pageSize = 200;
     for (let page = 1; ; page += 1) {
-      const versions = await this.certificates.listVersions({ page, pageSize, filter: {} });
+      const versions = await this.listManagedVersionPage(page, pageSize);
       for (const version of versions.items) {
         await this.backfillManagedVersionRoot(version, createdBy);
       }
-      if (versions.items.length < pageSize) return;
+      if (!versions.hasMore) return;
     }
   }
 
@@ -243,27 +246,59 @@ export class TrustRootsApplicationService {
     const results: CertificateVersionEntity[] = [];
     const pageSize = 200;
     for (let page = 1; ; page += 1) {
-      const current = await this.certificates.listVersions({ page, pageSize, filter: {} });
+      const current = await this.listManagedVersionPage(page, pageSize);
       results.push(...current.items);
-      if (current.items.length < pageSize) return results;
+      if (!current.hasMore) return results;
     }
+  }
+
+  private async listManagedVersionPage(page: number, pageSize: number): Promise<{
+    items: CertificateVersionEntity[];
+    hasMore: boolean;
+  }> {
+    // 根视图只代表资产当前版本；历史版本保留在证书详情中，不参与缺根统计。
+    const assets = await this.certificates.listAssets({ page, pageSize, filter: {} });
+    const versions = await Promise.all(assets.items
+      .map((asset) => asset.currentVersionId)
+      .filter((versionId): versionId is string => Boolean(versionId))
+      .map((versionId) => this.certificates.getVersion(versionId)));
+    return {
+      // 当前资产指向的版本仍然是根关系的事实来源，即使证书已经过期。
+      // 过期状态由证书管理页展示；根证书视图不能因此丢失真实关联。
+      items: versions.filter((version): version is CertificateVersionEntity => version !== undefined && isCurrentManagedVersion(version)),
+      hasMore: assets.items.length === pageSize,
+    };
   }
 
   private async backfillManagedVersionRoot(version: CertificateVersionEntity, createdBy: string): Promise<void> {
     const existingRelations = await this.repository.listVersionTrustRoots(version.id, version.tenantId);
-    if (existingRelations.some((relation) => relation.relation === 'selected_root' && relation.resolutionStatus === 'resolved')) {
-      return;
+    const selectedRelation = existingRelations.find((relation) => relation.relation === 'selected_root');
+    const selectedRoot = selectedRelation ? await this.repository.getRoot(selectedRelation.rootCertificateId) : undefined;
+    if (selectedRelation?.resolutionStatus === 'resolved') {
+      if (selectedRoot && await this.isManagedVersionRootRelationCurrent(version, selectedRoot)) return;
     }
     if (version.chainStatus === 'incomplete') {
       const candidate = await this.resolveManagedVersionRootFromLibrary(version);
       if (candidate) {
         await this.attachVersionRoot(version, candidate, 'selected_root', 'resolved', 'backfill_root_library');
+      } else if (selectedRoot && selectedRelation?.resolutionStatus === 'resolved') {
+        await this.attachVersionRoot(version, selectedRoot, 'selected_root', 'missing', 'backfill_relation_invalid');
       }
       return;
     }
-    if (version.chainStatus !== 'valid') return;
+    if (version.chainStatus !== 'valid') {
+      if (selectedRoot && selectedRelation?.resolutionStatus === 'resolved') {
+        await this.attachVersionRoot(version, selectedRoot, 'selected_root', 'missing', 'backfill_relation_invalid');
+      }
+      return;
+    }
     const rootFingerprint = normalizeFingerprint(version.chainOrder.at(-1));
-    if (!rootFingerprint) return;
+    if (!rootFingerprint) {
+      if (selectedRoot && selectedRelation?.resolutionStatus === 'resolved') {
+        await this.attachVersionRoot(version, selectedRoot, 'selected_root', 'missing', 'backfill_relation_invalid');
+      }
+      return;
+    }
     const existingRoot = await this.repository.getRootByFingerprint(rootFingerprint);
     if (existingRoot) {
       await this.attachVersionRoot(version, existingRoot, 'selected_root', 'resolved', 'backfill_existing_root');
@@ -307,7 +342,12 @@ export class TrustRootsApplicationService {
     if (!tailFingerprint) return undefined;
     const tail = await this.readManagedVersionCertificate(version, tailFingerprint);
     if (!tail || !tail.ca || tail.subject.raw === tail.issuer.raw) return undefined;
-    const roots = await this.repository.listRootsBySubject(tail.issuer.raw);
+    // 普通链尾证书的 issuer 是信任根；交叉签发根的 issuer 可能是另一条
+    // 根链，但它与库中的自签名根拥有相同 subject 和公钥，需同时按两者检索。
+    const roots = [...new Map([
+      ...(await this.repository.listRootsBySubject(tail.issuer.raw)),
+      ...(await this.repository.listRootsBySubject(tail.subject.raw)),
+    ].map((root) => [root.id, root])).values()];
     const matches: RootCertificateRecordEntity[] = [];
     for (const root of roots) {
       if (root.validationStatus !== 'verified' || !root.basicConstraints.ca) continue;
@@ -317,13 +357,30 @@ export class TrustRootsApplicationService {
       try {
         const certificate = new X509Certificate(artifact.content);
         if (normalizeFingerprint(certificate.fingerprint256.replaceAll(':', '')) !== normalizeFingerprint(root.fingerprintSha256)) continue;
-        if (certificate.subject !== certificate.issuer || !tail.x509.verify(certificate.publicKey)) continue;
+        if (certificate.subject !== certificate.issuer) continue;
+        const sameSubjectAndKey = certificate.subject === tail.x509.subject
+          && publicKeyDer(certificate).equals(publicKeyDer(tail.x509));
+        if (!sameSubjectAndKey && !tail.x509.verify(certificate.publicKey)) continue;
         matches.push(root);
       } catch {
         continue;
       }
     }
     return matches.length === 1 ? matches[0] : undefined;
+  }
+
+  private async isManagedVersionRootRelationCurrent(
+    version: CertificateVersionEntity,
+    root: RootCertificateRecordEntity,
+  ): Promise<boolean> {
+    if (version.chainStatus === 'valid') {
+      return normalizeFingerprint(version.chainOrder.at(-1)) === normalizeFingerprint(root.fingerprintSha256);
+    }
+    if (version.chainStatus === 'incomplete') {
+      const resolved = await this.resolveManagedVersionRootFromLibrary(version);
+      return resolved?.id === root.id;
+    }
+    return false;
   }
 
   private async readManagedVersionCertificate(
@@ -556,4 +613,12 @@ function normalizeFingerprint(value: string | undefined): string | undefined {
   const trimmed = value?.trim().toLowerCase();
   if (!trimmed) return undefined;
   return /^[a-f0-9]{64}$/.test(trimmed) ? trimmed : undefined;
+}
+
+function isCurrentManagedVersion(version: CertificateVersionEntity): boolean {
+  return version.status === 'active';
+}
+
+function publicKeyDer(certificate: X509Certificate): Buffer {
+  return certificate.publicKey.export({ format: 'der', type: 'spki' }) as Buffer;
 }
