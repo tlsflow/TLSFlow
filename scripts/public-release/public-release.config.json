@@ -40,9 +40,7 @@
     "scripts/dev-backend.sh",
     "scripts/dev-web.sh",
     "scripts/dev-tls-inspector.sh",
-    "scripts/dev/dev-all.sh",
-    ".workflow/0014-sync-github.yml",
-    ".gitea/workflows/sync-github.yml"
+    "scripts/dev/dev-all.sh"
   ],
   "publicContributionPaths": [
     "agents",
@@ -71,8 +69,7 @@
     "^docs/Documentation/(?:node_modules|\\.vitepress/(?:dist|cache))(?:/|$)",
     "^docker/docs/20260806-Docker镜像发布与凭据边界说明\\.md$",
     "^AGENTS\\.md$",
-    "^\\.workflow/(?:0014-generate-public-candidate|0014-import-public-contribution)\\.yml$",
-    "^\\.workflow/20260805-公开发布凭据变量配置说明\\.md$",
+    "^\\.workflow(?:/|$)",
     "^scripts/(?:archive|versioning)(?:/|$)",
     "^scripts/public-release/(?:generate-public-candidate|import-public-contribution)\\.mjs$",
     "^scripts/public-release/(?:public-release(?:\\.integration)?|sync-github\\.integration)\\.test\\.mjs$",
