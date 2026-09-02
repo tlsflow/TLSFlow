@@ -30,16 +30,7 @@ The plugin's responsibility is to describe product differences and execute targe
 
 ## 1. Pre-delivery Directory Structure
 
-First, establish a plugin development record directory:
-
-```text
-docs/插件开发/<pluginId>/
-├── README.md
-├── 测试文档/
-└── 迭代说明/
-```
-
-The `README.md` should clearly document supported platforms, capability combinations, credential requirements, and verified versions. The `测试文档/` directory should preserve evidence of import, connection, discovery, or certificate deployment/verification/rollback according to the plugin's actual capability declarations. Cloud service plugins are not required to provide, and must not fake, certificate deployment evidence. Iteration records that no longer match the current implementation must be deleted or replaced by current documentation; they cannot be retained as "deprecated but potentially misused" sources of truth.
+First, establish plugin development records, keeping the overview, test evidence, and iteration history separate. The overview should document supported platforms, capability combinations, credential requirements, and verified versions. Preserve import, connection, discovery, or certificate deployment/verification/rollback evidence according to the plugin's actual capability declarations. Cloud service plugins are not required to provide, and must not fake, certificate deployment evidence. Iteration records that no longer match the current implementation must be deleted or replaced by current documentation; they cannot be retained as "deprecated but potentially misused" sources of truth.
 
 ## 2. Choose Plugin Form Factor
 
@@ -216,7 +207,7 @@ The cloud service root object is `ServiceAsset(assetKind=CLOUD_SERVICE)`, discov
 
 ## 9. Acceptance by Capability Type
 
-All plugins must complete package-level contracts, import lifecycle, Binding/Assignment, tenant isolation, version immutability, sanitization, and idempotency testing; capability-level tests are selected based on actual declarations; do not force execution of inapplicable certificate flows. Results are written to `docs/插件开发/<pluginId>/测试文档/`.
+All plugins must complete package-level contracts, import lifecycle, Binding/Assignment, tenant isolation, version immutability, sanitization, and idempotency testing; capability-level tests are selected based on actual declarations; do not force execution of inapplicable certificate flows. Preserve the corresponding test evidence.
 
 | Capability Family | Required Tests |
 | --- | --- |

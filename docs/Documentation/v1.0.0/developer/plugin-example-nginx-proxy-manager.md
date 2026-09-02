@@ -8,12 +8,9 @@ locale: zh-CN
 specRefs: []
 codeRefs:
   - backend/src/modules/plugins/builtin-plugins/device-nginx-proxy-manager
-  - docs/插件开发/nginx-proxy-manager/README.md
-  - docs/插件开发/nginx-proxy-manager/测试文档/20260821-证书更新流程测试.md
 testRefs:
   - backend/src/modules/plugins/builtin-plugin-migration.test.ts
   - backend/src/modules/plugins/application/user-plugin-directory-importer.test.ts
-  - docs/插件开发/nginx-proxy-manager/测试文档/20260821-证书更新流程测试.md
 lastVerified: 2026-08-24
 ---
 
