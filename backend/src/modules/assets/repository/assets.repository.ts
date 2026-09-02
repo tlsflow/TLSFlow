@@ -980,7 +980,16 @@ export class PgAssetsRepository implements AssetsRepository {
     if (!target) return undefined;
     const managedTarget = await this.getManagedTargetIncludingDeleted(tenantId, target.managedTargetId);
     const siteAsset = managedTarget?.siteId ? await this.getSiteAssetIncludingDeleted(tenantId, managedTarget.siteId) : undefined;
-    const certificateBindings = (await this.db.query<any>(`select * from pg_certificate_bindings where tenant_id=$1 and deleted_at is null and managed_target_id=$2`, [tenantId, target.managedTargetId])).rows.map((row) => ({
+    const certificateBindings = (await this.db.query<any>(`select binding.*, version.certificate_asset_id
+      from pg_certificate_bindings binding
+      left join pg_certificate_versions version
+        on version.tenant_id = binding.tenant_id
+       and version.id = coalesce(
+         binding.certificate_version_id,
+         binding.target_certificate_version_id,
+         binding.local_certificate_version_id
+       )
+      where binding.tenant_id=$1 and binding.deleted_at is null and binding.managed_target_id=$2`, [tenantId, target.managedTargetId])).rows.map((row) => ({
       id: row.id,
       serviceAssetId: row.service_asset_id ?? undefined,
       siteAssetId: row.site_asset_id ?? undefined,
@@ -989,6 +998,7 @@ export class PgAssetsRepository implements AssetsRepository {
       domainName: row.domain_name ?? undefined,
       bindingKey: row.binding_key,
       bindingType: row.binding_type,
+      certificateAssetId: row.certificate_asset_id ?? undefined,
       status: row.status,
       certificateVersionId: row.certificate_version_id ?? undefined,
       targetCertificateVersionId: row.target_certificate_version_id ?? undefined,

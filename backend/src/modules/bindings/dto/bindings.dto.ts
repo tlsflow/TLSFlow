@@ -24,6 +24,8 @@ export interface CertificateBindingDto {
   protocol?: BindingProtocol;
   bindingKey: string;
   bindingType: BindingType;
+  /** 由证书版本反查得到的证书资产 ID，用于部署目标上下文。 */
+  certificateAssetId?: string;
   certificateVersionId?: string;
   targetCertificateVersionId?: string;
   localCertificateVersionId?: string;

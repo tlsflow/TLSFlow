@@ -448,6 +448,7 @@ export interface ApplicationAssetTargetDetailDto extends ApplicationAssetTargetS
     | 'domainName'
     | 'bindingKey'
     | 'bindingType'
+    | 'certificateAssetId'
     | 'status'
     | 'certificateVersionId'
     | 'targetCertificateVersionId'

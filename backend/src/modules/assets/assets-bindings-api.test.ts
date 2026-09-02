@@ -79,7 +79,7 @@ async function importCertificateVersion(app: Awaited<ReturnType<typeof createMig
     },
   });
   assert.equal(response.statusCode, 201, JSON.stringify(response.body));
-  return (response.body as { version: { id: string; fingerprintSha256: string } }).version;
+  return (response.body as { version: { id: string; certificateAssetId: string; fingerprintSha256: string } }).version;
 }
 
 function createPemChainFixture(commonName = 'assets-bindings.example.test'): { pem: string; privateKeyPem: string } {
@@ -1260,6 +1260,7 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
     });
     assert.equal(managedTargetResponse.statusCode, 201, JSON.stringify(managedTargetResponse.body));
     const managedTarget = managedTargetResponse.body as { id: string; bindingKey?: string };
+    const certificateVersion = await importCertificateVersion(app, headers);
 
     const bindingResponse = await app.inject({
       method: 'POST',
@@ -1275,6 +1276,7 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
         protocol: 'HTTPS',
         bindingKey: managedTarget.bindingKey,
         bindingType: 'WINDOWS_CERT_STORE',
+        certificateVersionId: certificateVersion.id,
         storeLocation: 'LocalMachine',
         storeName: 'My',
         storeThumbprint: '1234567890ABCDEF1234567890ABCDEF12345678',
@@ -1391,7 +1393,7 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
         frameworkInstance?: { id: string };
         siteAsset?: { id: string; siteName: string; deviceId: string; frameworkInstanceId: string };
         managedTarget?: { id: string; targetType: string };
-        certificateBindings: Array<{ managedTargetId?: string; siteAssetId?: string; bindingKey?: string }>;
+        certificateBindings: Array<{ managedTargetId?: string; siteAssetId?: string; bindingKey?: string; certificateAssetId?: string }>;
       };
     };
     assert.equal(detailBody.id, createdAsset.id);
@@ -1407,6 +1409,7 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
     assert.ok(detailBody.targetBindingDetail?.certificateBindings.length);
     assert.equal(detailBody.targetBindingDetail?.certificateBindings[0]?.managedTargetId, managedTarget.id);
     assert.equal(detailBody.targetBindingDetail?.certificateBindings[0]?.siteAssetId, siteAsset.id);
+    assert.equal(detailBody.targetBindingDetail?.certificateBindings[0]?.certificateAssetId, certificateVersion.certificateAssetId);
   });
 
   it('ServiceAsset 使用显式 ManagedTarget 策略，且通用空白工作流创建入口已退役', async () => {
