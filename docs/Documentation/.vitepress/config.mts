@@ -1,7 +1,8 @@
 import { defineConfig } from "vitepress";
 import fs from "node:fs";
 
-const base = process.env.DOCS_BASE ?? "/";
+// 文档默认嵌入 GCAC Web 的 /docs/ 路径；GitHub Pages 构建会显式覆盖为 /
+const base = process.env.DOCS_BASE ?? "/docs/";
 const versionManifest = JSON.parse(
   fs.readFileSync(new URL("../versions.json", import.meta.url), "utf8")
 ) as {
@@ -161,13 +162,62 @@ function createEnSidebar() {
     items: [
       { text: "Dashboard", link: "/manual/dashboard" },
       { text: "Dashboard quick start", link: "/manual/dashboard-quick-start" },
-      { text: "Certificate management", link: "/manual/certificate-management" },
-      { text: "Asset center", link: "/manual/asset-center" },
-      { text: "Certificate deployment", link: "/manual/certificate-deployment" },
+      {
+        text: "Certificate management",
+        link: "/manual/certificate-management",
+        items: [
+          { text: "Certificate assets", link: "/manual/certificate-assets" },
+          { text: "ACME automation", link: "/manual/acme-automation" },
+          { text: "CA operations", link: "/manual/ca-operations" },
+          { text: "Certificate format configuration", link: "/manual/certificate-format-configuration" }
+        ]
+      },
+      {
+        text: "Asset center",
+        link: "/manual/asset-center",
+        items: [
+          { text: "Application assets", link: "/manual/application-assets" },
+          { text: "Cloud accounts", link: "/manual/cloud-accounts" },
+          { text: "Devices", link: "/manual/devices" },
+          { text: "Gateway", link: "/manual/Gateway" }
+        ]
+      },
+      {
+        text: "Certificate deployment",
+        link: "/manual/certificate-deployment",
+        items: [
+          { text: "Automation", link: "/manual/automation" },
+          { text: "Workflow templates", link: "/manual/workflow-templates" },
+          { text: "Execution records", link: "/manual/execution-records" }
+        ]
+      },
       { text: "Plugin center", link: "/manual/plugin-center" },
-      { text: "Monitoring", link: "/manual/monitoring" },
+      { text: "Monitoring and reports", link: "/manual/monitoring" },
       { text: "Audit logs", link: "/manual/audit-logs" },
-      { text: "System settings", link: "/manual/system-settings" }
+      {
+        text: "System settings",
+        link: "/manual/system-settings",
+        items: [
+          { text: "System settings", link: "/manual/system-settings-page" },
+          { text: "Users", link: "/manual/users" },
+          { text: "Roles", link: "/manual/roles" },
+          { text: "Credentials", link: "/manual/credentials" },
+          { text: "Notifications", link: "/manual/notifications" },
+          { text: "Licenses", link: "/manual/licenses" }
+        ]
+      },
+      {
+        text: "Additional topics",
+        items: [
+          { text: "Tenant and RBAC", link: "/manual/tenant-and-rbac" },
+          { text: "Agent", link: "/manual/Agent" },
+          { text: "Reports", link: "/manual/reports" },
+          { text: "Backup and restore", link: "/manual/backup-and-restore" },
+          { text: "Upgrade and rollback", link: "/manual/upgrade-and-rollback" },
+          { text: "Troubleshooting", link: "/manual/troubleshooting" },
+          { text: "Security considerations", link: "/manual/security-considerations" }
+        ]
+      }
     ]
   },
   {
