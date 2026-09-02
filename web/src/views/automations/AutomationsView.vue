@@ -1056,12 +1056,6 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
 </template>
 
 <style scoped>
-:global(.automation-editor-modal .gc-modal__header),
-:global(.automation-editor-modal .gc-modal__body),
-:global(.automation-editor-modal .gc-modal__actions) {
-  padding: var(--gc-space-6);
-}
-
 .automations-page {
   display: grid;
   gap: var(--gc-space-4);

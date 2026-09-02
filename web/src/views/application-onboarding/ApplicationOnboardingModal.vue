@@ -169,8 +169,6 @@ async function clearOnboardingRoute(): Promise<void> {
 .application-onboarding-modal__search input:focus { outline: none; border-color: var(--gc-color-primary-border-strong); box-shadow: var(--gc-shadow-focus); }
 .application-onboarding-modal__sr-only { position: absolute; inline-size: var(--gc-space-hairline); block-size: var(--gc-space-hairline); padding: 0; margin: calc(var(--gc-space-hairline) * -1); overflow: hidden; white-space: nowrap; clip-path: inset(50%); border: 0; }
 :global(.application-onboarding-modal .gc-modal__header > div:first-child) { display: flex; align-items: center; flex: 1 1 auto; min-inline-size: 0; }
-:global(.application-onboarding-modal .gc-modal__header) { padding-block: var(--gc-space-4); }
-:global(.application-onboarding-modal .gc-modal__body) { padding-block: var(--gc-space-4); }
 :global(.application-onboarding-modal .gc-modal__header-actions) { flex: 0 0 auto; min-inline-size: 0; }
 @media (max-width: 48rem) {
   :global(.application-onboarding-modal .gc-modal__header) { flex-wrap: wrap; }

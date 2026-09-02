@@ -650,14 +650,6 @@ function cancelImport() {
   --gc-modal-width: var(--gc-size-modal-lg);
 }
 
-:global(.gc-modal:has(.certificate-import-wizard--modal) .gc-modal__body) {
-  padding: 0;
-}
-
-.certificate-import-wizard--modal > * {
-  padding-inline: var(--gc-space-8);
-}
-
 .certificate-import-wizard--modal .certificate-import-wizard__steps {
   padding-top: var(--gc-space-5);
 }

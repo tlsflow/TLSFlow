@@ -2166,7 +2166,7 @@ function recordString(record: InternalCaRecord, key: string): string {
   display: flex;
   min-height: 0;
   overflow: hidden;
-  padding: calc(var(--gc-space-4) - var(--gc-space-hairline));
+  padding: var(--gc-space-modal-y) var(--gc-space-modal-x);
 }
 
 .task-drawer__list,

@@ -107,9 +107,10 @@
   --gc-space-10: 40px;
   --gc-space-12: 48px;
   --gc-space-nav-gap: var(--gc-space-3);
-  --gc-space-modal-x: var(--gc-space-8);
-  --gc-space-modal-y: var(--gc-space-6);
-  --gc-space-modal-detail-y: 15px;
+  --gc-space-modal-x: var(--gc-space-viewport);
+  --gc-space-modal-y: var(--gc-space-3);
+  --gc-space-modal-edge-y: var(--gc-space-viewport);
+  --gc-space-modal-detail-y: var(--gc-space-modal-y);
   --gc-border-width: 1px;
   --gc-border-width-thick: 2px;
   --gc-control-height-md: 42.5px;

@@ -1120,9 +1120,6 @@ function submit() {
 .automation-editor__api-key-actions .gc-button { white-space: nowrap; }
 .automation-editor__api-key-actions .gc-button--icon svg { width: var(--gc-font-size-md); height: var(--gc-font-size-md); fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
 .automation-editor__api-key > .gc-button { justify-self: start; }
-:global(.automation-api-manual-modal .gc-modal__header),
-:global(.automation-api-manual-modal .gc-modal__body),
-:global(.automation-api-manual-modal .gc-modal__actions) { padding: var(--gc-space-6); }
 .automation-api-manual { display: grid; gap: var(--gc-space-3); }
 .automation-api-manual__identity { display: flex; align-items: center; flex-wrap: wrap; gap: var(--gc-space-2); padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-primary-border); border-radius: var(--gc-radius-md); background: var(--gc-color-primary-soft); color: var(--gc-color-text); }
 .automation-api-manual__identity > span { font-weight: var(--gc-font-weight-semibold); }

@@ -1403,7 +1403,6 @@ function trimProbeStateToTargets() {
       size="xxl"
       width="calc(100vw - var(--gc-space-10) - var(--gc-space-chip-block) - var(--gc-space-10) - var(--gc-space-chip-block))"
       max-height="calc(100vh - var(--gc-space-10) - var(--gc-space-chip-block) - var(--gc-space-10) - var(--gc-space-chip-block))"
-      dialog-class="monitor-tls-modal"
       @update:open="tlsDialogOpen = $event"
     >
       <MonitorTlsDetailView
@@ -1454,14 +1453,6 @@ function trimProbeStateToTargets() {
 </template>
 
 <style scoped>
-:global(.gc-modal.monitor-tls-modal .gc-modal__body) {
-  padding: var(--gc-space-modal-detail-y);
-}
-
-:global(.gc-modal.monitor-tls-modal .gc-modal__header) {
-  padding: var(--gc-space-modal-detail-y);
-}
-
 .monitor-page {
   display: grid;
   gap: var(--gc-space-4);

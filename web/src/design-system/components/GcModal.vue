@@ -28,7 +28,7 @@ function releaseBodyScrollLock() {
 </script>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, useSlots, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 type ModalSize = 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
@@ -90,6 +90,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: boolean]
 }>()
 const { t } = useI18n()
+const slots = useSlots()
 const modalRef = ref<HTMLElement | null>(null)
 const instanceId = ++modalInstanceCount
 const titleId = `gc-modal-title-${instanceId}`
@@ -112,6 +113,8 @@ const modalClass = computed(() => [
   'gc-modal',
   `gc-modal--${props.size}`,
   props.dialogClass ?? '',
+  !props.title && !props.description ? 'gc-modal--without-header' : '',
+  !slots.actions ? 'gc-modal--without-actions' : '',
   props.frameless ? '' : 'gc-card',
   props.frameless ? 'gc-modal--frameless' : '',
   props.edgeToEdge ? 'gc-modal--edge-to-edge' : '',
@@ -384,16 +387,12 @@ onBeforeUnmount(() => {
   padding: var(--gc-space-2);
 }
 
-.gc-modal--edge-to-edge .gc-modal__header {
-  padding-bottom: var(--gc-space-2);
-}
-
 .gc-modal__header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--gc-space-3);
-  padding: var(--gc-space-6) var(--gc-space-8);
+  padding: var(--gc-space-modal-edge-y) var(--gc-space-modal-x) var(--gc-space-modal-y);
   border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
 }
 
@@ -437,7 +436,15 @@ onBeforeUnmount(() => {
   min-height: 0;
   min-width: 0;
   overflow: auto;
-  padding: var(--gc-space-10) var(--gc-space-8);
+  padding: var(--gc-space-modal-y) var(--gc-space-modal-x);
+}
+
+.gc-modal--without-header:not(.gc-modal--frameless) .gc-modal__body {
+  padding-top: var(--gc-space-modal-edge-y);
+}
+
+.gc-modal--without-actions:not(.gc-modal--frameless) .gc-modal__body {
+  padding-bottom: var(--gc-space-modal-edge-y);
 }
 
 .gc-modal__error {
@@ -461,7 +468,7 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--gc-space-2);
-  padding: var(--gc-space-5) var(--gc-space-8);
+  padding: var(--gc-space-modal-y) var(--gc-space-modal-x) var(--gc-space-modal-edge-y);
   border-top: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
   background: var(--gc-color-surface-muted);
 }
@@ -538,18 +545,6 @@ onBeforeUnmount(() => {
 @media (max-width: 40rem) {
   .gc-modal {
     border-radius: var(--gc-radius-modal);
-  }
-
-  .gc-modal__header,
-  .gc-modal__body,
-  .gc-modal__actions {
-    padding-right: var(--gc-space-4);
-    padding-left: var(--gc-space-4);
-  }
-
-  .gc-modal__body {
-    padding-top: var(--gc-space-8);
-    padding-bottom: var(--gc-space-8);
   }
 
   .gc-modal__header h2 {
