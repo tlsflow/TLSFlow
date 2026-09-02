@@ -109,6 +109,8 @@ const automationScheduleUnit = ref<'daily' | 'weekly' | 'monthly'>('daily')
 const automationScheduleDay = ref('1')
 const automationScheduleTime = ref('02:00')
 const automationTimeZone = ref(Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai')
+const automationDeploymentMode = ref<'immediate' | 'scheduled'>('immediate')
+const automationDeploymentScheduleTime = ref('02:00')
 const commitProgress = ref<Array<{ key: string; status: 'pending' | 'running' | 'success' | 'failed' }>>([])
 const certificateAssets = ref<CertificateOption[]>([])
 const certificateVersions = ref<Record<string, unknown>[]>([])
@@ -640,12 +642,22 @@ async function complete(): Promise<void> {
 }
 function buildAutomationConfiguration(applicationAssetId: string): AutomationConfiguration & { name: string; description: string } {
   const trigger: AutomationConfiguration['trigger'] = automationTrigger.value === 'certificate_version_created'
-    ? { type: 'certificate_version_created', sources: ['manual_import', 'acme_issue'] }
+    ? {
+      type: 'certificate_version_created',
+      sources: ['manual_import', 'acme_issue'],
+      ...(automationDeploymentMode.value === 'scheduled' ? {
+        deploymentSchedule: {
+          hour: Number(automationDeploymentScheduleTime.value.split(':')[0] ?? 2),
+          minute: Number(automationDeploymentScheduleTime.value.split(':')[1] ?? 0),
+          timeZone: automationTimeZone.value || Intl.DateTimeFormat().resolvedOptions().timeZone,
+        },
+      } : {}),
+    }
     : automationTrigger.value === 'once'
       ? { type: 'once', runAt: new Date(automationRunAt.value).toISOString() }
       : { type: 'schedule', cron: buildAutomationCron(), timeZone: automationTimeZone.value || 'Asia/Shanghai' }
   return {
-    name: t('applicationOnboarding.automation.defaultName'),
+    name: buildAutomationName(),
     description: t('applicationOnboarding.automation.defaultDescription'),
     trigger,
     targetResolver: { type: 'certificate_version_targets', assetIds: [applicationAssetId] },
@@ -655,6 +667,18 @@ function buildAutomationConfiguration(applicationAssetId: string): AutomationCon
     ],
     guardrails: { maxTargetsPerRun: 1, concurrencyLimit: 1, requirePreview: true, requireDryRun: true, requireApproval: false },
   }
+}
+/** 使用当前浏览器本地日期生成自动化名称，避免把 UTC 日期展示给用户。 */
+function formatCompactLocalDate(date = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${String(date.getFullYear()).padStart(4, '0')}${pad(date.getMonth() + 1)}${pad(date.getDate())}`
+}
+function buildAutomationName(): string {
+  return [
+    t('applicationOnboarding.automation.defaultName'),
+    normalizeDomain(accessDomain.value),
+    formatCompactLocalDate(),
+  ].join('—')
 }
 function buildAutomationCron(): string {
   const [hour = '2', minute = '0'] = (automationScheduleTime.value || '02:00').split(':')
@@ -1010,6 +1034,8 @@ function resetOnboardingState(): void {
   automationScheduleDay.value = '1'
   automationScheduleTime.value = '02:00'
   automationTimeZone.value = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai'
+  automationDeploymentMode.value = 'immediate'
+  automationDeploymentScheduleTime.value = '02:00'
   commitProgress.value = []
   resetDeviceSelection()
   resetTargetSelection()
@@ -1449,6 +1475,26 @@ defineExpose({ goPrevious, runFooterPrimary, cancel })
               </label>
             </div>
           </fieldset>
+          <div v-if="automationTrigger === 'certificate_version_created'" class="onboarding-automation__detail">
+            <fieldset class="onboarding-automation__triggers">
+              <legend>{{ t('applicationOnboarding.automation.schedule') }}</legend>
+              <div class="onboarding-automation__options-row">
+                <label class="onboarding-automation__option onboarding-automation__deployment-option" :class="{ 'onboarding-automation__option--selected': automationDeploymentMode === 'immediate' }">
+                  <input v-model="automationDeploymentMode" type="radio" value="immediate">
+                  <span><strong>{{ t('automations.deploymentSchedule.immediate') }}</strong></span>
+                </label>
+                <label class="onboarding-automation__option onboarding-automation__deployment-option" :class="{ 'onboarding-automation__option--selected': automationDeploymentMode === 'scheduled' }">
+                  <input v-model="automationDeploymentMode" type="radio" value="scheduled">
+                  <span><strong>{{ t('automations.deploymentSchedule.scheduled') }}</strong></span>
+                </label>
+              </div>
+            </fieldset>
+            <label v-if="automationDeploymentMode === 'scheduled'">
+              {{ t('applicationOnboarding.automation.scheduleTime') }}
+              <input v-model="automationDeploymentScheduleTime" type="time">
+            </label>
+            <p v-if="automationDeploymentMode === 'scheduled'" class="onboarding-hint">{{ t('automations.deploymentSchedule.help') }}</p>
+          </div>
           <div v-if="automationTrigger === 'once'" class="onboarding-automation__detail">
             <label>{{ t('applicationOnboarding.automation.runAt') }}<input v-model="automationRunAt" type="datetime-local"></label>
             <p class="onboarding-hint">{{ t('applicationOnboarding.automation.onceHint') }}</p>
@@ -1621,6 +1667,8 @@ h1, h2, p { margin: 0; }
 .onboarding-automation__options-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gc-space-2); }
 .onboarding-automation__option { display: flex; flex-direction: column; align-items: flex-start; gap: var(--gc-space-1); padding: var(--gc-space-2); color: var(--gc-color-text); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-sm); background: var(--gc-color-surface-soft); cursor: pointer; min-block-size: 0; }
 .onboarding-automation__option--selected { border-color: var(--gc-color-primary-border-strong); background: var(--gc-color-primary-soft); }
+.onboarding-automation__deployment-option { min-block-size: auto; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.onboarding-automation__deployment-option.onboarding-automation__option--selected { border-color: transparent; background: transparent; }
 .onboarding-automation__option input { flex: 0 0 auto; inline-size: auto; min-height: auto; margin: 0; }
 .onboarding-automation__option span { display: grid; gap: var(--gc-space-compact); }
 .onboarding-automation__option strong { color: var(--gc-color-text-strong); font-size: var(--gc-font-size-xs); font-weight: var(--gc-font-weight-semibold); line-height: var(--gc-line-height-tight); }

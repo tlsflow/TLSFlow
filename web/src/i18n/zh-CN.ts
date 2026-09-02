@@ -546,6 +546,7 @@ export default {
       OTHER: '其他任务'
     },
     summaryTemplates: {
+      WAITING_RESULT_COUNTDOWN: '等待部署时间，倒计时 {countdown}',
       QUEUED: '{task}已入队',
       RUNNING: '{task}执行中',
       RETRY_WAITING: '{task}等待重试',
@@ -737,6 +738,7 @@ export default {
     groupRoleMappings: '组角色映射'
   },
   automations: {
+    deploymentSchedule: { immediate: '立刻更新', scheduled: '指定时间更新', help: '在证书更新版本后的下一个指定时间运行' },
     title: '自动化',
     description: '集中管理证书更新计划的定时、按需和批量执行。',
     empty: '暂无自动化配置。',

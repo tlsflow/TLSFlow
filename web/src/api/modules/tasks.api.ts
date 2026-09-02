@@ -17,6 +17,8 @@ export interface TaskRun {
   readonly payload?: Record<string, unknown>
   readonly progress?: Record<string, unknown>
   readonly createdAt: string
+  readonly availableAt?: string
+  readonly nextAttemptAt?: string
   readonly startedAt?: string
   readonly finishedAt?: string
   readonly lastErrorCode?: string

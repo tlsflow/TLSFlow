@@ -140,6 +140,8 @@ const deploymentPlanNameMisses = new Set<string>()
 const acmeRenewalTaskPresentations = ref<Record<string, AcmeRenewalTaskPresentation>>({})
 const acmeRenewalTaskPresentationRequests = new Set<string>()
 const acmeRenewalTaskPresentationMisses = new Set<string>()
+const countdownNow = ref(Date.now())
+let countdownTimer: number | undefined
 let disposeTaskActivity: (() => void) | undefined
 let disposeTaskRealtime: (() => void) | undefined
 let taskRefreshTimer: number | undefined
@@ -164,6 +166,7 @@ const pluginRefreshEnabledCount = computed(() => pluginRefreshResult.value.versi
 const pluginRefreshTimeline = computed(() => buildPluginRefreshTimeline(detail.value?.events ?? [], detailTask.value))
 watch(() => props.open, (open) => {
   if (open) {
+    startCountdownTimer()
     window.addEventListener('keydown', handleKeydown)
     void nextTick(() => {
       // 中文说明：实时首帧可能尚未到达，先用接口补齐历史记录；有实时数据时不重复请求。
@@ -172,6 +175,7 @@ watch(() => props.open, (open) => {
       }
     })
   } else {
+    stopCountdownTimer()
     window.removeEventListener('keydown', handleKeydown)
     if (!switchingToAllTasks.value) allTasksModalOpen.value = false
     detail.value = null
@@ -206,7 +210,19 @@ onBeforeUnmount(() => {
   disposeTaskRealtime?.()
   disposeTaskActivity = undefined
   disposeTaskRealtime = undefined
+  stopCountdownTimer()
 })
+
+function startCountdownTimer(): void {
+  if (countdownTimer !== undefined) return
+  countdownTimer = window.setInterval(() => { countdownNow.value = Date.now() }, 1000)
+}
+
+function stopCountdownTimer(): void {
+  if (countdownTimer === undefined) return
+  window.clearInterval(countdownTimer)
+  countdownTimer = undefined
+}
 
 onMounted(() => {
   disposeTaskActivity = subscribeTaskActivity((state) => {
@@ -966,7 +982,26 @@ function taskStatusSummary(task: TaskRun): string {
   if (task.taskType === 'ACME_CERTIFICATE_RENEWAL') return acmeRenewalTaskSummary(task)
   const status = taskStatusLabel(task)
   const overview = taskOverview(task)
+  const countdown = deferredAutomationCountdown(task)
+  if (countdown) return t('tasks.summaryTemplates.WAITING_RESULT_COUNTDOWN', { countdown })
   return overview === status ? overview : `${status} · ${overview}`
+}
+
+function deferredAutomationCountdown(task: TaskRun): string | undefined {
+  if (task.taskType !== 'AUTOMATION_RUN' || task.status !== 'WAITING_RESULT') return undefined
+  const scheduledAt = firstNonEmptyString(
+    stringFromRecord(task.resourceSummary, 'scheduledAt'),
+    stringFromRecord(task.progress, 'scheduledAt'),
+    task.availableAt,
+  )
+  const target = scheduledAt ? Date.parse(scheduledAt) : Number.NaN
+  if (!Number.isFinite(target) || target <= countdownNow.value) return undefined
+  const remaining = Math.max(0, target - countdownNow.value)
+  const totalSeconds = Math.ceil(remaining / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
 }
 
 function acmeRenewalTaskSummary(task: TaskRun): string {
@@ -1903,6 +1938,7 @@ function recordString(record: InternalCaRecord, key: string): string {
                           <span :class="{ 'task-drawer__automation-item-stat--danger': automationTaskMetrics(task).failed > 0 }">{{ t('automations.progress.failed') }} {{ automationTaskMetrics(task).failed }}</span>
                           <span>{{ t('automations.runs.progress', { succeeded: automationTaskMetrics(task).succeeded, total: automationTaskMetrics(task).total }) }}</span>
                         </span>
+                        <span v-if="deferredAutomationCountdown(task)" class="task-drawer__item-summary">{{ t('tasks.summaryTemplates.WAITING_RESULT_COUNTDOWN', { countdown: deferredAutomationCountdown(task) }) }}</span>
                         <span class="task-drawer__item-meta-row">
                           <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
                         </span>
@@ -2020,6 +2056,7 @@ function recordString(record: InternalCaRecord, key: string): string {
                   <span :class="{ 'task-drawer__automation-item-stat--danger': automationTaskMetrics(task).failed > 0 }">{{ t('automations.progress.failed') }} {{ automationTaskMetrics(task).failed }}</span>
                   <span>{{ t('automations.runs.progress', { succeeded: automationTaskMetrics(task).succeeded, total: automationTaskMetrics(task).total }) }}</span>
                 </span>
+                <span v-if="deferredAutomationCountdown(task)" class="task-drawer__item-summary">{{ t('tasks.summaryTemplates.WAITING_RESULT_COUNTDOWN', { countdown: deferredAutomationCountdown(task) }) }}</span>
                 <span class="task-drawer__item-meta-row">
                   <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
                 </span>

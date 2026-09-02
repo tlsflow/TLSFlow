@@ -524,6 +524,7 @@ export default {
       OTHER: 'Autre tâche'
     },
     summaryTemplates: {
+      WAITING_RESULT_COUNTDOWN: "En attente de l'heure de déploiement, compte à rebours {countdown}",
       QUEUED: '{task} mis en file d’attente',
       RUNNING: '{task} en cours',
       RETRY_WAITING: 'Nouvelle tentative en attente pour {task}',
@@ -715,6 +716,7 @@ export default {
     groupRoleMappings: 'Group role mappings'
   },
   automations: {
+    deploymentSchedule: { immediate: 'Mettre à jour immédiatement', scheduled: 'Mettre à jour à une heure précise', help: 'Exécuter au prochain horaire défini après une nouvelle version du certificat' },
     title: 'Automatisations',
     description: 'Gérez les exécutions planifiées, à la demande et par lot des plans de renouvellement de certificats.',
     empty: 'Aucune automatisation.',
@@ -4953,6 +4955,7 @@ export default {
     device: { title: 'Connecter la plateforme', existing: 'Utiliser un équipement existant', new: 'Ajouter un équipement', deviceId: 'ID équipement', selectPlaceholder: 'Selectionner un équipement', noExisting: 'Aucun équipement sain n est disponible pour cette plateforme.', existingLoading: 'Chargement des équipements compatibles.', refreshExisting: 'Actualiser les équipements', newDescription: 'Ouvre l assistant unifie d integration des équipements, puis revient ici apres l enregistrement de l Agent ou de l équipement.', newAction: 'Ouvrir l integration équipement', username: 'Nom utilisateur', password: 'Mot de passe', host: 'Adresse', port: 'Port' },
     resource: { title: 'Choisir une ressource de plateforme', refresh: 'Actualiser les ressources', loading: 'Chargement des ressources disponibles.', empty: 'Aucune ressource de plateforme disponible.' },
     target: { title: 'Choisir le site', siteName: 'Nom du site', selectedSite: 'Site sélectionné', accessDomain: 'Domaine d’accès', verifyUrl: 'URL de vérification', accessDomainPlaceholder: 'ex. ikuai.jacksonz.cn', verifyUrlPlaceholder: 'ex. https://ikuai.jacksonz.cn:443', domainHint: 'Le point de gestion peut être une IP, mais le domaine d’accès et l’URL de vérification doivent utiliser le même nom DNS.', invalidConfiguration: 'Saisissez un domaine DNS valide et une URL de vérification sur le même hôte.', listenAddress: 'Adresse d’écoute', listenPort: 'Port d’écoute', protocol: 'Protocole', selectable: 'Cible gérée sélectionnable', notSelectable: 'Non sélectionnable', unavailableReason: 'Motif de non-sélection', missingValue: 'Non fourni', reasons: { managedTargetInactive: 'Cette cible gérée est inactive.', workflowCapabilityMissing: 'Cette cible ne fournit pas la capacité de workflow requise par cette plateforme.', targetEndpointMissing: 'Il manque à cette cible une adresse, un port ou un protocole d’écoute complet.', unknown: 'Cette cible ne remplit pas actuellement les conditions de sélection.' } }, certificate: { title: 'Choisir la version du certificat', asset: 'Actif de certificat', version: 'Version du certificat', requiredFormat: 'Cette plateforme nécessite un certificat au format {formats}' },
+    automation: { defaultName: "Mise à jour automatique du certificat de l’application", defaultDescription: "Automatisation de mise à jour du certificat créée par l’assistant d’intégration de l’application." },
     complete: { title: "Intégration terminée", description: "L’actif applicatif et le plan de déploiement sont prêts.", progressAria: "Progression de la création", viewSummary: "Voir le résumé de configuration", stages: { application: "Créer l’application", certificate: "Lier le certificat", automation: "Créer l’automation" }, status: { pending: "En attente", running: "En cours", success: "Terminé", failed: "Échec" } },
     actions: { customManual: 'Création manuelle', openWizard: 'Assistant d’intégration', previous: 'Précédent', continue: 'Continuer', refresh: 'Actualiser les sites', review: 'Vérifier le certificat', complete: 'Terminer', cancel: 'Annuler' },
     messages: { requestFailed: 'Échec de la requête. Vérifiez les droits et les données.', noPlatforms: 'Aucune plateforme disponible.', noSearchResults: 'Aucune plateforme correspondante.' }

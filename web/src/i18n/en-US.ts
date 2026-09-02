@@ -546,6 +546,7 @@ export default {
       OTHER: 'Other task'
     },
     summaryTemplates: {
+      WAITING_RESULT_COUNTDOWN: 'Waiting for deployment time, countdown {countdown}',
       QUEUED: '{task} queued',
       RUNNING: '{task} running',
       RETRY_WAITING: 'Retry pending for {task}',
@@ -737,6 +738,7 @@ export default {
     groupRoleMappings: 'Group role mappings'
   },
   automations: {
+    deploymentSchedule: { immediate: 'Update immediately', scheduled: 'Update at a specified time', help: 'Run at the next specified time after a new certificate version is available' },
     title: 'Automations',
     description: 'Manage scheduled, on-demand, and batch certificate renewal plan execution.',
     empty: 'No automations yet.',

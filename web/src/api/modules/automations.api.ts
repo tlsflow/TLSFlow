@@ -6,7 +6,7 @@ export type AutomationRunStatus = 'queued' | 'running' | 'waiting_approval' | 's
 export type AutomationExternalExecutionMode = 'direct' | 'approval'
 
 export interface AutomationConfiguration {
-  trigger: { type: 'api' } | { type: 'once'; runAt: string } | { type: 'on_demand' } | { type: 'schedule'; cron: string; timeZone: string; startsAt?: string; endsAt?: string } | { type: 'certificate_version_created'; sources?: Array<'external_source' | 'manual_import' | 'acme_issue'> }
+  trigger: { type: 'api' } | { type: 'once'; runAt: string } | { type: 'on_demand' } | { type: 'schedule'; cron: string; timeZone: string; startsAt?: string; endsAt?: string } | { type: 'certificate_version_created'; sources?: Array<'external_source' | 'manual_import' | 'acme_issue'>; deploymentSchedule?: { hour: number; minute: number; timeZone: string } }
   externalApi?: { executionMode: AutomationExternalExecutionMode }
   filters?: Array<{ field: string; operator: 'eq' | 'neq' | 'in' | 'contains_any' | 'contains_all'; value?: unknown }>
   targetResolver: { type: 'certificate_version_targets'; assetIds?: string[] }

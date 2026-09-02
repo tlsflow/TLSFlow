@@ -42,6 +42,9 @@ const form = reactive({
   cron: '0 2 * * *',
   timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   certificateSources: ['acme_issue', 'manual_import'] as CertificateEventSource[],
+  deploymentMode: 'immediate' as 'immediate' | 'scheduled',
+  deploymentScheduleHour: 2,
+  deploymentScheduleMinute: 0,
   targetScopeMode: 'all_related_assets' as TargetScopeMode,
   selectedAssetIds: [] as string[],
   certificateDomains: [] as string[],
@@ -51,6 +54,14 @@ const form = reactive({
 })
 
 const currentStep = ref<1 | 2 | 3>(1)
+const deploymentScheduleTime = computed({
+  get: () => `${String(form.deploymentScheduleHour).padStart(2, '0')}:${String(form.deploymentScheduleMinute).padStart(2, '0')}`,
+  set: (value: string) => {
+    const [hour, minute] = value.split(':').map(Number)
+    if (Number.isInteger(hour)) form.deploymentScheduleHour = hour
+    if (Number.isInteger(minute)) form.deploymentScheduleMinute = minute
+  },
+})
 
 const certificateAssets = ref<ApiRecord[]>([])
 const certificateDomainOptions = ref<Array<{ value: string; label: string }>>([])
@@ -230,6 +241,9 @@ watch(() => props.automation, (automation) => {
     certificateSources: trigger.type === 'certificate_version_created'
       ? normalizeCertificateEventSources(trigger.sources ?? (eventSources.length ? eventSources : ['acme_issue', 'manual_import']))
       : ['acme_issue', 'manual_import'],
+    deploymentMode: trigger.type === 'certificate_version_created' && trigger.deploymentSchedule ? 'scheduled' : 'immediate',
+    deploymentScheduleHour: trigger.type === 'certificate_version_created' ? (trigger.deploymentSchedule?.hour ?? 2) : 2,
+    deploymentScheduleMinute: trigger.type === 'certificate_version_created' ? (trigger.deploymentSchedule?.minute ?? 0) : 0,
     targetScopeMode: selectedAssetIds.length > 0 ? 'selected_assets' : 'all_related_assets',
     selectedAssetIds,
     certificateDomains: eventDomains.map(normalizeDomain),
@@ -481,7 +495,17 @@ function normalizeCertificateEventSources(sources: string[]): CertificateEventSo
 function buildTrigger(): AutomationConfiguration['trigger'] {
   if (form.triggerType === 'once') return { type: 'once', runAt: toUtcIsoTimestamp(form.onceRunAt) }
   if (form.triggerType === 'schedule') return { type: 'schedule', cron: buildCron(), timeZone: form.timeZone.trim() }
-  if (form.triggerType === 'certificate_version_created') return { type: 'certificate_version_created', sources: [...form.certificateSources] }
+  if (form.triggerType === 'certificate_version_created') return {
+    type: 'certificate_version_created',
+    sources: [...form.certificateSources],
+    ...(form.deploymentMode === 'scheduled' ? {
+      deploymentSchedule: {
+        hour: form.deploymentScheduleHour,
+        minute: form.deploymentScheduleMinute,
+        timeZone: form.timeZone.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone,
+      },
+    } : {}),
+  }
   if (form.triggerType === 'on_demand') return { type: 'on_demand' }
   return { type: 'api' }
 }
@@ -673,7 +697,7 @@ function submit() {
     <section v-if="currentStep === 1" class="automation-editor__panel">
       <div class="automation-editor__grid">
         <label class="automation-editor__field--full">
-          <span>{{ t('automations.fields.trigger') }}</span>
+          <span class="automation-editor__section-title">{{ t('automations.fields.trigger') }}</span>
           <select v-model="form.triggerType" data-testid="automation-trigger">
             <option value="certificate_version_created">{{ t('automations.scheduleBuilder.certificateVersionCreated') }}</option>
             <option value="api">{{ t('automations.scheduleBuilder.api') }}</option>
@@ -731,7 +755,7 @@ function submit() {
 
         <template v-else-if="form.triggerType === 'certificate_version_created'">
           <div class="automation-editor__field automation-editor__field--full">
-            <span>{{ t('automations.fields.eventSources') }}</span>
+            <span class="automation-editor__section-title">{{ t('automations.fields.eventSources') }}</span>
             <div class="automation-editor__checkbox-grid">
               <label class="automation-editor__check">
                 <input type="checkbox" :checked="form.certificateSources.includes('acme_issue')" @change="toggleCertificateSource('acme_issue')" />
@@ -741,6 +765,23 @@ function submit() {
                 <input type="checkbox" :checked="form.certificateSources.includes('manual_import')" @change="toggleCertificateSource('manual_import')" />
                 <span>{{ t('automations.eventSources.manual_import') }}</span>
               </label>
+            </div>
+          </div>
+          <div class="automation-editor__field automation-editor__field--full">
+            <span class="automation-editor__section-title">{{ t('automations.form.schedule') }}</span>
+            <div class="automation-editor__radio-grid" role="radiogroup" :aria-label="t('automations.form.schedule')">
+              <label class="automation-editor__radio-option" :class="{ 'is-selected': form.deploymentMode === 'immediate' }">
+                <input v-model="form.deploymentMode" type="radio" value="immediate" />
+                <span>{{ t('automations.deploymentSchedule.immediate') }}</span>
+              </label>
+              <label class="automation-editor__radio-option" :class="{ 'is-selected': form.deploymentMode === 'scheduled' }">
+                <input v-model="form.deploymentMode" type="radio" value="scheduled" data-testid="automation-deployment-schedule-enabled" />
+                <span>{{ t('automations.deploymentSchedule.scheduled') }}</span>
+              </label>
+            </div>
+            <div v-if="form.deploymentMode === 'scheduled'" class="automation-editor__schedule-fields">
+              <label><span>{{ t('applicationOnboarding.automation.scheduleTime') }}</span><input v-model="deploymentScheduleTime" type="time" /></label>
+              <small>{{ t('automations.deploymentSchedule.help') }}</small>
             </div>
           </div>
         </template>
@@ -1095,6 +1136,7 @@ function submit() {
 .automation-editor__panel p, .automation-editor small { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); line-height: var(--gc-line-height-relaxed); }
 .automation-editor__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-3); }
 .automation-editor label, .automation-editor__field { display: grid; align-content: start; gap: var(--gc-space-1); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); }
+.automation-editor__section-title { display: block; margin-block-end: var(--gc-space-1); color: var(--gc-color-text-strong); font-size: var(--gc-font-size-md); font-weight: var(--gc-font-weight-semibold); line-height: var(--gc-line-height-tight); }
 .automation-editor__field--full { grid-column: 1 / -1; }
 .automation-editor input, .automation-editor textarea, .automation-editor select { width: 100%; border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-solid); color: var(--gc-color-text); font: inherit; }
 .automation-editor input:not([type='checkbox']), .automation-editor select:not([multiple]) { align-self: start; height: var(--gc-control-height-md); padding: 0 var(--gc-space-3); }
@@ -1144,7 +1186,12 @@ function submit() {
 .automation-editor__chain li > strong { display: grid; place-items: center; min-width: var(--gc-space-5); min-height: var(--gc-space-5); border-radius: var(--gc-radius-full); background: var(--gc-color-primary); color: var(--gc-color-text-inverse); font-size: var(--gc-font-size-xs); }
 .automation-editor__check { display: flex !important; align-items: center; gap: var(--gc-space-2); }
 .automation-editor__check input { width: auto; }
-.automation-editor__checkbox-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-3); }
+.automation-editor__radio-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: var(--gc-space-control); column-gap: var(--gc-space-2); max-inline-size: calc(var(--gc-size-card-min) * 2 + var(--gc-space-2)); }
+.automation-editor__radio-option { display: flex !important; align-items: center; gap: var(--gc-space-2); block-size: calc(var(--gc-control-height-sm) * 0.6); min-height: calc(var(--gc-control-height-sm) * 0.6); padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--gc-color-text); cursor: pointer; }
+.automation-editor__radio-option.is-selected { color: var(--gc-color-primary-strong); }
+.automation-editor__radio-option input { align-self: center !important; flex: 0 0 auto; width: auto !important; height: auto !important; min-height: 0 !important; margin: 0; padding: 0; }
+.automation-editor__radio-option span { white-space: nowrap; line-height: var(--gc-line-height-tight); }
+.automation-editor__checkbox-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: var(--gc-space-control); column-gap: var(--gc-space-3); }
 .automation-editor__scope-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-2); }
 .automation-editor__transfer { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: var(--gc-space-2); align-items: stretch; }
 .automation-editor__transfer-panel { display: grid; gap: var(--gc-space-1); min-width: 0; }
@@ -1167,6 +1214,7 @@ function submit() {
   .automation-editor__chain,
   .automation-editor__scope-grid,
   .automation-editor__checkbox-grid,
+  .automation-editor__radio-grid,
   .automation-editor__api-key-value {
     grid-template-columns: 1fr;
   }

@@ -527,6 +527,7 @@ export default {
       OTHER: "其他任務"
     },
     summaryTemplates: {
+      WAITING_RESULT_COUNTDOWN: '等待部署時間，倒數 {countdown}',
       QUEUED: "{task}已入列",
       RUNNING: "{task}執行中",
       RETRY_WAITING: "{task}等待重試",
@@ -718,6 +719,7 @@ export default {
     groupRoleMappings: "群組角色對映"
   },
   automations: {
+    deploymentSchedule: { immediate: '立即更新', scheduled: '指定時間更新', help: '在憑證更新版本後的下一個指定時間執行' },
     title: "自動化",
     description: "集中管理憑證更新計畫的定時、按需和批次執行。",
     empty: "暫無自動化設定。",
@@ -4728,6 +4730,7 @@ export default {
     device: { title: '連接業務平台', existing: '使用現有裝置', new: '新增裝置', deviceId: '裝置 ID', selectPlaceholder: '請選擇裝置', noExisting: '沒有可用於此平台的健康裝置。', existingLoading: '正在載入相容裝置。', refreshExisting: '重新整理裝置', newDescription: '將開啟統一裝置接入向導，完成 Agent 註冊或裝置接入後返回本向導。', newAction: '開啟裝置接入向導', username: '使用者名稱', password: '密碼', host: '位址', port: '連接埠' },
     resource: { title: '選擇平台資源', refresh: '重新整理資源', loading: '正在載入可用資源。', empty: '目前沒有可用的平台資源。' },
     target: { title: '選擇業務站點', siteName: '站點名稱', selectedSite: '已選站點', accessDomain: '存取網域', verifyUrl: '驗證 URL', accessDomainPlaceholder: '例如 ikuai.jacksonz.cn', verifyUrlPlaceholder: '例如 https://ikuai.jacksonz.cn:443', domainHint: '管理端點可以是 IP，但存取網域和驗證 URL 必須使用相同的 DNS 名稱。', invalidConfiguration: '請輸入有效的 DNS 存取網域，以及相同主機的驗證 URL。', listenAddress: '監聽位址', listenPort: '監聽連接埠', protocol: '通訊協定', selectable: '可選擇的受管目標', notSelectable: '不可選擇', unavailableReason: '不可選擇原因', missingValue: '未提供', reasons: { managedTargetInactive: '這個受管目標已停用。', workflowCapabilityMissing: '這個目標不具備目前平台所需的工作流程執行能力。', targetEndpointMissing: '這個目標缺少完整的監聽位址、連接埠或通訊協定。', unknown: '這個目標目前不符合選擇條件。' } }, certificate: { title: '選擇憑證版本', asset: '憑證資產', version: '憑證版本', requiredFormat: '該平台需要 {formats} 格式憑證' },
+    automation: { defaultName: '應用程式憑證自動更新', defaultDescription: '由應用程式接入精靈建立的憑證更新自動化。' },
     complete: { title: '接入完成', description: '應用程式資產與部署計畫已建立。', progressAria: '建立進度', viewSummary: '檢視設定摘要', stages: { application: '建立應用程式', certificate: '關聯憑證', automation: '建立自動化計畫' }, status: { pending: '等待中', running: '進行中', success: '已完成', failed: '失敗' } },
     actions: { customManual: '傳統手動建立', openWizard: '使用接入精靈', previous: '上一步', continue: '繼續', refresh: '重新整理站點', review: '確認憑證', complete: '完成接入', cancel: '取消精靈' },
     messages: { requestFailed: '接入請求失敗，請檢查權限與輸入。', noPlatforms: '目前沒有可用業務平台。', noSearchResults: '找不到符合的平台。' }
