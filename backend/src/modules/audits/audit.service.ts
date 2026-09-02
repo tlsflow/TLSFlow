@@ -25,6 +25,7 @@ export interface WriteAuditInput {
 
 export interface AuditQuery {
   tenantId?: string;
+  keyword?: string;
   actorId?: string;
   eventType?: string;
   resourceType?: string;
@@ -121,6 +122,7 @@ export class AuditService {
     return this.logs.list((log) => {
       return !isSuppressedAudit(log)
         && (!query.tenantId || log.tenantId === query.tenantId)
+        && matchesAuditKeyword(log, query.keyword)
         && (!query.actorId || log.actorId === query.actorId)
         && (!query.eventType || log.eventType === query.eventType)
         && (!query.resourceType || log.resourceType === query.resourceType)
@@ -169,6 +171,7 @@ export class AuditService {
     const params: unknown[] = [];
     const conditions: string[] = [];
     appendAuditCondition(conditions, params, "payload->>'tenantId'", query.tenantId);
+    appendAuditKeywordCondition(conditions, params, query.keyword);
     appendAuditCondition(conditions, params, "payload->>'actorId'", query.actorId);
     appendAuditCondition(conditions, params, "payload->>'eventType'", query.eventType);
     appendAuditCondition(conditions, params, "payload->>'resourceType'", query.resourceType);
@@ -200,6 +203,19 @@ function appendAuditCondition(conditions: string[], params: unknown[], expressio
   if (!value) return;
   params.push(value);
   conditions.push(`${expression} = $${params.length}`);
+}
+
+function appendAuditKeywordCondition(conditions: string[], params: unknown[], keyword: string | undefined): void {
+  const normalized = keyword?.trim();
+  if (!normalized) return;
+  params.push(`%${normalized}%`);
+  conditions.push('payload::text ilike $' + params.length);
+}
+
+function matchesAuditKeyword(log: AuditLogEntity, keyword: string | undefined): boolean {
+  const normalized = keyword?.trim().toLocaleLowerCase();
+  if (!normalized) return true;
+  return JSON.stringify(log).toLocaleLowerCase().includes(normalized);
 }
 
 function appendSuppressedAuditCondition(conditions: string[]): void {

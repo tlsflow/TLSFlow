@@ -2090,6 +2090,10 @@ export default {
       exporting: '내보내기 중…',
       refreshing: '새로 고침 중...'
     },
+    filters: {
+      keywordPlaceholder: '작업, 개체 또는 요약 검색',
+      apply: '검색'
+    },
     errors: {
       exportFailed: '내보내기감사증거실패',
       loadFailed: '감사 로그를 불러오는 데 실패했습니다',
@@ -2108,6 +2112,10 @@ export default {
       userActions: {
         title: '사용자 작업',
         description: '사용자가 직접 시작하는 업무 변경 및 접근 작업.'
+      },
+      success: {
+        title: '성공 이벤트',
+        description: '성공적으로 완료되고 기록된 작업 이벤트.'
       }
     },
     list: {

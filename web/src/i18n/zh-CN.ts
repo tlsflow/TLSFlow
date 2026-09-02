@@ -2217,6 +2217,10 @@ export default {
       exporting: '导出中…',
       refreshing: '刷新中…'
     },
+    filters: {
+      keywordPlaceholder: '搜索操作、对象或摘要',
+      apply: '搜索'
+    },
     errors: {
       exportFailed: '导出审计证据失败',
       loadFailed: '审计日志加载失败',
@@ -2235,6 +2239,10 @@ export default {
       userActions: {
         title: '用户操作',
         description: '由用户直接发起的业务变更和访问动作。'
+      },
+      success: {
+        title: '成功事件',
+        description: '已成功完成并记录的操作事件。'
       }
     },
     list: {

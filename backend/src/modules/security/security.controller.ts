@@ -871,6 +871,7 @@ export class SecurityController {
       subject,
       query: {
         tenantId: requireTenantId(request),
+        keyword: readOptionalQueryString(request, 'keyword'),
         actorId: readOptionalQueryString(request, 'actorId'),
         eventType: readOptionalQueryString(request, 'eventType'),
         resourceType: readOptionalQueryString(request, 'resourceType'),

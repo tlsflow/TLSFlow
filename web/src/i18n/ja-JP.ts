@@ -2112,6 +2112,10 @@ export default {
       exporting: 'エクスポート中…',
       refreshing: '更新中…'
     },
+    filters: {
+      keywordPlaceholder: '操作、オブジェクト、概要を検索',
+      apply: '検索'
+    },
     errors: {
       exportFailed: 'エクスポート監査証拠に失敗しました',
       loadFailed: '監査ログの読み込みに失敗しました',
@@ -2130,6 +2134,10 @@ export default {
       userActions: {
         title: 'ユーザー操作',
         description: 'ユーザーが直接開始した業務変更とアクセス操作です。'
+      },
+      success: {
+        title: '成功イベント',
+        description: '正常に完了して記録された操作イベント。'
       }
     },
     list: {

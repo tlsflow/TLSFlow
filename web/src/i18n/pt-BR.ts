@@ -2090,6 +2090,10 @@ export default {
       exporting: 'Exportando…',
       refreshing: 'Atualizando…'
     },
+    filters: {
+      keywordPlaceholder: 'Buscar ações, objetos ou resumos',
+      apply: 'Buscar'
+    },
     errors: {
       exportFailed: 'Falha ao exportar evidências de auditoria',
       loadFailed: 'Falha ao carregar logs de auditoria',
@@ -2108,6 +2112,10 @@ export default {
       userActions: {
         title: 'Ações de usuários',
         description: 'Alterações de negócio e ações de acesso iniciadas diretamente por usuários.'
+      },
+      success: {
+        title: 'Eventos bem-sucedidos',
+        description: 'Eventos de operação concluídos e registrados com sucesso.'
       }
     },
     list: {

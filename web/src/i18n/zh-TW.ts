@@ -2115,6 +2115,10 @@ export default {
       exporting: "匯出中…",
       refreshing: "重新整理中…"
     },
+    filters: {
+      keywordPlaceholder: "搜尋操作、物件或摘要",
+      apply: "搜尋"
+    },
     errors: {
       exportFailed: "匯出審計證據失敗",
       loadFailed: "審計記錄載入失敗",
@@ -2133,6 +2137,10 @@ export default {
       userActions: {
         title: "使用者操作",
         description: "由使用者直接啟動的業務變更和存取動作。"
+      },
+      success: {
+        title: "成功事件",
+        description: "已成功完成並記錄的操作事件。"
       }
     },
     list: {

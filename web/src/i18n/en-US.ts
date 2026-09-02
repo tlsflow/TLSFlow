@@ -2195,6 +2195,10 @@ export default {
       exporting: 'Exporting…',
       refreshing: 'Refreshing…'
     },
+    filters: {
+      keywordPlaceholder: 'Search actions, objects, or summaries',
+      apply: 'Search'
+    },
     errors: {
       exportFailed: 'Failed to export audit evidence',
       loadFailed: 'Failed to load audit logs',
@@ -2213,6 +2217,10 @@ export default {
       userActions: {
         title: 'User actions',
         description: 'Business changes and access actions directly initiated by users.'
+      },
+      success: {
+        title: 'Successful events',
+        description: 'Operation events completed and recorded successfully.'
       }
     },
     list: {
