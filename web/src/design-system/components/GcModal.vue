@@ -66,6 +66,8 @@ const props = withDefaults(defineProps<{
   collapseTargetSelector?: string
   /** 提交或异步操作进行中；会禁止内容区原生控件和关闭操作。 */
   busy?: boolean
+  /** 忙碌期间是否仍允许点击右上角关闭按钮。 */
+  closeableWhileBusy?: boolean
   /** 由调用方传入的已翻译错误信息。 */
   error?: string
   /** 是否渲染错误详情插槽。 */
@@ -78,6 +80,7 @@ const props = withDefaults(defineProps<{
   transitionName: 'gc-modal',
   collapseTargetSelector: '',
   busy: false,
+  closeableWhileBusy: false,
   error: '',
   showErrorDetails: false,
 })
@@ -125,7 +128,7 @@ const labelledBy = computed(() => props.title ? titleId : undefined)
 const describedBy = computed(() => [props.description ? descriptionId : '', props.error ? errorId : ''].filter(Boolean).join(' ') || undefined)
 
 function closeModal() {
-  if (props.busy) return
+  if (props.busy && !props.closeableWhileBusy) return
   isOpen.value = false
 }
 
@@ -201,6 +204,11 @@ function syncBusyControls(): void {
   if (!modal) return
   const controls = modal.querySelectorAll<HTMLElement>('button, input, select, textarea')
   controls.forEach((control) => {
+    if (control.classList.contains('gc-modal__close') && props.closeableWhileBusy) {
+      control.removeAttribute('disabled')
+      busyControlStates.delete(control)
+      return
+    }
     if (props.busy) {
       if (!busyControlStates.has(control)) busyControlStates.set(control, control.hasAttribute('disabled'))
       control.setAttribute('disabled', '')
@@ -295,7 +303,7 @@ onBeforeUnmount(() => {
             </div>
             <div class="gc-modal__header-actions">
               <slot name="header-actions" />
-              <button class="gc-button gc-modal__close" type="button" :disabled="busy" :aria-label="t('designSystem.modal.closeAria')" @click="closeModal">
+              <button class="gc-button gc-modal__close" type="button" :disabled="busy && !closeableWhileBusy" :aria-label="t('designSystem.modal.closeAria')" @click="closeModal">
                 <span aria-hidden="true">×</span>
               </button>
             </div>

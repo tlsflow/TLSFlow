@@ -4718,6 +4718,7 @@ function managedTargetLabel(target: ApiRecord): string {
       size="lg"
       width="min(100%, var(--gc-size-modal-lg))"
       :busy="deploymentLoading"
+      :closeable-while-busy="true"
       :error="deploymentError"
       :show-error-details="deploymentErrorIssues.length > 0"
     >
@@ -4734,21 +4735,27 @@ function managedTargetLabel(target: ApiRecord): string {
           <p>{{ t('deploymentPlans.errors.inputIssuesHint') }}</p>
         </section>
       </template>
-      <p v-if="deploymentInfo" class="asset-summary__loading">{{ deploymentInfo }}</p>
-      <GcCertificateDeploymentForm
-        :application-asset="deploymentApplicationAsset"
-        :site-name="deploymentSiteName"
-        :certificate="deploymentCertificate"
-        :certificate-asset-id="deploymentCertificateAssetId"
-        :certificate-versions="deploymentCertificateVersions"
-        :supply-mode="deploymentCertificateSupplyMode"
-        :dedicated-details="deploymentDedicatedDetails"
-        :preflight-checks="deploymentDryRunChecks"
-        :loading="deploymentLoading"
-        :submit-label="deploymentSubmitLabel"
-        @submit="deployCertificateVersion"
-        @cancel="closeDeploymentDialog"
-      />
+      <div class="asset-deployment__content">
+        <p v-if="deploymentInfo" class="asset-summary__loading">{{ deploymentInfo }}</p>
+        <GcCertificateDeploymentForm
+          :application-asset="deploymentApplicationAsset"
+          :site-name="deploymentSiteName"
+          :certificate="deploymentCertificate"
+          :certificate-asset-id="deploymentCertificateAssetId"
+          :certificate-versions="deploymentCertificateVersions"
+          :supply-mode="deploymentCertificateSupplyMode"
+          :dedicated-details="deploymentDedicatedDetails"
+          :preflight-checks="deploymentDryRunChecks"
+          :loading="deploymentLoading"
+          :submit-label="deploymentSubmitLabel"
+          @submit="deployCertificateVersion"
+          @cancel="closeDeploymentDialog"
+        />
+        <div v-if="deploymentLoading" class="asset-deployment__loading" aria-busy="true" role="status" aria-live="polite">
+          <span class="asset-deployment__spinner" aria-hidden="true" />
+          <span>{{ t('common.loading') }}</span>
+        </div>
+      </div>
     </GcModal>
 
     <GcModal
@@ -5960,6 +5967,40 @@ function managedTargetLabel(target: ApiRecord): string {
   border-color: var(--gc-color-primary-hover);
   background: var(--gc-color-primary-hover);
   box-shadow: var(--gc-shadow-hover);
+}
+
+.asset-deployment__loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gc-space-2);
+  z-index: 2;
+  padding: var(--gc-space-6);
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+  background: color-mix(in srgb, var(--gc-color-surface-solid) 72%, transparent);
+  cursor: wait;
+}
+
+.asset-deployment__content {
+  position: relative;
+  min-height: calc(var(--gc-space-10) + var(--gc-space-6));
+}
+
+.asset-deployment__spinner {
+  inline-size: var(--gc-space-10);
+  block-size: var(--gc-space-10);
+  flex: 0 0 auto;
+  border: var(--gc-border-width-thick) solid var(--gc-color-primary-border);
+  border-top-color: var(--gc-color-primary);
+  border-radius: var(--gc-radius-full);
+  animation: asset-deployment-spin 700ms linear infinite;
+}
+
+@keyframes asset-deployment-spin {
+  to { transform: rotate(360deg); }
 }
 
 .asset-page__card-delete {

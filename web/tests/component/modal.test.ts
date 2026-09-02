@@ -195,4 +195,22 @@ describe('GcModal', () => {
     expect(wrapper.emitted('update:open')).toBeUndefined()
     wrapper.unmount()
   })
+
+  it('允许调用方在忙碌时关闭窗口，但仍禁用内容控件', async () => {
+    const wrapper = mount(GcModal, {
+      attachTo: document.body,
+      props: { open: true, title: '部署', busy: true, closeableWhileBusy: true },
+      slots: { default: '<input name="name" />' },
+    })
+    await nextTick()
+
+    const closeButton = document.body.querySelector<HTMLButtonElement>('.gc-modal__close')
+    expect(closeButton?.disabled).toBe(false)
+    expect(document.body.querySelector<HTMLInputElement>('input')?.disabled).toBe(true)
+
+    closeButton?.click()
+    await nextTick()
+    expect(wrapper.emitted('update:open')).toEqual([[false]])
+    wrapper.unmount()
+  })
 })
