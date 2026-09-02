@@ -17,13 +17,26 @@ WORKDIR /app
 ENV NODE_ENV=production \
     GCAC_DEPLOYMENT_ARCHITECTURE=standard \
     GCAC_PERSISTENCE_BACKEND=postgres \
+    GCAC_DATABASE_HOST=db \
+    GCAC_DATABASE_PORT=5432 \
+    GCAC_DATABASE_NAME=gcac \
+    GCAC_DATABASE_USER=gcac \
     GCAC_MIGRATIONS_DIR=/app/src/database/migrations \
     GCAC_WORKFLOW_DATA_DIR=/app/data/workflows \
     GCAC_RUNTIME_SECRETS_FILE=/app/data/runtime/runtime-secrets.enc \
     GCAC_POLICY_AUTHORITY_STATE_FILE=/app/data/runtime/policy-authority-state.json \
     GCAC_AGENT_RELEASE_BUNDLE_ROOT=/opt/gcac/agent-release-bundle \
     GCAC_LEGO_PATH=/usr/local/bin/lego \
-    BROWSER_RUNTIME_URL=http://browser-runtime:8787
+    BROWSER_RUNTIME_URL=http://browser-runtime:8787 \
+    GCAC_PLUGIN_RUNNER_EXECUTABLE_PATH=/usr/local/bin/node \
+    GCAC_PLUGIN_RUNNER_WORKING_DIRECTORY=/app \
+    GCAC_PLUGIN_RUNNER_ARGS_JSON=[\"/app/dist/modules/plugins/runner/runner-server.js\"] \
+    GCAC_PLUGIN_RUNNER_VERSION=gcac-plugin-runner-v1 \
+    GCAC_PLUGIN_SDK_VERSION=gcac-plugin-sdk-v1 \
+    GCAC_POLICY_AUTHORITY_EXECUTABLE_PATH=/usr/local/bin/node \
+    GCAC_POLICY_AUTHORITY_WORKING_DIRECTORY=/app \
+    GCAC_POLICY_AUTHORITY_ARGS_JSON=[\"/app/dist/modules/agents/security/policy-authority-process.js\"] \
+    GCAC_POLICY_AUTHORITY_PROCESS_ROLE=host
 
 COPY docker/build-tools/versions.json docker/build-tools/install-lego.sh /tmp/
 RUN apt-get update \

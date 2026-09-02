@@ -43,7 +43,17 @@ ENV NODE_ENV=production \
     GCAC_RUNTIME_SECRETS_FILE=/app/data/runtime/runtime-secrets.enc \
     GCAC_POLICY_AUTHORITY_STATE_FILE=/app/data/runtime/policy-authority-state.json \
     GCAC_AGENT_RELEASE_BUNDLE_ROOT=/opt/gcac/agent-release-bundle \
-    GCAC_LEGO_PATH=/usr/local/bin/lego
+    GCAC_LEGO_PATH=/usr/local/bin/lego \
+    GCAC_PLUGIN_RUNNER_EXECUTABLE_PATH=/usr/local/bin/node \
+    GCAC_PLUGIN_RUNNER_WORKING_DIRECTORY=/app \
+    GCAC_PLUGIN_RUNNER_ARGS_JSON=[\"/app/dist/modules/plugins/runner/runner-server.js\"] \
+    GCAC_PLUGIN_RUNNER_VERSION=gcac-plugin-runner-v1 \
+    GCAC_PLUGIN_SDK_VERSION=gcac-plugin-sdk-v1 \
+    GCAC_POLICY_AUTHORITY_EXECUTABLE_PATH=/usr/local/bin/node \
+    GCAC_POLICY_AUTHORITY_WORKING_DIRECTORY=/app \
+    GCAC_POLICY_AUTHORITY_ARGS_JSON=[\"/app/dist/modules/agents/security/policy-authority-process.js\"] \
+    GCAC_POLICY_AUTHORITY_PROCESS_ROLE=host \
+    GCAC_TOKEN_SECRET_FILE=/app/data/runtime/token-secret
 
 COPY docker/build-tools/versions.json docker/build-tools/install-lego.sh /tmp/
 RUN apt-get update \

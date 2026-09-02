@@ -1,0 +1,39 @@
+name: gcac-dev
+
+# Development entrypoint: build application images from the current source tree.
+# Run sh docker/build-tools/build-agent-release-bundle-docker.sh first.
+services:
+  db:
+    extends:
+      file: docker-compose.yml
+      service: db
+    image: postgres:16-alpine
+
+  backend:
+    extends:
+      file: docker-compose.yml
+      service: backend
+    build:
+      context: ..
+      dockerfile: docker/build-tools/Dockerfile.backend
+    image: tlsflow-dev-backend:${GCAC_RELEASE_VERSION:-dev}
+
+  web:
+    extends:
+      file: docker-compose.yml
+      service: web
+    build:
+      context: ..
+      dockerfile: docker/build-tools/Dockerfile.web
+      args:
+        VITE_PRODUCT_EDITION: ${VITE_PRODUCT_EDITION:-public}
+    image: tlsflow-dev-web:${GCAC_RELEASE_VERSION:-dev}
+
+  browser-runtime:
+    extends:
+      file: docker-compose.yml
+      service: browser-runtime
+    build:
+      context: ..
+      dockerfile: docker/build-tools/Dockerfile.browser-runtime
+    image: tlsflow-dev-browser-runtime:${GCAC_RELEASE_VERSION:-dev}

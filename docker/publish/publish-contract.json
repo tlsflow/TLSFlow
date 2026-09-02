@@ -15,9 +15,9 @@
     "script": "docker/publish/publish-images.sh",
     "requiresExternalDockerLogin": true,
     "requiredEnvironment": [
-      "DOCKERHUB_NAMESPACE",
       "GCAC_DOCKER_LOGIN_CONFIRMED"
     ],
+    "defaultNamespace": "tlsflow",
     "secretNames": [
       "DOCKERHUB_USERNAME",
       "DOCKERHUB_TOKEN"
