@@ -11336,6 +11336,37 @@
         }
       }
     },
+    "/api/v1/certificate-revocations/:id/query": {
+      "post": {
+        "operationId": "queryCertificateRevocation",
+        "summary": "查询证书吊销结果",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/certificate-revocations/:id/approve": {
       "post": {
         "operationId": "approveCertificateRevocation",
@@ -14723,6 +14754,16 @@
                           "descriptionKey": {
                             "type": "string"
                           },
+                          "productCategory": {
+                            "type": "string",
+                            "enum": [
+                              "WEB_SITE",
+                              "APPLICATION_MIDDLEWARE",
+                              "NETWORK_GATEWAY",
+                              "CLOUD_PLATFORM",
+                              "CA_ISSUANCE"
+                            ]
+                          },
                           "displayName": {
                             "type": "string"
                           },
@@ -15195,6 +15236,16 @@
                               },
                               "descriptionKey": {
                                 "type": "string"
+                              },
+                              "productCategory": {
+                                "type": "string",
+                                "enum": [
+                                  "WEB_SITE",
+                                  "APPLICATION_MIDDLEWARE",
+                                  "NETWORK_GATEWAY",
+                                  "CLOUD_PLATFORM",
+                                  "CA_ISSUANCE"
+                                ]
                               },
                               "logoUrl": {
                                 "type": "string"
@@ -15825,6 +15876,16 @@
                         "descriptionKey": {
                           "type": "string"
                         },
+                        "productCategory": {
+                          "type": "string",
+                          "enum": [
+                            "WEB_SITE",
+                            "APPLICATION_MIDDLEWARE",
+                            "NETWORK_GATEWAY",
+                            "CLOUD_PLATFORM",
+                            "CA_ISSUANCE"
+                          ]
+                        },
                         "logoUrl": {
                           "type": "string"
                         },
@@ -16157,6 +16218,16 @@
                       },
                       "descriptionKey": {
                         "type": "string"
+                      },
+                      "productCategory": {
+                        "type": "string",
+                        "enum": [
+                          "WEB_SITE",
+                          "APPLICATION_MIDDLEWARE",
+                          "NETWORK_GATEWAY",
+                          "CLOUD_PLATFORM",
+                          "CA_ISSUANCE"
+                        ]
                       },
                       "logoUrl": {
                         "type": "string"
@@ -16537,6 +16608,16 @@
                         },
                         "descriptionKey": {
                           "type": "string"
+                        },
+                        "productCategory": {
+                          "type": "string",
+                          "enum": [
+                            "WEB_SITE",
+                            "APPLICATION_MIDDLEWARE",
+                            "NETWORK_GATEWAY",
+                            "CLOUD_PLATFORM",
+                            "CA_ISSUANCE"
+                          ]
                         },
                         "logoUrl": {
                           "type": "string"
@@ -17039,6 +17120,16 @@
                         "descriptionKey": {
                           "type": "string"
                         },
+                        "productCategory": {
+                          "type": "string",
+                          "enum": [
+                            "WEB_SITE",
+                            "APPLICATION_MIDDLEWARE",
+                            "NETWORK_GATEWAY",
+                            "CLOUD_PLATFORM",
+                            "CA_ISSUANCE"
+                          ]
+                        },
                         "logoUrl": {
                           "type": "string"
                         },
@@ -17538,6 +17629,16 @@
                         },
                         "descriptionKey": {
                           "type": "string"
+                        },
+                        "productCategory": {
+                          "type": "string",
+                          "enum": [
+                            "WEB_SITE",
+                            "APPLICATION_MIDDLEWARE",
+                            "NETWORK_GATEWAY",
+                            "CLOUD_PLATFORM",
+                            "CA_ISSUANCE"
+                          ]
                         },
                         "logoUrl": {
                           "type": "string"
@@ -18039,6 +18140,16 @@
                         "descriptionKey": {
                           "type": "string"
                         },
+                        "productCategory": {
+                          "type": "string",
+                          "enum": [
+                            "WEB_SITE",
+                            "APPLICATION_MIDDLEWARE",
+                            "NETWORK_GATEWAY",
+                            "CLOUD_PLATFORM",
+                            "CA_ISSUANCE"
+                          ]
+                        },
                         "logoUrl": {
                           "type": "string"
                         },
@@ -18538,6 +18649,16 @@
                         },
                         "descriptionKey": {
                           "type": "string"
+                        },
+                        "productCategory": {
+                          "type": "string",
+                          "enum": [
+                            "WEB_SITE",
+                            "APPLICATION_MIDDLEWARE",
+                            "NETWORK_GATEWAY",
+                            "CLOUD_PLATFORM",
+                            "CA_ISSUANCE"
+                          ]
                         },
                         "logoUrl": {
                           "type": "string"
@@ -25648,5 +25769,5 @@
       "description": "证书绑定生产事实中心"
     }
   ],
-  "x-generatedAt": "2026-09-01T05:51:22.021Z"
+  "x-generatedAt": "2026-09-01T14:52:03.707Z"
 }

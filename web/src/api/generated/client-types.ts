@@ -207,6 +207,7 @@ export const apiContractMetadata: ApiContractMetadata = {
     "/api/v1/certificate-requests/:id/retry",
     "/api/v1/certificate-revocations",
     "/api/v1/certificate-revocations/:id/approve",
+    "/api/v1/certificate-revocations/:id/query",
     "/api/v1/certificate-rotations",
     "/api/v1/certificate-rotations/:id",
     "/api/v1/certificate-rotations/:id/install-action",
