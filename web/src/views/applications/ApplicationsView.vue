@@ -8,7 +8,7 @@ import { rollbackExecution } from '@/api/modules/executions.api'
 import { listGateways } from '@/api/modules/gateways.api'
 import { getWorkflowExecutionBinding, listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
 import { listCertificates, listCertificateFormats, listCertificateVersions } from '@/api/modules/certificates.api'
-import { createDeploymentPlanFromApplicationAsset, dryRunDeploymentPlan, executeDeploymentPlan, listDeploymentPlansByApplicationAsset, submitDeploymentPlan } from '@/api/modules/deployments.api'
+import { createDeploymentPlanFromApplicationAsset, dryRunDeploymentPlan, executeDeploymentPlan, listDeploymentPlansByApplicationAsset, submitDeploymentPlan, updateDeploymentPlanFromApplicationAsset } from '@/api/modules/deployments.api'
 import { projectApplicationAssetPluginInputs, projectDeploymentInputs, type WorkflowDeploymentInputProjectionOverride } from '@/api/modules/deployment-inputs.api'
 import { getPluginBinding } from '@/api/modules/plugins.api'
 import { getDeploymentTaskSettings } from '@/api/modules/security.api'
@@ -1324,13 +1324,22 @@ async function runCertificateDeployment(
     // 只有草稿仍处于可提交阶段；已就绪、执行中或已结束的历史计划必须新建周期。
     && String(item.status ?? '').toUpperCase() === 'DRAFT',
   )
-  const created = existingPlan ? { data: existingPlan } : await createDeploymentPlanFromApplicationAsset({
-    applicationAssetId,
-    certificateAssetId,
-    selectionMode: selection.selectionMode,
-    targetCertificateVersionId: certificateVersionId,
-    reuseDraft: false,
-  })
+  const created = existingPlan
+    ? await updateDeploymentPlanFromApplicationAsset({
+      planId: String(existingPlan.id ?? ''),
+      expectedVersion: Number(existingPlan.version ?? 0),
+      applicationAssetId,
+      certificateAssetId,
+      selectionMode: selection.selectionMode,
+      targetCertificateVersionId: certificateVersionId,
+    })
+    : await createDeploymentPlanFromApplicationAsset({
+      applicationAssetId,
+      certificateAssetId,
+      selectionMode: selection.selectionMode,
+      targetCertificateVersionId: certificateVersionId,
+      reuseDraft: false,
+    })
   const planId = String(created.data?.id ?? '')
   if (!planId) throw new Error(t('assets.deployment.errors.createPlanMissingId'))
   if (!bulkCertificateUpdateMode.value) deploymentPlanId.value = planId
