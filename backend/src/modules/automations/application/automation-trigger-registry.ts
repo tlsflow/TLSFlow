@@ -84,6 +84,13 @@ export class AutomationTriggerRegistry {
         validate: (trigger: Extract<AutomationTriggerDto, { type: 'certificate_version_created' }>) => {
           const invalid = (trigger.sources ?? []).find((item) => !['external_source', 'manual_import', 'acme_issue'].includes(item));
           if (invalid) throw new AppError('VALIDATION_FAILED', '证书事件来源不受支持', { source: invalid });
+          const schedule = trigger.deploymentSchedule;
+          if (schedule) {
+            if (!Number.isInteger(schedule.hour) || schedule.hour < 0 || schedule.hour > 23) throw new AppError('VALIDATION_FAILED', '证书部署小时必须为 0-23', { hour: schedule.hour });
+            if (!Number.isInteger(schedule.minute) || schedule.minute < 0 || schedule.minute > 59) throw new AppError('VALIDATION_FAILED', '证书部署分钟必须为 0-59', { minute: schedule.minute });
+            if (!schedule.timeZone?.trim()) throw new AppError('VALIDATION_FAILED', '证书部署时间时区不能为空');
+            try { new Intl.DateTimeFormat('en-US', { timeZone: schedule.timeZone }).format(); } catch { throw new AppError('VALIDATION_FAILED', '证书部署时间时区无效', { timeZone: schedule.timeZone }); }
+          }
         },
         matchesContext: (trigger: Extract<AutomationTriggerDto, { type: 'certificate_version_created' }>, context) => {
           if (context.eventType && context.eventType !== 'certificate.version.created') return false;

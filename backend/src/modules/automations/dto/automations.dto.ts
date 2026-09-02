@@ -14,6 +14,12 @@ export interface AutomationExternalApiConfigurationDto {
   executionMode: AutomationExternalExecutionMode;
 }
 
+export interface AutomationDeploymentScheduleDto {
+  hour: number;
+  minute: number;
+  timeZone: string;
+}
+
 export interface AutomationRunExecutionOptionsDto {
   stopOnError?: boolean;
   dryRun?: boolean;
@@ -25,7 +31,7 @@ export type AutomationTriggerDto =
   | { type: 'schedule'; cron: string; timeZone: string; startsAt?: string; endsAt?: string }
   | { type: 'on_demand' }
   // external_source 是历史配置别名，当前实际来源统一为手工导入或 ACME 自动续期。
-  | { type: 'certificate_version_created'; sources?: Array<'external_source' | 'manual_import' | 'acme_issue'> };
+  | { type: 'certificate_version_created'; sources?: Array<'external_source' | 'manual_import' | 'acme_issue'>; deploymentSchedule?: AutomationDeploymentScheduleDto };
 
 export interface AutomationFilterClauseDto {
   field: string;

@@ -34,3 +34,10 @@ test('证书事件触发器保留手工导入来源的独立匹配', () => {
     certificateVersionId: 'version_1',
   }), true);
 });
+
+test('证书事件部署时间校验小时分钟和时区', () => {
+  const registry = new AutomationTriggerRegistry();
+  assert.doesNotThrow(() => registry.validate({ type: 'certificate_version_created', deploymentSchedule: { hour: 23, minute: 59, timeZone: 'Asia/Shanghai' } }));
+  assert.throws(() => registry.validate({ type: 'certificate_version_created', deploymentSchedule: { hour: 24, minute: 0, timeZone: 'Asia/Shanghai' } }));
+  assert.throws(() => registry.validate({ type: 'certificate_version_created', deploymentSchedule: { hour: 1, minute: 0, timeZone: 'Invalid/Zone' } }));
+});

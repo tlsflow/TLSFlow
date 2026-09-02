@@ -67,6 +67,7 @@ export function buildAutomationTaskResourceSummary(run: AutomationRunDto): Recor
     runningTargets: finiteCount(run.targetSummary.running),
     pendingTargets: finiteCount(run.targetSummary.pending),
     status: run.status,
+    ...(run.scheduledAt ? { scheduledAt: run.scheduledAt } : {}),
   };
 }
 

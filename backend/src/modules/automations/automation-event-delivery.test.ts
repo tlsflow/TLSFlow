@@ -7,6 +7,7 @@ import { AutomationTriggerRegistry } from './application/automation-trigger-regi
 import { AutomationTargetResolverRegistry } from './application/automation-target-resolver.registry.js';
 import { applyAutomationMigrations } from './automation-test-migrations.js';
 import { AutomationsRepository } from './repository/automations.repository.js';
+import type { TaskEnqueueInput, TaskRun } from '../tasks/task.types.js';
 
 test('证书新版本事件会创建投递并落成自动化运行', async () => {
   const db = new PgliteDatabase();
@@ -69,4 +70,25 @@ test('证书新版本事件会创建投递并落成自动化运行', async () =>
   const run = deliveries[0]?.runId ? await repository.getRun(deliveries[0].runId!, 'tenant_1') : undefined;
   assert.equal(deliveries[0]?.status, 'run_created');
   assert.equal(run?.triggerContext?.certificateVersionId, 'cert_ver_1');
+});
+
+test('证书事件配置部署时间时先创建等待中的统一任务并计算次日时刻', async () => {
+  const db = new PgliteDatabase();
+  await applyAutomationMigrations(db);
+  const repository = new AutomationsRepository(db);
+  const now = '2026-08-07T08:00:00.000Z';
+  await repository.createAutomation({ id: 'aut_wait', tenantId: 'tenant_1', name: '等待部署', status: 'active', currentVersion: 1, createdBy: 'u', createdAt: now, updatedAt: now, version: 1 });
+  await repository.createVersion({ id: 'autv_wait', tenantId: 'tenant_1', automationId: 'aut_wait', version: 1, trigger: { type: 'certificate_version_created', deploymentSchedule: { hour: 2, minute: 0, timeZone: 'Asia/Shanghai' } }, filters: [], targetResolver: { type: 'certificate_version_targets' }, approvalStage: undefined, actions: [{ type: 'send_notification', position: 1, config: { templateKey: 'x', eventKey: 'completed' } }], guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 1, requirePreview: true, requireDryRun: false, requireApproval: false }, checksum: 'c'.repeat(64), createdBy: 'u', createdAt: now });
+  const resolverRegistry = new AutomationTargetResolverRegistry();
+  resolverRegistry.register({ type: 'certificate_version_targets', validate: () => undefined, resolve: async () => [{ target: { certificateId: 'c', certificateName: 'example.com', certificateVersionId: 'v', assetId: 'a', assetName: 'App', tags: [] }, executable: true }] });
+  const queued: TaskEnqueueInput[] = [];
+  const tasks = { enqueue: async (input: TaskEnqueueInput): Promise<TaskRun> => { queued.push(input); return {} as TaskRun; } };
+  const automations = new AutomationsApplicationService(repository, undefined, () => new Date(now), { resolverRegistry, tasks });
+  const deliveryService = new AutomationEventDeliveryService(repository, automations, new AutomationTriggerRegistry(), undefined, () => new Date(now));
+  const [deliveryId] = await deliveryService.publishCertificateVersionCreated({ eventType: 'certificate.version.created', tenantId: 'tenant_1', eventId: 'evt', certificateAssetId: 'c', certificateVersionId: 'v', sourceType: 'acme_issue', domains: ['example.com'], tags: [], occurredAt: now });
+  await deliveryService.processDelivery('tenant_1', deliveryId!);
+  const run = (await repository.listRuns('tenant_1', 'aut_wait'))[0];
+  assert.equal(run?.scheduledAt, '2026-08-07T18:00:00.000Z');
+  assert.equal(queued[0]?.initialStatus, 'WAITING_RESULT');
+  assert.equal(queued[0]?.availableAt, '2026-08-07T18:00:00.000Z');
 });

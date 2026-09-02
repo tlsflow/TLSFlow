@@ -2,7 +2,7 @@ import { newId } from '../../../shared/id.js';
 import { AppError } from '../../../common/errors/app-error.js';
 import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 import { AutomationsDomainService } from '../domain/automations.domain-service.js';
-import { nextAutomationRunAt } from '../domain/automation-schedule.js';
+import { nextAutomationRunAt, nextCertificateDeploymentAt } from '../domain/automation-schedule.js';
 import type { AutomationConfigurationDto, AutomationExternalExecutionMode, AutomationPreviewDto, AutomationPreviewTargetDto, AutomationRunDto, AutomationRunExecutionOptionsDto, AutomationStatus, AutomationTriggerContextDto, CreateAutomationInput, UpdateAutomationInput } from '../dto/automations.dto.js';
 import { AutomationsRepository } from '../repository/automations.repository.js';
 import type { AutomationEntity, AutomationVersionEntity } from '../schema/automations.schema.js';
@@ -216,6 +216,9 @@ export class AutomationsApplicationService {
         ...structuredClone(input.triggerContext),
         deliveryId: input.deliveryId,
       },
+      scheduledAt: version.trigger.type === 'certificate_version_created'
+        ? nextCertificateDeploymentAt(version.trigger, validDate(input.triggerContext.occurredAt) ?? this.clock())?.toISOString()
+        : undefined,
       deliveryId: input.deliveryId,
       items,
     });
@@ -515,6 +518,9 @@ export class AutomationsApplicationService {
   }
 
   private enqueueRunTask(run: AutomationRunDto, actorId: string, triggerSource: string): void {
+    const deferred = run.triggerType === 'certificate_version_created'
+      && Boolean(run.scheduledAt)
+      && new Date(run.scheduledAt!).getTime() > this.clock().getTime();
     enqueueTaskBestEffort(this.tasks, {
       tenantId: run.tenantId,
       taskType: 'AUTOMATION_RUN',
@@ -528,6 +534,13 @@ export class AutomationsApplicationService {
         automationName: run.automationNameSnapshot,
       },
       resourceRefs: [{ resourceType: 'automationRun', resourceId: run.id }],
+      ...(deferred ? { availableAt: run.scheduledAt, initialStatus: 'WAITING_RESULT' as const } : {}),
     });
   }
+}
+
+function validDate(value?: string): Date | undefined {
+  if (!value) return undefined;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date;
 }

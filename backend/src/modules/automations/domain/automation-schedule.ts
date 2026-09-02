@@ -33,3 +33,20 @@ export function nextAutomationRunAt(trigger: AutomationTriggerDto, from: Date): 
   if (trigger.type === 'schedule') return nextCronOccurrence(trigger, from)?.toISOString();
   return undefined;
 }
+
+/** 计算证书事件后的下一个本地部署时刻，跨时区和夏令时均以浏览器/Node 时区数据库为准。 */
+export function nextCertificateDeploymentAt(
+  trigger: Extract<AutomationTriggerDto, { type: 'certificate_version_created' }>,
+  from: Date,
+): Date | undefined {
+  const schedule = trigger.deploymentSchedule;
+  if (!schedule) return undefined;
+  const start = new Date(Math.ceil(from.getTime() / 60_000) * 60_000);
+  for (let index = 0; index <= 3 * 24 * 60; index += 1) {
+    const candidate = new Date(start.getTime() + index * 60_000);
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: schedule.timeZone, hourCycle: 'h23', hour: '2-digit', minute: '2-digit' }).formatToParts(candidate);
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    if (Number(values.hour) === schedule.hour && Number(values.minute) === schedule.minute && candidate.getTime() >= from.getTime()) return candidate;
+  }
+  return undefined;
+}
