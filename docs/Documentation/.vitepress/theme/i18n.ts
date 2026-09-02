@@ -41,16 +41,21 @@ export function relativePathToLink(relativePath: string) {
 }
 
 export function documentKey(relativePath: string) {
-  // 语言目录之外的相对路径就是稳定文档键，中英文页面因此天然一一对应。
+  // 去掉版本和语言前缀后，剩余路径就是稳定文档键。
   const normalized = relativePath.replace(/\\/g, "/").replace(/^\/+/, "");
-  const localePrefix = localePrefixValues.find((prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`));
-  return localePrefix ? normalized.slice(localePrefix.length + 1) : normalized;
+  const segments = normalized.split("/");
+  const versionIndex = /^v\d+\.\d+\.\d+$/.test(segments[0] ?? "") ? 1 : 0;
+  const localeIndex = localePrefixValues.includes(segments[versionIndex] ?? "") ? versionIndex + 1 : versionIndex;
+  return segments.slice(localeIndex).join("/");
 }
 
 export function getAlternateLink(relativePath: string, targetLocale: DocLocale) {
+  const normalized = relativePath.replace(/\\/g, "/").replace(/^\/+/, "");
+  const segments = normalized.split("/");
+  const version = /^v\d+\.\d+\.\d+$/.test(segments[0] ?? "") ? segments[0] : "";
   const sourcePath = documentKey(relativePath);
   const prefix = localePrefix(targetLocale);
-  const targetPath = prefix ? `${prefix}/${sourcePath}` : sourcePath;
+  const targetPath = [version, prefix, sourcePath].filter(Boolean).join("/");
   return relativePathToLink(targetPath);
 }
 

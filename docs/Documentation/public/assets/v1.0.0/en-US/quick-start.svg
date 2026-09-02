@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 360" role="img" aria-labelledby="title desc">
+  <title id="title">Quick start deployment flow</title>
+  <desc id="desc">Prepare the host, start the container, sign in, and connect assets</desc>
+  <rect width="960" height="360" fill="#f7f8fa"/>
+  <g font-family="Arial, sans-serif" text-anchor="middle">
+    <text x="480" y="48" font-size="26" fill="#1f2937">TLSFlow quick start</text>
+    <g fill="#ffffff" stroke="#2563eb" stroke-width="3">
+      <rect x="70" y="130" width="180" height="100" rx="8"/><rect x="290" y="130" width="180" height="100" rx="8"/>
+      <rect x="510" y="130" width="180" height="100" rx="8"/><rect x="730" y="130" width="160" height="100" rx="8"/>
+    </g>
+    <g font-size="20" fill="#111827"><text x="160" y="174">Prepare Docker</text><text x="160" y="204">and keys</text><text x="380" y="174">Start container</text><text x="380" y="204">run migrations</text><text x="600" y="174">First login</text><text x="600" y="204">initialize security</text><text x="810" y="174">Connect assets</text><text x="810" y="204">start managing</text></g>
+    <g stroke="#64748b" stroke-width="3" fill="none"><path d="M250 180h40m180 0h40m180 0h40"/><path d="m278 168 12 12-12 12m220-12 12 12-12 12m220-12 12 12-12 12"/></g>
+  </g>
+</svg>

@@ -11,6 +11,7 @@ platform=
 tag=
 image=
 edition=${VITE_PRODUCT_EDITION:-public}
+docs_version=${DOCS_VERSION:-1.0.0}
 
 fail() {
   printf 'Error: %s\n' "$1" >&2
@@ -103,6 +104,7 @@ build_target() {
   set -- docker buildx build --load --platform "$platform" --tag "$target_name:$tag"
   if [ "$uses_product_edition" = true ]; then
     set -- "$@" --build-arg "VITE_PRODUCT_EDITION=$edition"
+    set -- "$@" --build-arg "DOCS_VERSION=$docs_version"
   fi
   set -- "$@" --file "$REPOSITORY_ROOT/$dockerfile" "$REPOSITORY_ROOT"
   "$@"

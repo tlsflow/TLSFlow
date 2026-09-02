@@ -16,6 +16,7 @@ import { TENANT_CONTEXT_CHANGED_EVENT } from '@/stores/tenant-context.events'
 import { useTenantStore, type TenantOption } from '@/stores/tenant.store'
 import type { MenuItem } from '@/types/router'
 import { gcacVersion } from '@/version'
+import { docsPath } from '@/docs-version'
 import { useExecutionDetail } from '@/composables/useExecutionDetail'
 import type { ViewRow } from '@/composables/useBusinessPage'
 import GlobalSearchModal from '@/views/global-search/GlobalSearchModal.vue'
@@ -854,7 +855,7 @@ function removeToastNotice(id: number): void {
 
             <a
               class="gc-shell__user-menu-action"
-              href="/docs/"
+              :href="docsPath"
               target="_blank"
               rel="noopener noreferrer"
               role="menuitem"

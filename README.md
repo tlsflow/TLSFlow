@@ -165,36 +165,27 @@ CA/B Forum 已于 2025 年 4 月 11 日通过 SC081v3,把公有信任 TLS/SSL �
 | 扩展运行时 | Manifest、Host API、Runner、Workflow DSL 和兼容目录 |
 | 部署方式 | standard 使用 Docker Compose；small 使用单容器 `docker run` |
 
-## 快速体验
+## 快速开始
 
 ### 前置条件
 
-- Linux、macOS 或 NAS 主机；
-- Docker CLI；standard 另外需要 Docker Compose v2；
-- 能访问目标设备、证书服务及计划接入的外部 API；
-- 生产环境使用随机且长期保持不变的运行时密钥。
+- Linux、macOS 或 NAS 主机
+- Docker CLI；标准部署另需 Docker Compose v2
+- 能访问目标设备和证书服务
+- 生产环境使用随机且长期保持不变的运行时密钥
 
 部署预构建镜像不需要 Node.js、Go、Buildx 或源码。
 
-### 单机评估部署
+### 单机部署
 
-small 适合 50 个应用资产以下的功能评估和小规模环境,使用 PGlite,不包含独立
-PostgreSQL 和 Browser Runtime。只需准备宿主机数据目录,然后执行：
+适合 50 个应用资产以下的小规模环境,使用 PGlite 内嵌数据库,单容器运行。
+
+快速启动（使用 Docker 命名卷）：
 
 ```bash
-DATA_ROOT=/path/to/tlsflow-data
-mkdir -p \
-  "$DATA_ROOT/pglite" \
-  "$DATA_ROOT/workflows" \
-  "$DATA_ROOT/runtime" \
-  "$DATA_ROOT/tls-inspector" \
-  "$DATA_ROOT/plugins"
-# 容器默认以 UID/GID 10001:10001 运行；NAS 允许时提前调整目录所有权。
-chown -R 10001:10001 "$DATA_ROOT"
 docker run -d \
   --name tlsflow-small \
   --restart unless-stopped \
-  --label com.gcac.deployment.architecture=small \
   -p 8085:3003 \
   -e GCAC_PUBLIC_BASE_URL=http://your-host:8085 \
   -e GCAC_SECRET_KEK=your-random-kek \
@@ -202,36 +193,50 @@ docker run -d \
   tlsflow/gcac-small:latest
 ```
 
-默认访问地址为 `http://<主机地址>:8085/`。Token 签名密钥未手动提供时由容器首次启动自动生成并持久化；
-首次启动后按初始化向导创建管理员,
-不要在生产环境复用示例密钥。
+**重要**：
+- 生产环境必须替换 `GCAC_SECRET_KEK` 为随机密钥
+- 管理员密码在首次访问时通过初始化向导设置
+- 默认访问地址：`http://<主机地址>:8085/`
+
+详细参数配置、宿主机目录绑定、HTTPS 反向代理等场景请查看完整文档。
 
 ### 标准部署
 
-标准版由 PostgreSQL、Backend、Web 和按需启用的 Browser Runtime 组成,适合正式环境
-和多企业后台任务场景。复制 `docker/.env.example` 为 `docker/.env`,填写
-`GCAC_RELEASE_VERSION`、`POSTGRES_PASSWORD`、
-`GCAC_PUBLIC_BASE_URL`、`GCAC_TOKEN_SECRET` 和 `GCAC_SECRET_KEK`,然后执行：
+适合正式环境和多租户场景,使用 PostgreSQL 16 数据库,支持 Browser Runtime 浏览器会话。
+
+**1. 准备配置文件**
+
+```bash
+cp docker/.env.example docker/.env
+```
+
+编辑 `docker/.env`,至少填写：
+- `GCAC_RELEASE_VERSION`：镜像标签（生产环境使用固定版本）
+- `GCAC_PUBLIC_BASE_URL`：Agent 可访问的 Web 地址
+- `POSTGRES_PASSWORD`：数据库密码
+- `GCAC_TOKEN_SECRET`：登录令牌签名密钥
+- `GCAC_SECRET_KEK`：加密根密钥（必须长期保持不变）
+
+**2. 启动服务**
 
 ```bash
 cd docker
 docker compose pull
 docker compose up -d
-docker compose ps
 ```
 
-需要 Browser Runtime 时执行 `docker compose --profile browser-runtime up -d`。
-标准部署默认 Web 端口为 `8085`,Backend 只在 Compose 内部网络提供服务。Browser Runtime
-应只在容器内网使用,不应直接暴露到公网。完整变量、备份和首次登录步骤见[安装部署文档](docs/Documentation/installation/)。
-
-开发者从当前源码构建并启动标准版时，先生成 Agent 发布包，再使用开发 Compose：
+**3. 验证**
 
 ```bash
-sh docker/build-tools/build-agent-release-bundle-docker.sh
-docker compose -f docker/dev-compose.yml up --build -d
+docker compose ps
+docker compose logs --tail=200 db backend web
 ```
 
-开发 Compose 使用 `tlsflow-dev-*` 本地镜像标签，不会覆盖或推送 Docker Hub 的用户镜像。
+确认 `db` 状态为 `healthy`,访问 `http://<主机地址>:8085/` 完成初始化向导。
+
+**Browser Runtime**（可选）：需要浏览器登录凭据时,在 `.env` 中设置 `BROWSER_RUNTIME_ENABLED=true` 并填写 `BROWSER_RUNTIME_SHARED_SECRET`,再执行 `docker compose up -d`。
+
+详细资源配置、数据目录、备份恢复等说明请查看完整文档。
 
 ## 项目目录
 
@@ -310,18 +315,11 @@ npm --prefix web run test:unit
 - 标准 Compose 拓扑面向单机运行,未提供自动故障转移集群；升级和恢复前应先备份数据库、工作流、用户插件和运行时安全材料；
 - ACME、外部 CA、厂商 API 和复杂网络的能力会随版本演进,请以当前用户文档、插件兼容目录和实际环境结果为准。
 
-## 文档导航
+## 官方文档
 
-- [官方文档首页](docs/Documentation/index.md)
-- [安装部署](docs/Documentation/installation/)
-- [用户手册](docs/Documentation/manual/)
-- [开发文档](docs/Documentation/developer/)
-- [产品彩页](docs/产品介绍/20260824-TLSFlow产品彩页.html)
-- [产品能力与市场对比](docs/产品分析/20260721-证书自动化产品横向对比分析.md)
-- [工作流模板与 DSL 规范](docs/项目规范/20260723-工作流模板管理及编写规范.md)
-- [插件开发流程规范](docs/项目规范/20260819-插件开发流程规范.md)
-- [Agent 横向扩展与兼容性规范](docs/项目规范/20260721-Agent平台横向扩展与兼容性维护规范.md)
-- [规格索引](specs/README.md)
+完整使用手册、开发文档、产品资料和技术规范请访问：
+
+**https://docs.tlsflow.com**
 
 ## 许可证
 

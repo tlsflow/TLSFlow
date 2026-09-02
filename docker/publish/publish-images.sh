@@ -12,6 +12,7 @@ tag=$RELEASE_VERSION
 architecture=all
 platforms=linux/amd64,linux/arm64
 edition=${VITE_PRODUCT_EDITION:-public}
+docs_version=${DOCS_VERSION:-1.0.0}
 latest=false
 
 fail() {
@@ -104,6 +105,7 @@ publish_target() {
   set -- docker buildx build --platform "$platforms"
   if [ "$uses_product_edition" = true ]; then
     set -- "$@" --build-arg "VITE_PRODUCT_EDITION=$edition"
+    set -- "$@" --build-arg "DOCS_VERSION=$docs_version"
   fi
   set -- "$@" --file "$REPOSITORY_ROOT/$dockerfile" --tag "$image:$tag"
   [ "$latest" = true ] && set -- "$@" --tag "$image:latest"

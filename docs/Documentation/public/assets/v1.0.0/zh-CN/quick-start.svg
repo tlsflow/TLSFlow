@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 360" role="img" aria-labelledby="title desc">
+  <title id="title">快速开始部署流程</title>
+  <desc id="desc">准备环境、启动容器、首次登录和接入资产</desc>
+  <rect width="960" height="360" fill="#f7f8fa"/>
+  <g font-family="Arial, sans-serif" text-anchor="middle">
+    <text x="480" y="48" font-size="26" fill="#1f2937">TLSFlow 快速开始</text>
+    <g fill="#ffffff" stroke="#2563eb" stroke-width="3">
+      <rect x="70" y="130" width="180" height="100" rx="8"/><rect x="290" y="130" width="180" height="100" rx="8"/>
+      <rect x="510" y="130" width="180" height="100" rx="8"/><rect x="730" y="130" width="160" height="100" rx="8"/>
+    </g>
+    <g font-size="20" fill="#111827"><text x="160" y="174">准备 Docker</text><text x="160" y="204">与密钥</text><text x="380" y="174">启动容器</text><text x="380" y="204">完成迁移</text><text x="600" y="174">首次登录</text><text x="600" y="204">初始化安全设置</text><text x="810" y="174">接入资产</text><text x="810" y="204">开始管理</text></g>
+    <g stroke="#64748b" stroke-width="3" fill="none"><path d="M250 180h40m180 0h40m180 0h40"/><path d="m278 168 12 12-12 12m220-12 12 12-12 12m220-12 12 12-12 12"/></g>
+  </g>
+</svg>

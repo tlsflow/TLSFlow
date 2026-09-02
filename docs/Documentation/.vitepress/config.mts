@@ -1,6 +1,14 @@
 import { defineConfig } from "vitepress";
+import fs from "node:fs";
 
 const base = process.env.DOCS_BASE ?? "/";
+const versionManifest = JSON.parse(
+  fs.readFileSync(new URL("../versions.json", import.meta.url), "utf8")
+) as {
+  current: string;
+  locales: Array<{ id: string; path: string; label: string }>;
+  versions: Array<{ id: string; label: string; path: string; status: string }>;
+};
 
 const zhSidebar = [
   {
@@ -92,13 +100,21 @@ const zhSidebar = [
 
 const zhThemeConfig = {
   nav: [
-    { text: "文档首页", link: "/" },
-    { text: "安装部署", link: "/installation/" },
-    { text: "用户手册", link: "/manual/" },
-    { text: "开发文档", link: "/developer/" }
+    { text: "文档首页", link: `/${versionManifest.current}/` },
+    { text: "安装部署", link: `/${versionManifest.current}/installation/` },
+    { text: "用户手册", link: `/${versionManifest.current}/manual/` },
+    { text: "开发文档", link: `/${versionManifest.current}/developer/` },
   ],
   sidebar: {
-    "/": zhSidebar
+    "/": zhSidebar,
+    ...Object.fromEntries(versionManifest.versions.map((version) => [
+      `/${version.id}/`,
+      prefixSidebar(zhSidebar, `/${version.id}`)
+    ])),
+    ...Object.fromEntries(versionManifest.versions.map((version) => [
+      `/${version.id}/en/`,
+      prefixSidebar(createEnSidebar(), `/${version.id}/en`)
+    ]))
   },
   search: {
     provider: "local"
@@ -119,16 +135,113 @@ const zhThemeConfig = {
   darkModeSwitchLabel: "切换主题",
   lightModeSwitchTitle: "切换到浅色模式",
   langMenuLabel: "语言",
+  i18nRouting: true,
   footer: {
     message: "文档内容以现行 Spec、代码和验证证据为准。",
     copyright: "Copyright © 2026 TLSFlow"
   }
 };
 
+function createEnSidebar() {
+  return [
+  {
+    text: "1. Installation",
+    link: "/installation/",
+    items: [
+      { text: "Quick start", link: "/installation/quick-start" },
+      { text: "Standard deployment", link: "/installation/standard-deployment" },
+      { text: "Single-node deployment", link: "/installation/single-node-deployment" },
+      { text: "Deployment parameters", link: "/installation/deployment-parameters" },
+      { text: "First login", link: "/installation/first-login" }
+    ]
+  },
+  {
+    text: "2. User manual",
+    link: "/manual/",
+    items: [
+      { text: "Dashboard", link: "/manual/dashboard" },
+      { text: "Dashboard quick start", link: "/manual/dashboard-quick-start" },
+      { text: "Certificate management", link: "/manual/certificate-management" },
+      { text: "Asset center", link: "/manual/asset-center" },
+      { text: "Certificate deployment", link: "/manual/certificate-deployment" },
+      { text: "Plugin center", link: "/manual/plugin-center" },
+      { text: "Monitoring", link: "/manual/monitoring" },
+      { text: "Audit logs", link: "/manual/audit-logs" },
+      { text: "System settings", link: "/manual/system-settings" }
+    ]
+  },
+  {
+    text: "3. Developer docs",
+    link: "/developer/",
+    items: [
+      { text: "Host plugin capabilities", link: "/developer/host-plugin-capabilities" },
+      { text: "Plugin development", link: "/developer/plugin-development" },
+      { text: "Nginx Proxy Manager example", link: "/developer/plugin-example-nginx-proxy-manager" },
+      { text: "Workflow development", link: "/developer/workflow-development" }
+    ]
+  }
+  ];
+}
+
+function prefixSidebar(sidebar: typeof zhSidebar, prefix: string) {
+  return sidebar.map((group) => ({
+    ...group,
+    link: group.link ? `${prefix}${group.link}` : undefined,
+    items: group.items?.map((item) => ({
+      ...item,
+      link: item.link ? `${prefix}${item.link}` : undefined,
+      items: item.items?.map((child) => ({
+        ...child,
+        link: child.link ? `${prefix}${child.link}` : undefined
+      }))
+    }))
+  }));
+}
+
+const englishLocaleConfigs = Object.fromEntries(versionManifest.versions.map((version) => [
+  `${version.id}/en`,
+  {
+    label: "English",
+    lang: "en-US",
+    link: `/${version.id}/en/`,
+    themeConfig: {
+      nav: [
+        { text: "Documentation home", link: `/${version.id}/en/` },
+        { text: "Installation", link: `/${version.id}/en/installation/` },
+        { text: "User manual", link: `/${version.id}/en/manual/` },
+        { text: "Developer docs", link: `/${version.id}/en/developer/` }
+      ],
+      sidebar: {
+        [`/${version.id}/en/`]: prefixSidebar(createEnSidebar(), `/${version.id}/en`)
+      },
+      outline: { level: [2, 3], label: "On this page" },
+      docFooter: { prev: "Previous", next: "Next" },
+      lastUpdated: { text: "Last updated" },
+      sidebarMenuLabel: "Menu",
+      returnToTopLabel: "Back to top",
+      darkModeSwitchLabel: "Toggle theme",
+      lightModeSwitchTitle: "Switch to light theme",
+      langMenuLabel: "Language",
+      footer: {
+        message: "Documentation follows the current specifications, code, and verification evidence.",
+        copyright: "Copyright © 2026 TLSFlow"
+      }
+    }
+  }
+]));
+
 export default defineConfig({
   title: "TLSFlow 官方文档",
   description: "TLSFlow 证书生命周期管理平台官方文档",
   lang: "zh-CN",
+  locales: {
+    root: {
+      label: "简体中文",
+      lang: "zh-CN",
+      link: `/${versionManifest.current}/`
+    },
+    ...englishLocaleConfigs
+  },
   base,
   srcDir: ".",
   cleanUrls: true,

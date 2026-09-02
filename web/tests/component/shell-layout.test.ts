@@ -249,7 +249,7 @@ describe('ShellLayout', () => {
     const logoutIndex = menuActions.findIndex((action) => action.text() === '退出登录')
 
     expect(guideLink?.text()).toBe('使用手册')
-    expect(guideLink?.attributes('href')).toBe('/docs/')
+    expect(guideLink?.attributes('href')).toBe('/docs/v1.0.0/')
     expect(guideLink?.attributes('target')).toBe('_blank')
     expect(guideLink?.attributes('rel')).toBe('noopener noreferrer')
     expect(menuActions.indexOf(guideLink!)).toBe(logoutIndex - 1)

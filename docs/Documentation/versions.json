@@ -1,0 +1,23 @@
+{
+  "current": "v1.0.0",
+  "locales": [
+    {
+      "id": "zh-CN",
+      "path": "",
+      "label": "简体中文"
+    },
+    {
+      "id": "en-US",
+      "path": "en",
+      "label": "English"
+    }
+  ],
+  "versions": [
+    {
+      "id": "v1.0.0",
+      "label": "v1.0.0",
+      "path": "/v1.0.0/",
+      "status": "current"
+    }
+  ]
+}

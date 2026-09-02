@@ -27,6 +27,7 @@ services:
       dockerfile: docker/build-tools/Dockerfile.web
       args:
         VITE_PRODUCT_EDITION: ${VITE_PRODUCT_EDITION:-public}
+        DOCS_VERSION: ${DOCS_VERSION:-1.0.0}
     image: tlsflow-dev-web:${GCAC_RELEASE_VERSION:-dev}
 
   browser-runtime:

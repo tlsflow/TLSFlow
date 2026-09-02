@@ -1,49 +1,18 @@
 ---
+layout: false
 title: 安全注意事项
 description: TLSFlow v1.0.0 生产使用中的密钥、权限、网络和审计要求
 docStatus: implemented
-productVersion: v1.0.0
+productVersion: current
 sourceLocale: zh-CN
 locale: zh-CN
 specRefs: []
-codeRefs:
-  - backend/src/modules/security
-  - backend/src/modules/secrets
-  - backend/src/modules/audits
-  - docker/docker-compose.yml
+codeRefs: []
 testRefs: []
-lastVerified: 2026-08-22
+lastVerified: 2026-09-02
+redirectTo: /v1.0.0/manual/security-considerations
 ---
 
-# 安全注意事项
+<meta http-equiv="refresh" content="0; url=/v1.0.0/manual/security-considerations">
 
-下面的规则面向日常管理员和运维人员，重点是保护账号、凭据、证书和远程连接。
-
-## 账号和权限
-
-- 每个人使用自己的账号，不共享管理员账号。
-- 按岗位分配能完成工作所需的最小范围；凭据管理、插件启用、审批和部署执行尽量由不同人员负责。
-- 人员离职或职责变化时，先移除角色和组成员，再禁用账号，并查看审计记录确认变更完成。
-- 菜单是否显示不能代替实际权限检查；用真实岗位账号验证一次关键操作。
-
-## 凭据和证书
-
-- 密码、API Token、SSH 私钥、客户端证书、PFX/JKS 密码和 Webhook 密钥统一保存到“系统设置 → 凭据”，业务页面只选择凭据档案。
-- 不要把机密值写入备注、工作流说明、截图、聊天或普通日志。
-- 凭据轮换后，通知使用它的设备、云账号和自动化任务负责人，并及时更新引用。
-- 临时分享或浏览器会话使用短有效期和一次性密码，用完立即关闭。
-
-## 网络连接
-
-- 生产环境使用 HTTPS，并限制管理页面的访问范围。
-- 不要把内部调试端口或远程控制端口直接暴露到公网。
-- 按网络策略放行目标主机、Webhook 和 DNS 服务；不要为了临时排查长期关闭证书校验。
-
-## 审计和异常处理
-
-1. 定期打开“日志审计”和执行记录，检查登录、权限变更、凭据使用、审批、部署和回滚是否都有责任人。
-2. 外部连接显示未知或超时时，先到目标服务确认实际状态，再决定重试、补偿或回滚，避免重复执行。
-3. 备份数据库、工作流、插件及恢复所需的密钥，并在隔离环境定期演练恢复。
-4. 限制备份文件访问，备份泄露时按凭据泄露流程立即轮换相关密钥。
-
-> 【截图占位：系统设置页面，标出用户、凭据、通知和许可证等安全管理入口】
+<p>此页面已迁移到版本化文档入口。如果浏览器没有自动跳转，请<a href="/v1.0.0/manual/security-considerations">打开 v1.0.0 文档</a>。</p>

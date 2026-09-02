@@ -16,7 +16,7 @@
     "docs:check": "npm --prefix ../docs/Documentation run docs:check",
     "docs:build": "npm --prefix ../docs/Documentation run docs:build",
     "docs:link": "node scripts/link-docs-debug.mjs",
-    "docs:refresh": "npm run docs:check && npm run docs:build && npm run docs:link",
+    "docs:refresh": "npm run docs:check && DOCS_BASE=/docs/ npm run docs:build && npm run docs:link",
     "build:with-docs": "npm run docs:refresh && npm run build"
   },
   "dependencies": {

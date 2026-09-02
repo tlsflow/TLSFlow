@@ -1,31 +1,18 @@
 ---
+layout: false
 title: 许可证
 description: 查看授权状态、导出离线激活请求和导入许可证
 docStatus: implemented
-productVersion: v1.0.0
+productVersion: current
 sourceLocale: zh-CN
 locale: zh-CN
 specRefs: []
-codeRefs:
-  - web/src/views/settings/LicensingView.vue
-  - web/src/api/modules/licensing.api.ts
+codeRefs: []
 testRefs: []
-lastVerified: 2026-08-22
+lastVerified: 2026-09-02
+redirectTo: /v1.0.0/manual/licenses
 ---
 
-# 许可证
+<meta http-equiv="refresh" content="0; url=/v1.0.0/manual/licenses">
 
-进入“系统设置 → 许可证”可查看当前授权版本、授权状态、有效期、版本兼容性、应用资产额度、并发执行额度、插件数量和已启用功能。状态可能显示为无授权、有效、宽限期、过期、已撤销或检测到时间异常。
-
-打开页面后先点击“刷新”，确认状态与当前采购记录一致；页面中的“查看版本”可以对比社区版、商业版和企业版的功能边界，不会直接改变当前授权。
-
-## 离线激活
-
-1. 点击“导出离线请求”，将生成的 JSON 文件保存到受控位置。
-2. 把文件交给授权方处理。不要修改文件内容或复制到公开位置。
-3. 收到授权文件后，点击“导入授权许可文件”选择 JSON 文件；也可以把完整内容粘贴到“导入许可证 JSON”文本框后提交。
-4. 页面提示导入成功后点击“刷新”，确认状态为“有效”且“版本兼容性”为兼容。
-
-> [截图占位符：许可证页面，标出授权状态、额度、已授权功能和“导出离线请求/导入授权许可文件”操作]
-
-许可证文件只能由授权方生成。出现“签名校验失败”或状态变为撤销时，不要手工修改 JSON，重新向授权方获取文件。导入许可证不会改变用户或历史执行记录；额度用尽、许可证过期或版本不兼容时，以页面实际状态和限制为准。
+<p>此页面已迁移到版本化文档入口。如果浏览器没有自动跳转，请<a href="/v1.0.0/manual/licenses">打开 v1.0.0 文档</a>。</p>

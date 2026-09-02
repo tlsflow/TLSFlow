@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const documentationRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const projectRoot = path.resolve(documentationRoot, "..", "..");
+const versionManifestPath = path.join(documentationRoot, "versions.json");
 const localeDirectories = new Map([
   ["", "zh-CN"],
   ["en", "en-US"],
@@ -28,6 +29,48 @@ const sensitivePatterns = [
 
 const includeFixtures = process.argv.includes("--include-fixtures");
 const errors = [];
+let versionManifest = { current: "", versions: [] };
+
+try {
+  versionManifest = JSON.parse(fs.readFileSync(versionManifestPath, "utf8"));
+} catch (error) {
+  errors.push(`${versionManifestPath}: 无法读取版本清单：${error.message}`);
+}
+
+const versionIds = new Set(
+  Array.isArray(versionManifest.versions)
+    ? versionManifest.versions.map((version) => version?.id).filter(Boolean)
+    : []
+);
+
+if (!versionManifest.current || !versionIds.has(versionManifest.current)) {
+  errors.push(`${versionManifestPath}: current 必须指向 versions 中存在的版本`);
+}
+
+const manifestLocales = new Map(
+  Array.isArray(versionManifest.locales)
+    ? versionManifest.locales.map((locale) => [locale?.id, locale])
+    : []
+);
+for (const locale of ["zh-CN", "en-US"]) {
+  if (!manifestLocales.has(locale)) {
+    errors.push(`${versionManifestPath}: locales 必须包含 ${locale}`);
+  }
+}
+
+for (const version of versionManifest.versions ?? []) {
+  if (!version?.id || !/^v\d+\.\d+\.\d+$/.test(version.id)) {
+    errors.push(`${versionManifestPath}: 版本 id 必须使用 v<主>.<次>.<补丁> 格式`);
+    continue;
+  }
+  if (version.path !== `/${version.id}/`) {
+    errors.push(`${versionManifestPath}: ${version.id} 的 path 必须为 /${version.id}/`);
+  }
+  const versionIndex = path.join(documentationRoot, version.id, "index.md");
+  if (!fs.existsSync(versionIndex)) {
+    errors.push(`${versionManifestPath}: 缺少版本首页：${version.id}/index.md`);
+  }
+}
 
 function walkMarkdown(directory) {
   const result = [];
@@ -104,16 +147,24 @@ function resolveDocLink(sourceFile, target) {
 
 function getDocumentKey(filePath) {
   const relativePath = path.relative(documentationRoot, filePath).replace(/\\/g, "/");
-  const firstSegment = relativePath.split("/")[0];
-  return localeDirectoryNames.has(firstSegment)
-    ? relativePath.slice(firstSegment.length + 1)
-    : relativePath;
+  const segments = relativePath.split("/");
+  const versionIndex = versionIds.has(segments[0]) ? 1 : 0;
+  const localeIndex = localeDirectoryNames.has(segments[versionIndex]) ? versionIndex + 1 : versionIndex;
+  const scope = versionIndex === 1 ? segments[0] : "root";
+  return `${scope}:${segments.slice(localeIndex).join("/")}`;
 }
 
 function getDocumentLocale(filePath) {
   const relativePath = path.relative(documentationRoot, filePath).replace(/\\/g, "/");
+  const segments = relativePath.split("/");
+  const versionIndex = versionIds.has(segments[0]) ? 1 : 0;
+  return localeDirectories.get(segments[versionIndex]) ?? "zh-CN";
+}
+
+function getDocumentVersion(filePath) {
+  const relativePath = path.relative(documentationRoot, filePath).replace(/\\/g, "/");
   const firstSegment = relativePath.split("/")[0];
-  return localeDirectories.get(firstSegment) ?? "zh-CN";
+  return versionIds.has(firstSegment) ? firstSegment : null;
 }
 
 function checkFilename(filePath) {
@@ -149,6 +200,14 @@ function checkMetadata(filePath, frontmatter) {
     errors.push(`${filePath}: lastVerified 必须是 YYYY-MM-DD`);
   }
 
+  const documentVersion = getDocumentVersion(filePath);
+  if (documentVersion) {
+    const productVersion = getMetadata(frontmatter, "productVersion");
+    if (productVersion !== documentVersion) {
+      errors.push(`${filePath}: 版本目录 ${documentVersion} 的 productVersion 必须为 ${documentVersion}，实际为 ${productVersion}`);
+    }
+  }
+
   for (const key of ["specRefs", "codeRefs", "testRefs"]) {
     for (const reference of getListValues(frontmatter, key)) {
       const target = resolveProjectReference(reference);
@@ -156,6 +215,46 @@ function checkMetadata(filePath, frontmatter) {
         errors.push(`${filePath}: ${key} 路径不存在：${reference}`);
       }
     }
+  }
+}
+
+function checkRootPagePolicy(filePath, frontmatter) {
+  const relativePath = path.relative(documentationRoot, filePath).replace(/\\/g, "/");
+  const documentVersion = getDocumentVersion(filePath);
+  const redirectTo = getMetadata(frontmatter, "redirectTo");
+
+  if (documentVersion) {
+    if (redirectTo) {
+      errors.push(`${filePath}: 版本文档不得声明 redirectTo，正式内容必须直接位于版本目录`);
+    }
+    return;
+  }
+
+  if (relativePath === "index.md") {
+    if (redirectTo) {
+      errors.push(`${filePath}: 官方首页不得声明 redirectTo`);
+    }
+    if (getMetadata(frontmatter, "productVersion") !== "current") {
+      errors.push(`${filePath}: 官方首页的 productVersion 必须为 current`);
+    }
+    return;
+  }
+
+  if (!redirectTo || !/^\/v\d+\.\d+\.\d+(?:\/|$)/.test(redirectTo)) {
+    errors.push(`${filePath}: 非版本 Markdown 必须声明指向版本文档的 redirectTo`);
+    return;
+  }
+
+  if (!redirectTo.startsWith(`/${versionManifest.current}/`)) {
+    errors.push(`${filePath}: redirectTo 必须指向当前版本 ${versionManifest.current}`);
+  }
+  if (getMetadata(frontmatter, "layout") !== "false") {
+    errors.push(`${filePath}: 根目录兼容页必须设置 layout: false`);
+  }
+
+  const resolvedTarget = resolveDocLink(filePath, redirectTo);
+  if (!resolvedTarget || !fs.existsSync(resolvedTarget)) {
+    errors.push(`${filePath}: redirectTo 目标不存在：${redirectTo}`);
   }
 }
 
@@ -185,6 +284,25 @@ function checkSensitiveContent(filePath, text) {
   }
 }
 
+function checkLocalizedImages(filePath, text) {
+  const version = getDocumentVersion(filePath);
+  if (!version) return;
+  const locale = getDocumentLocale(filePath);
+  for (const match of text.matchAll(/<LocalizedImage\b[^>]*\bname=["']([^"']+)["'][^>]*>/g)) {
+    const name = match[1];
+    if (!/^[A-Za-z0-9._-]+$/.test(name)) {
+      errors.push(`${filePath}: LocalizedImage name 只能包含 ASCII 文件名：${name}`);
+      continue;
+    }
+    for (const imageLocale of [locale, "zh-CN", "en-US"]) {
+      const imagePath = path.join(documentationRoot, "public", "assets", version, imageLocale, name);
+      if (!fs.existsSync(imagePath)) {
+        errors.push(`${filePath}: 缺少 ${imageLocale} 图片资源：public/assets/${version}/${imageLocale}/${name}`);
+      }
+    }
+  }
+}
+
 const markdownFiles = walkMarkdown(documentationRoot);
 if (!markdownFiles.length) {
   errors.push("没有找到 Markdown 文档");
@@ -195,7 +313,9 @@ for (const filePath of markdownFiles) {
   checkFilename(filePath);
   const frontmatter = getFrontmatter(text, filePath);
   checkMetadata(filePath, frontmatter);
+  checkRootPagePolicy(filePath, frontmatter);
   checkLinks(filePath, text);
+  checkLocalizedImages(filePath, text);
   checkEncoding(filePath);
   checkSensitiveContent(filePath, text);
 }
@@ -213,8 +333,21 @@ for (const filePath of markdownFiles) {
   } else if (locale) {
     localizedDocuments.set(locale, filePath);
   }
-  if (locale && locale !== "zh-CN" && !localizedDocuments.has("zh-CN")) {
-    errors.push(`${filePath}: 翻译页面缺少同路径的 zh-CN 权威页面：${documentKey}`);
+}
+
+for (const [documentKey, localizedDocuments] of documentsByKey) {
+  for (const [locale, filePath] of localizedDocuments) {
+    if (locale && locale !== "zh-CN" && !localizedDocuments.has("zh-CN")) {
+      errors.push(`${filePath}: 翻译页面缺少同路径的 zh-CN 权威页面：${documentKey}`);
+    }
+  }
+}
+
+for (const [documentKey, localizedDocuments] of documentsByKey) {
+  if (!documentKey.startsWith("v") || !localizedDocuments.has("zh-CN")) continue;
+  const chinesePath = localizedDocuments.get("zh-CN");
+  if (!localizedDocuments.has("en-US")) {
+    errors.push(`${chinesePath}: 缺少同路径的 en-US 页面：${documentKey}`);
   }
 }
 

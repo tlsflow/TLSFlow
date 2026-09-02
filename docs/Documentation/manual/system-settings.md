@@ -1,38 +1,18 @@
 ---
+layout: false
 title: 系统设置
 description: 系统设置一级菜单和二级页面的操作地图
 docStatus: implemented
-productVersion: v1.0.0
+productVersion: current
 sourceLocale: zh-CN
 locale: zh-CN
 specRefs: []
-codeRefs:
-  - web/src/router/menu.ts
-  - web/src/edition/licensing.ts
+codeRefs: []
 testRefs: []
-lastVerified: 2026-08-22
+lastVerified: 2026-09-02
+redirectTo: /v1.0.0/manual/system-settings
 ---
 
-# 系统设置
+<meta http-equiv="refresh" content="0; url=/v1.0.0/manual/system-settings">
 
-“系统设置”是管理员的工作台，常见入口包括：
-
-- **用户**：创建本地账号、绑定身份源账号和维护用户组。
-- **角色**：按岗位划分权限范围，并分配给用户或组。
-- **凭据**：集中保存设备、云账号和工作流需要的登录材料。
-- **通知**：管理任务结果和告警的发送渠道。
-- **部署任务参数**：设置 Dry-run 预检和审批流程的默认行为。
-- **许可证**：查看授权状态、额度和已启用功能，导入离线授权文件。
-- **版本信息**：查看当前产品版本。
-
-## 推荐配置顺序
-
-1. 先在“角色”建立岗位权限，再到“用户”创建人员并分配角色。
-2. 在“凭据”录入并验证连接所需的安全材料。
-3. 按通知责任人配置通知渠道。
-4. 在“部署任务参数”确认是否默认执行 Dry-run 和审批。
-5. 在“许可证”确认授权有效、版本兼容且额度足够。
-
-点击卡片即可进入对应页面。若某项设置无法操作，请联系管理员处理。
-
-> [截图占位符：系统设置入口页，标出各设置卡片及“进入”操作]
+<p>此页面已迁移到版本化文档入口。如果浏览器没有自动跳转，请<a href="/v1.0.0/manual/system-settings">打开 v1.0.0 文档</a>。</p>

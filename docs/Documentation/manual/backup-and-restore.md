@@ -1,53 +1,18 @@
 ---
+layout: false
 title: 备份与恢复
 description: 备份 TLSFlow 数据目录、工作流和用户插件并执行恢复演练
 docStatus: implemented
-productVersion: v1.0.0
+productVersion: current
 sourceLocale: zh-CN
 locale: zh-CN
 specRefs: []
-codeRefs:
-  - docker/docker-compose.yml
-  - backend/src/database/migration-runner.ts
+codeRefs: []
 testRefs: []
-lastVerified: 2026-08-22
+lastVerified: 2026-09-02
+redirectTo: /v1.0.0/manual/backup-and-restore
 ---
 
-# 备份与恢复
+<meta http-equiv="refresh" content="0; url=/v1.0.0/manual/backup-and-restore">
 
-当前版本没有在控制台直接点击即可完成的平台级备份/恢复按钮，备份和恢复由运维人员按组织的备份系统执行。使用前应确认备份是否存在、恢复演练是否通过，并在变更前把相关工单和维护窗口准备好。
-
-## 备份范围
-
-请至少覆盖以下内容：
-
-- 标准部署：`data/postgres/`、`data/workflows/`、`data/runtime/`、`data/tls-inspector/` 和用户插件目录。
-- 单机部署：`data/pglite/`、`data/workflows/`、`data/runtime/`、`data/tls-inspector/` 和用户插件目录。
-- 单独保管：平台用于加密 Secret 的密钥、数据库密码和许可证签名材料。
-- 业务留档：当前版本号、租户/用户清单、已发布工作流版本、证书资产和最近执行记录。
-
-截图占位：备份工单或备份系统的内容清单，展示数据库、工作流、插件和密钥材料均已纳入计划（敏感值遮挡）。
-
-备份完成不等于可以恢复。至少在隔离环境验证一次：能否启动平台、读取租户和证书、加载工作流、发现应用资产并执行测试部署。备份和恢复请使用组织已经批准的数据库工具；不要在服务运行时直接覆盖数据目录。
-
-## 恢复步骤
-
-发生数据损坏或迁移事故时，按以下顺序操作：
-
-1. 进入维护窗口，停止 Backend 和 Web，避免恢复期间继续写入。
-2. 保留原始 `data/` 目录和日志，不要直接覆盖；先复制或标记为“恢复前快照”。
-3. 按部署类型恢复平台数据库和数据目录。
-4. 恢复工作流、运行时、TLS Inspector 数据目录和用户插件目录，确保目录权限与原部署一致。
-5. 使用与备份匹配的平台版本和同一套密钥材料启动服务。
-6. 登录后依次检查数据库迁移状态、租户、许可证、插件状态和只读发现结果。
-7. 确认读取正常后，再恢复写操作；先在测试目标执行 Dry Run 或小范围测试部署。
-
-截图占位：恢复验收页面，展示平台版本、租户、许可证、插件和只读发现检查项。
-
-## 密钥和 Secret 注意事项
-
-Secret 的历史明文依赖原加密密钥。密钥丢失时，重新设置环境变量不能恢复历史 Secret 内容，必须按密钥保管流程处理。不要把密钥、数据库密码或许可证签名材料放进普通备份目录、聊天记录或截图。
-
-## 部署任务中的远端备份
-
-如果 SSH 工作流提供“备份清单”，系统会在写入目标文件前保存旧文件，并在失败时按清单尝试恢复。该功能只覆盖清单中声明的远端文件，不等于平台数据库灾备。回滚失败时保留原始失败信息、回滚结果和远端路径，交由运维人员继续处理，不要重复覆盖目标文件。
+<p>此页面已迁移到版本化文档入口。如果浏览器没有自动跳转，请<a href="/v1.0.0/manual/backup-and-restore">打开 v1.0.0 文档</a>。</p>

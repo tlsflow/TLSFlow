@@ -8,6 +8,14 @@ import { defineConfig } from 'vitest/config'
 const gcacVersion = readFileSync(fileURLToPath(new URL('../version', import.meta.url)), 'utf8').trim()
 const docsDistDirectory = resolve(fileURLToPath(new URL('../docs/Documentation/.vitepress/dist/', import.meta.url)))
 
+function normalizeDocsVersion(value: string) {
+  const version = value.replace(/^v/, '')
+  if (!/^\d+\.\d+\.\d+$/.test(version)) {
+    throw new Error('VITE_DOCS_VERSION 必须是语义化版本号，例如 1.0.0')
+  }
+  return `v${version}`
+}
+
 function docsDevIndexPlugin() {
   return {
     name: 'docs-dev-index',
@@ -55,7 +63,9 @@ function resolveProductEdition(value: string | undefined): 'public' | 'enterpris
 export default defineConfig(({ mode }) => {
   const environment = loadEnv(mode, process.cwd(), '')
   const productEdition = resolveProductEdition(process.env.VITE_PRODUCT_EDITION ?? environment.VITE_PRODUCT_EDITION)
+  const docsVersionInput = process.env.VITE_DOCS_VERSION?.trim() || environment.VITE_DOCS_VERSION?.trim() || '1.0.0'
   const productName = productEdition === 'enterprise' ? 'GCAC' : 'TLSFlow'
+  const docsVersion = normalizeDocsVersion(docsVersionInput)
 
   return {
     plugins: [
@@ -68,6 +78,7 @@ export default defineConfig(({ mode }) => {
     ],
     define: {
       __GCAC_VERSION__: JSON.stringify(gcacVersion),
+      __DOCS_VERSION__: JSON.stringify(docsVersion),
       __PRODUCT_EDITION__: JSON.stringify(productEdition),
     },
     server: {

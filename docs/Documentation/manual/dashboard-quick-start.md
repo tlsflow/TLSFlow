@@ -1,37 +1,18 @@
 ---
+layout: false
 title: 快速开始（仪表盘）
 description: 从仪表盘快速开始入口导入证书并进入应用资产接入
 docStatus: implemented
-productVersion: v1.0.0
+productVersion: current
 sourceLocale: zh-CN
 locale: zh-CN
 specRefs: []
-codeRefs:
-  - web/src/views/dashboard/DashboardView.vue
-  - web/src/i18n/zh-CN.ts
+codeRefs: []
 testRefs: []
-lastVerified: 2026-08-22
+lastVerified: 2026-09-02
+redirectTo: /v1.0.0/manual/dashboard-quick-start
 ---
 
-# 快速开始（仪表盘）
+<meta http-equiv="refresh" content="0; url=/v1.0.0/manual/dashboard-quick-start">
 
-“快速开始”是仪表盘上的两个常用入口：导入证书，以及接入已有应用并准备部署。
-
-## 第一次使用的完整顺序
-
-1. 在仪表盘点击“添加证书”，选择证书来源并按页面提示填写证书、私钥和中间证书链。
-2. 导入完成后进入应用资产向导，选择要管理的应用类型。
-3. 选择已有设备，或先完成 Agent/无 Agent 设备接入，再运行发现。
-4. 在发现结果中选择兼容的站点或服务，确认证书位置和连接状态。
-5. 保存应用资产后，进入证书部署页面选择部署方式，先执行预检，再提交部署计划。
-6. 返回仪表盘刷新页面，确认应用数量、证书状态和最近执行记录已经更新。
-
-## 入口不可用时
-
-- “接入应用”不可用：先创建证书、设备或应用资产，再回到仪表盘。
-- 向导中没有可选目标：检查设备是否在线，并重新运行发现。
-- 其他入口不可用：联系系统管理员处理。
-
-快速开始不会跳过连接测试、预检、审批或凭据校验。证书导入成功也不代表已经完成部署，最终结果要以目标回读和执行记录为准。
-
-> 【截图占位：仪表盘“快速开始”区域，标出“添加证书”和“接入应用”入口】
+<p>此页面已迁移到版本化文档入口。如果浏览器没有自动跳转，请<a href="/v1.0.0/manual/dashboard-quick-start">打开 v1.0.0 文档</a>。</p>
