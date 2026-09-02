@@ -26,7 +26,7 @@ import (
 const (
 	defaultTaskPoll       = 60
 	defaultHealthPoll     = 30
-	defaultOfflineTTL     = 180
+	defaultOfflineTTL     = 60
 	defaultManagementPort = 18931
 )
 

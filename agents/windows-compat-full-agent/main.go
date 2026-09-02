@@ -40,7 +40,7 @@ const (
 	defaultMetadata             = `C:\ProgramData\GCAC\WindowsCompatibilityAgent\service.install.json`
 	defaultTaskPoll             = 5
 	defaultHealthPoll           = 30
-	defaultOfflineTTL           = 180
+	defaultOfflineTTL           = 60
 	defaultManagementPort       = 18932
 	directWebDiscoveryTimeout   = 90 * time.Second
 	windowsDiscoveryScanTimeout = 30 * time.Second

@@ -7,7 +7,7 @@
   "heartbeatIntervalSeconds": 10,
   "taskPollIntervalSeconds": 5,
   "healthCheckIntervalSeconds": 30,
-  "offlineTimeoutSeconds": 180,
+  "offlineTimeoutSeconds": 60,
   "managementListenAddress": "0.0.0.0",
   "managementPort": 18930,
   "authorizationMaterialPath": "C:\\ProgramData\\GCAC\\FullAgentGo\\data\\policy\\agent-trust-material.json",

@@ -39,7 +39,7 @@ const (
 	defaultMetadata             = `C:\ProgramData\GCAC\FullAgentGo\service.install.json`
 	defaultTaskPoll             = 5
 	defaultHealthPoll           = 30
-	defaultOfflineTTL           = 180
+	defaultOfflineTTL           = 60
 	defaultManagementPort       = 18930
 	directWebDiscoveryTimeout   = 90 * time.Second
 	windowsDiscoveryScanTimeout = 30 * time.Second

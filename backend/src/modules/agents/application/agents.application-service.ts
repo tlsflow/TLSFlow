@@ -1945,7 +1945,7 @@ export class AgentsApplicationService {
       now?: Date;
     } = {},
   ) {
-    const offlineTimeoutSeconds = options.offlineTimeoutSeconds && options.offlineTimeoutSeconds > 0 ? options.offlineTimeoutSeconds : 180;
+    const offlineTimeoutSeconds = options.offlineTimeoutSeconds && options.offlineTimeoutSeconds > 0 ? options.offlineTimeoutSeconds : 60;
     const requiredConsecutiveTimeouts = options.requiredConsecutiveTimeouts && options.requiredConsecutiveTimeouts > 0 ? Math.ceil(options.requiredConsecutiveTimeouts) : 2;
     const now = options.now ?? new Date();
     const nowIso = now.toISOString();
@@ -2438,7 +2438,7 @@ export class AgentsApplicationService {
   }
 
   private getOfflineTimeoutSeconds(): number {
-    return readPositiveSeconds('AGENT_OFFLINE_TIMEOUT_SECONDS', 180);
+    return readPositiveSeconds('AGENT_OFFLINE_TIMEOUT_SECONDS', 60);
   }
 
   private async assertLivenessAllowsExecution(tenantId: string, agentId: string): Promise<void> {
