@@ -31,7 +31,7 @@ import { ApplicationExecutionCompatibilityService } from './modules/assets/appli
 import { AssetsController, getAssetsRouteContracts } from './modules/assets/controller/assets.controller.js';
 import { PgAssetsRepository } from './modules/assets/repository/assets.repository.js';
 import { DeviceAssetsApplicationService, DeviceAssetsController, getDeviceAssetRouteContracts, PgDeviceAssetsRepository, SecurityServicesDeviceAssetPort } from './modules/device-assets/index.js';
-import { DevicesApplicationService, DevicesController, getDeviceRouteContracts, PgDevicesRepository, resolvePluginDeviceFamilies, type PluginResourceOnboardingPort } from './modules/devices/index.js';
+import { DevicesApplicationService, DeviceHealthProbeService, DevicesController, getDeviceRouteContracts, PgDevicesRepository, resolvePluginDeviceFamilies, type PluginResourceOnboardingPort } from './modules/devices/index.js';
 import { BindingsApplicationService } from './modules/bindings/application/bindings.application-service.js';
 import { BindingsController, getBindingsRouteContracts } from './modules/bindings/controller/bindings.controller.js';
 import { PgBindingsRepository } from './modules/bindings/repository/bindings.repository.js';
@@ -637,6 +637,12 @@ export function createApp(dependencies: AppDependencies = {}): App {
     security.tenantHierarchy,
   );
   app.setResource('credentialHealthService', credentialHealthService);
+  const deviceHealthProbeService = new DeviceHealthProbeService(
+    appDb,
+    devicesService,
+    structuredLogger,
+  );
+  app.setResource('deviceHealthProbeService', deviceHealthProbeService);
   const agentPlanAuthorization = createAgentPlanAuthorizationDependencies(policyAuthorityServices, security, localPolicy)
     ?? localAgentAuthorization?.authorization
     ?? resolveInjectedAgentPlanAuthorization(dependencies.agentPlanAuthorization);

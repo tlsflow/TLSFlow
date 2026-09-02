@@ -24,6 +24,7 @@ import { auditSecretDecryptability } from './modules/secrets/secret-health-check
 import type { BrowserCredentialSessionController } from './modules/browser-runtime/browser-credential-session.controller.js';
 import type { CredentialHealthService } from './modules/credentials/health/credential-health.service.js';
 import type { CookieSessionStore } from './modules/executors/curl/cookie-session.js';
+import type { DeviceHealthProbeService } from './modules/devices/application/device-health-probe.service.js';
 
 const entryFilePath = process.argv[1] ? resolve(process.argv[1]) : '';
 const currentFilePath = fileURLToPath(import.meta.url);
@@ -131,7 +132,7 @@ async function startWithPortLock(releasePortLock: () => void): Promise<void> {
   const agentsService = app.getResource<AgentsApplicationService>('agentsService');
   if (agentsService) {
     const evaluatorIntervalMs = positiveNumber(process.env.AGENT_OFFLINE_EVALUATOR_INTERVAL_MS, 10_000);
-    const offlineTimeoutSeconds = positiveNumber(process.env.AGENT_OFFLINE_TIMEOUT_SECONDS, 180);
+    const offlineTimeoutSeconds = positiveNumber(process.env.AGENT_OFFLINE_TIMEOUT_SECONDS, 60);
     const requiredConsecutiveTimeouts = positiveNumber(process.env.AGENT_OFFLINE_REQUIRED_CONSECUTIVE_TIMEOUTS, 2);
     let evaluating = false;
     const evaluateOfflineAgents = () => {
@@ -219,8 +220,32 @@ async function startWithPortLock(releasePortLock: () => void): Promise<void> {
     setInterval(tick, automationIntervalMs);
   }
 
-  // ACME 策略既负责到期续签，也负责补偿“申请已落库但续签任务未落库”的首次签发。
-  // 调度器只创建任务；实际签发由统一任务 Worker 串行执行。
+  const deviceHealthProbeService = app.getResource<DeviceHealthProbeService>('deviceHealthProbeService');
+  if (deviceHealthProbeService) {
+    const probeIntervalSeconds = positiveNumber(process.env.DEVICE_HEALTH_PROBE_INTERVAL_SECONDS, 600);
+    const probeIntervalMs = probeIntervalSeconds * 1000;
+    const probeConcurrency = positiveNumber(process.env.DEVICE_HEALTH_PROBE_CONCURRENCY, 5);
+    const probeBatchSize = positiveNumber(process.env.DEVICE_HEALTH_PROBE_BATCH_SIZE, 50);
+    let probing = false;
+    const tick = () => {
+      if (probing) return;
+      probing = true;
+      void deviceHealthProbeService.probeAll({ concurrency: probeConcurrency, batchSize: probeBatchSize })
+        .catch((error: unknown) => {
+          structuredLogger.error('Device health probe failed', {
+            error: error instanceof Error ? error.message : String(error),
+          }, { module: 'device-health-probe' });
+        })
+        .finally(() => {
+          probing = false;
+        });
+    };
+    tick();
+    setInterval(tick, probeIntervalMs);
+  }
+
+  // ACME 策略既负责到期续签,也负责补偿”申请已落库但续签任务未落库”的首次签发。
+  // 调度器只创建任务;实际签发由统一任务 Worker 串行执行。
   const acmeRenewalScheduler = app.getResource<AcmeRenewalScheduler>('acmeRenewalScheduler');
   if (acmeRenewalScheduler) {
     const schedulerIntervalMs = positiveNumber(process.env.ACME_RENEWAL_SCHEDULER_INTERVAL_MS, 60_000);
