@@ -11,7 +11,7 @@
 
 **Enterprise-grade SSL/TLS Certificate Lifecycle Automation Platform**
 
-[English](README.en.md) | [中文](../../README.md) | [日本語](README.ja.md) | [Français](README.fr.md) | [Русский](README.ru.md) | [한국어](README.ko.md) | [Español](README.es.md)
+[English](README.en.md) | [中文](README.zh-CN.md) | [日本語](README.ja.md) | [Français](README.fr.md) | [Русский](README.ru.md) | [한국어](README.ko.md) | [Español](README.es.md)
 
 </div>
 

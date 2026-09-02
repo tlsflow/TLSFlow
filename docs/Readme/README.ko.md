@@ -11,7 +11,7 @@
 
 **엔터프라이즈급 SSL/TLS 인증서 라이프사이클 자동화 플랫폼**
 
-[English](README.en.md) | [中文](../../README.md) | [日本語](README.ja.md) | [Français](README.fr.md) | [Русский](README.ru.md) | [한국어](README.ko.md) | [Español](README.es.md)
+[English](README.en.md) | [中文](README.zh-CN.md) | [日本語](README.ja.md) | [Français](README.fr.md) | [Русский](README.ru.md) | [한국어](README.ko.md) | [Español](README.es.md)
 
 </div>
 
