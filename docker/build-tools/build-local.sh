@@ -27,9 +27,9 @@ default_platform() {
 
 normalize_image_name() {
   case "$1" in
-    browserRuntime) printf '%s\n' gcac-browser-runtime ;;
-    gcac-*) printf '%s\n' "$1" ;;
-    *) printf 'gcac-%s\n' "$1" ;;
+    browserRuntime) printf '%s\n' tlsflow-browser-runtime ;;
+    tlsflow-*) printf '%s\n' "$1" ;;
+    *) printf 'tlsflow-%s\n' "$1" ;;
   esac
 }
 
@@ -111,20 +111,20 @@ build_target() {
 }
 
 build_standard_targets() {
-  build_target gcac-db docker/build-tools/Dockerfile.db false
-  build_target gcac-backend docker/build-tools/Dockerfile.backend false
-  build_target gcac-web docker/build-tools/Dockerfile.web true
-  build_target gcac-browser-runtime docker/build-tools/Dockerfile.browser-runtime false
+  build_target tlsflow-db docker/build-tools/Dockerfile.db false
+  build_target tlsflow-backend docker/build-tools/Dockerfile.backend false
+  build_target tlsflow-web docker/build-tools/Dockerfile.web true
+  build_target tlsflow-browser-runtime docker/build-tools/Dockerfile.browser-runtime false
 }
 
 resolve_image_target() {
   case "$image" in
-    gcac-small) build_target gcac-small docker/build-tools/Dockerfile.small true ;;
-    gcac-db) build_target gcac-db docker/build-tools/Dockerfile.db false ;;
-    gcac-backend) build_target gcac-backend docker/build-tools/Dockerfile.backend false ;;
-    gcac-web) build_target gcac-web docker/build-tools/Dockerfile.web true ;;
-    gcac-browser-runtime) build_target gcac-browser-runtime docker/build-tools/Dockerfile.browser-runtime false ;;
-    *) fail "Unknown image: $image. Available images: gcac-small, gcac-db, gcac-backend, gcac-web, gcac-browser-runtime" ;;
+    tlsflow-small) build_target tlsflow-small docker/build-tools/Dockerfile.small true ;;
+    tlsflow-db) build_target tlsflow-db docker/build-tools/Dockerfile.db false ;;
+    tlsflow-backend) build_target tlsflow-backend docker/build-tools/Dockerfile.backend false ;;
+    tlsflow-web) build_target tlsflow-web docker/build-tools/Dockerfile.web true ;;
+    tlsflow-browser-runtime) build_target tlsflow-browser-runtime docker/build-tools/Dockerfile.browser-runtime false ;;
+    *) fail "Unknown image: $image. Available images: tlsflow-small, tlsflow-db, tlsflow-backend, tlsflow-web, tlsflow-browser-runtime" ;;
   esac
 }
 
@@ -133,13 +133,13 @@ if [ -n "$image" ]; then
 else
   case "$architecture" in
     small)
-      build_target gcac-small docker/build-tools/Dockerfile.small true
+      build_target tlsflow-small docker/build-tools/Dockerfile.small true
       ;;
     standard)
       build_standard_targets
       ;;
     all)
-      build_target gcac-small docker/build-tools/Dockerfile.small true
+      build_target tlsflow-small docker/build-tools/Dockerfile.small true
       build_standard_targets
       ;;
   esac
@@ -148,9 +148,9 @@ fi
 if [ -n "$image" ]; then
   printf 'Local Docker build complete: %s:%s\n' "$image" "$tag"
 elif [ "$architecture" = small ]; then
-  printf 'Local Docker build complete: gcac-small:%s\n' "$tag"
+  printf 'Local Docker build complete: tlsflow-small:%s\n' "$tag"
 elif [ "$architecture" = standard ]; then
-  printf 'Local Docker build complete: gcac-db:%s, gcac-backend:%s, gcac-web:%s, gcac-browser-runtime:%s\n' "$tag" "$tag" "$tag" "$tag"
+  printf 'Local Docker build complete: tlsflow-db:%s, tlsflow-backend:%s, tlsflow-web:%s, tlsflow-browser-runtime:%s\n' "$tag" "$tag" "$tag" "$tag"
 else
-  printf 'Local Docker build complete: gcac-small:%s, gcac-db:%s, gcac-backend:%s, gcac-web:%s, gcac-browser-runtime:%s\n' "$tag" "$tag" "$tag" "$tag" "$tag"
+  printf 'Local Docker build complete: tlsflow-small:%s, tlsflow-db:%s, tlsflow-backend:%s, tlsflow-web:%s, tlsflow-browser-runtime:%s\n' "$tag" "$tag" "$tag" "$tag" "$tag"
 fi

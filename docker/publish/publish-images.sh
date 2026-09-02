@@ -22,9 +22,9 @@ fail() {
 
 normalize_image_name() {
   case "$1" in
-    browserRuntime) printf '%s\n' gcac-browser-runtime ;;
-    gcac-*) printf '%s\n' "$1" ;;
-    *) printf 'gcac-%s\n' "$1" ;;
+    browserRuntime) printf '%s\n' tlsflow-browser-runtime ;;
+    tlsflow-*) printf '%s\n' "$1" ;;
+    *) printf 'tlsflow-%s\n' "$1" ;;
   esac
 }
 
@@ -114,23 +114,23 @@ publish_target() {
 }
 
 publish_standard() {
-  publish_target gcac-db docker/build-tools/Dockerfile.db false
-  publish_target gcac-backend docker/build-tools/Dockerfile.backend false
-  publish_target gcac-web docker/build-tools/Dockerfile.web true
-  publish_target gcac-browser-runtime docker/build-tools/Dockerfile.browser-runtime false
+  publish_target tlsflow-db docker/build-tools/Dockerfile.db false
+  publish_target tlsflow-backend docker/build-tools/Dockerfile.backend false
+  publish_target tlsflow-web docker/build-tools/Dockerfile.web true
+  publish_target tlsflow-browser-runtime docker/build-tools/Dockerfile.browser-runtime false
 }
 
 case "$architecture" in
   small)
-    publish_target gcac-small docker/build-tools/Dockerfile.small true
+    publish_target tlsflow-small docker/build-tools/Dockerfile.small true
     ;;
   standard)
     publish_standard
     ;;
   all)
-    publish_target gcac-small docker/build-tools/Dockerfile.small true
+    publish_target tlsflow-small docker/build-tools/Dockerfile.small true
     publish_standard
     ;;
 esac
 
-printf 'Docker Hub publish complete: %s/%s:%s\n' "$namespace" "$([ "$architecture" = all ] && printf '%s' 'gcac-small and standard images' || printf '%s' "$architecture")" "$tag"
+printf 'Docker Hub publish complete: %s/%s:%s\n' "$namespace" "$([ "$architecture" = all ] && printf '%s' 'tlsflow-small and standard images' || printf '%s' "$architecture")" "$tag"

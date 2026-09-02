@@ -26,10 +26,10 @@
     "linux/arm64"
   ],
   "images": {
-    "small": "gcac-small",
-    "backend": "gcac-backend",
-    "web": "gcac-web",
-    "db": "gcac-db",
-    "browserRuntime": "gcac-browser-runtime"
+    "small": "tlsflow-small",
+    "backend": "tlsflow-backend",
+    "web": "tlsflow-web",
+    "db": "tlsflow-db",
+    "browserRuntime": "tlsflow-browser-runtime"
   }
 }

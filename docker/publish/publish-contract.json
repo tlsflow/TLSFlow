@@ -23,11 +23,11 @@
       "DOCKERHUB_TOKEN"
     ],
     "images": [
-      "gcac-small",
-      "gcac-db",
-      "gcac-backend",
-      "gcac-web",
-      "gcac-browser-runtime"
+      "tlsflow-small",
+      "tlsflow-db",
+      "tlsflow-backend",
+      "tlsflow-web",
+      "tlsflow-browser-runtime"
     ],
     "provenance": true,
     "sbom": true

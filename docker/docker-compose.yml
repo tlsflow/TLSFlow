@@ -5,7 +5,7 @@ services:
   db:
     labels:
       com.gcac.deployment.architecture: standard
-    image: tlsflow/gcac-db:${GCAC_RELEASE_VERSION:-latest}
+    image: tlsflow/tlsflow-db:${GCAC_RELEASE_VERSION:-latest}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-gcac}
       POSTGRES_USER: ${POSTGRES_USER:-gcac}
@@ -22,7 +22,7 @@ services:
   backend:
     labels:
       com.gcac.deployment.architecture: standard
-    image: tlsflow/gcac-backend:${GCAC_RELEASE_VERSION:-latest}
+    image: tlsflow/tlsflow-backend:${GCAC_RELEASE_VERSION:-latest}
     environment:
       GCAC_DATABASE_NAME: ${POSTGRES_DB:-gcac}
       GCAC_DATABASE_USER: ${POSTGRES_USER:-gcac}
@@ -55,7 +55,7 @@ services:
   web:
     labels:
       com.gcac.deployment.architecture: standard
-    image: tlsflow/gcac-web:${GCAC_RELEASE_VERSION:-latest}
+    image: tlsflow/tlsflow-web:${GCAC_RELEASE_VERSION:-latest}
     depends_on:
       backend:
         condition: service_started
@@ -67,7 +67,7 @@ services:
     profiles: ["true", "browser-runtime"]
     labels:
       com.gcac.deployment.architecture: standard
-    image: tlsflow/gcac-browser-runtime:${GCAC_RELEASE_VERSION:-latest}
+    image: tlsflow/tlsflow-browser-runtime:${GCAC_RELEASE_VERSION:-latest}
     environment:
       BROWSER_RUNTIME_SHARED_SECRET: ${BROWSER_RUNTIME_SHARED_SECRET:-}
       BROWSER_RUNTIME_PUBLIC_BASE_URL: ${BROWSER_RUNTIME_PUBLIC_BASE_URL:-}

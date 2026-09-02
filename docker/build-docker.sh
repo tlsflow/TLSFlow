@@ -17,11 +17,11 @@ help=false
 print_choices() {
   printf '%s\n' "GCAC $RELEASE_VERSION Docker image build targets:"
   printf '%s\n' '  0. Build all images'
-  printf '%s\n' '  1. gcac-small (standalone)'
-  printf '%s\n' '  2. gcac-db (standard database)'
-  printf '%s\n' '  3. gcac-backend (standard backend)'
-  printf '%s\n' '  4. gcac-web (standard web)'
-  printf '%s\n' '  5. gcac-browser-runtime (standard browser runtime)'
+  printf '%s\n' '  1. tlsflow-small (standalone)'
+  printf '%s\n' '  2. tlsflow-db (standard database)'
+  printf '%s\n' '  3. tlsflow-backend (standard backend)'
+  printf '%s\n' '  4. tlsflow-web (standard web)'
+  printf '%s\n' '  5. tlsflow-browser-runtime (standard browser runtime)'
   printf '%s\n' '  q. Quit'
 }
 
@@ -34,9 +34,9 @@ print_help() {
 
 normalize_image_name() {
   case "$1" in
-    browserRuntime) printf '%s\n' 'gcac-browser-runtime' ;;
-    gcac-*) printf '%s\n' "$1" ;;
-    *) printf 'gcac-%s\n' "$1" ;;
+    browserRuntime) printf '%s\n' 'tlsflow-browser-runtime' ;;
+    tlsflow-*) printf '%s\n' "$1" ;;
+    *) printf 'tlsflow-%s\n' "$1" ;;
   esac
 }
 
@@ -132,19 +132,19 @@ if [ -n "$selection" ]; then
       architecture=all
       ;;
     1)
-      image=gcac-small
+      image=tlsflow-small
       ;;
     2)
-      image=gcac-db
+      image=tlsflow-db
       ;;
     3)
-      image=gcac-backend
+      image=tlsflow-backend
       ;;
     4)
-      image=gcac-web
+      image=tlsflow-web
       ;;
     5)
-      image=gcac-browser-runtime
+      image=tlsflow-browser-runtime
       ;;
     *)
       fail "Invalid selection: $selection; enter 0-5 or q"
@@ -161,7 +161,7 @@ if [ -n "$architecture" ]; then
   set -- --architecture "$architecture"
 elif [ -n "$image" ]; then
   case "$image" in
-    gcac-small|gcac-db|gcac-backend|gcac-web|gcac-browser-runtime) ;;
+    tlsflow-small|tlsflow-db|tlsflow-backend|tlsflow-web|tlsflow-browser-runtime) ;;
     *) fail "Unknown image: $image" ;;
   esac
   label="Build $image"
