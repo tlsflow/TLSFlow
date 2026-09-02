@@ -377,11 +377,20 @@ export class ApplicationExecutionCompatibilityService {
       const query = new ManagedTargetPluginQueryService(this.db);
       const effective = await query.getEffectiveCapability({ tenantId, managedTargetId, capabilityKey, applicationAssetId });
       if (effective.binding.pluginVersionId !== effective.plugin.pluginVersionId) {
-        throw new AppError('VALIDATION_FAILED', '当前插件版本与应用 Binding 不一致', {
-          code: 'DEPLOYMENT_INPUT_VERSION_MISMATCH',
-          pluginVersionId: effective.plugin.pluginVersionId,
-          bindingPluginVersionId: effective.binding.pluginVersionId,
+        // 版本不匹配时，自动更新应用的插件绑定到最新版本，而不是阻止部署
+        console.log(`[ApplicationExecutionCompatibility] 自动更新插件绑定版本: ${effective.binding.pluginVersionId} -> ${effective.plugin.pluginVersionId}`, {
+          applicationAssetId,
+          managedTargetId,
+          bindingId: effective.binding.id,
         });
+        // 更新 unified_plugin_bindings 表中的 plugin_version_id
+        await this.db.query(`
+          update unified_plugin_bindings
+             set plugin_version_id=$1, updated_at=now()
+           where tenant_id=$2 and id=$3
+        `, [effective.plugin.pluginVersionId, tenantId, effective.binding.id]);
+        // 更新 effective.binding 对象，使后续逻辑使用新版本
+        effective.binding.pluginVersionId = effective.plugin.pluginVersionId;
       }
       const projection = await query.projectApplicationAssetPluginInputs({
         tenantId,
