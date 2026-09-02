@@ -81,6 +81,7 @@ import type { TaskEnqueuer } from '../../tasks/task-enqueue.js';
 import type { TenantHierarchyService } from '../../security/domain/tenant.domain-service.js';
 import { DEFAULT_DEPLOYMENT_TASK_SETTINGS, type DeploymentTaskSettings } from '../../../shared/deployment-task-settings.js';
 import { buildPluginActionBindings } from '../../executions/application/plugin-action-binding.service.js';
+import { mergePluginCertificateArtifactBindings } from '../../plugins/artifacts/plugin-certificate-artifact-binding.js';
 import type { WorkflowStep } from '../../workflow-templates/dto/workflow-templates.dto.js';
 import { GCAC_VERSION } from '../../../common/version.js';
 import type { ApplicationExecutionCompatibilityService } from '../../assets/application/application-execution-compatibility.service.js';
@@ -1231,6 +1232,20 @@ export class DeploymentPlansApplicationService {
   ): Promise<{ resolvedInput: ResolvedDeploymentInputV1; effectiveBinding: import('../../deployment-inputs/domain/deployment-input-provenance.js').EffectiveInputBindingV1 }> {
     const contract = new DeploymentInputContractLoader().fromPlugin(capability.plugin, capability.assignment.capabilityKey);
     const bindingLayers = await this.resolveCapabilityBindingLayers(tenantId, capability, context, asset.id, contract);
+    if (artifact?.certificateFormatId && bindingLayers.assetOverride) {
+      bindingLayers.assetOverride = {
+        ...bindingLayers.assetOverride,
+        inputBindings: {
+          ...bindingLayers.assetOverride.inputBindings,
+          artifacts: mergePluginCertificateArtifactBindings(
+            capability.plugin,
+            capability.assignment.capabilityKey,
+            artifact.certificateFormatId,
+            bindingLayers.assetOverride.inputBindings.artifacts,
+          ),
+        },
+      };
+    }
     const request = {
       phase,
       contract,
@@ -2560,9 +2575,13 @@ export class DeploymentPlansApplicationService {
         ? workflowExecutionBinding!.inputBindings.artifacts
         : workflowBindings;
     if (Object.keys(artifactBindings).length > 0) {
+      const normalizedArtifactBindings = await this.normalizePlanCertificateArtifactBindings(
+        strategyPayload,
+        artifactBindings as Record<string, WorkflowCertificateArtifactBinding>,
+      );
       return this.resolveWorkflowDeploymentArtifact(
         certificateVersionId,
-        artifactBindings as Record<string, WorkflowCertificateArtifactBinding>,
+        normalizedArtifactBindings,
         resolvedTenantId,
         passwordOverride,
       );
@@ -2581,6 +2600,34 @@ export class DeploymentPlansApplicationService {
       });
     }
     return this.resolveDeploymentArtifact(certificateVersionId, resolvedFormatId, resolvedTenantId, passwordOverride);
+  }
+
+  /**
+   * 计划编译会重放历史 Binding。应用资产层可能只保存了证书格式，
+   * 这里必须再次按插件 Contract 补齐输出映射，避免生成不完整的材料快照。
+   */
+  private async normalizePlanCertificateArtifactBindings(
+    strategyPayload: Record<string, unknown>,
+    artifactBindings: Record<string, WorkflowCertificateArtifactBinding>,
+  ): Promise<Record<string, WorkflowCertificateArtifactBinding>> {
+    const runtimeCapability = readRecord(strategyPayload.pluginRuntimeCapability);
+    const executionSource = readRecord(strategyPayload.executionSource);
+    const pluginVersionId = readOptionalString(runtimeCapability?.pluginVersionId)
+      ?? readOptionalString(executionSource?.pluginVersionId);
+    const capabilityKey = readOptionalString(runtimeCapability?.capabilityKey)
+      ?? readOptionalString(executionSource?.capabilityKey);
+    if (!pluginVersionId || !capabilityKey || !this.unifiedPlugins) return artifactBindings;
+    const certificateFormatId = Object.values(artifactBindings)
+      .map((binding) => readOptionalString(binding.certificateFormatId))
+      .find((value): value is string => Boolean(value));
+    if (!certificateFormatId) return artifactBindings;
+    const plugin = await this.unifiedPlugins.getVersion(pluginVersionId);
+    const merged = mergePluginCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId, artifactBindings);
+    return Object.fromEntries(Object.entries(merged).flatMap(([slot, binding]) => {
+      const formatId = readOptionalString(binding.certificateFormatId);
+      if (!formatId) return [];
+      return [[slot, { certificateFormatId: formatId, outputBindings: binding.outputBindings } satisfies WorkflowCertificateArtifactBinding]];
+    }));
   }
 
   private async resolveDeploymentArtifact(
