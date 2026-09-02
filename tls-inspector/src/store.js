@@ -4,6 +4,8 @@ import crypto from 'node:crypto'
 
 const MAX_SNAPSHOTS = 500
 const MAX_SNAPSHOTS_PER_TARGET = 12
+const DEFAULT_INTERVAL_SECONDS = 86_400
+const MIN_INTERVAL_SECONDS = 86_400
 
 function newId(prefix) {
   return `${prefix}_${Date.now().toString(36)}_${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`
@@ -20,7 +22,20 @@ export class FileStore {
     await fs.mkdir(this.dataDir, { recursive: true })
     try {
       const raw = await fs.readFile(this.filePath, 'utf8')
-      this.state = JSON.parse(raw)
+      const parsed = JSON.parse(raw)
+      const sourceTargets = Array.isArray(parsed.targets) ? parsed.targets : []
+      this.state = {
+        targets: sourceTargets.map((item) => ({
+          ...item,
+          schedule: normalizeSchedule(item.schedule),
+        })),
+        snapshots: Array.isArray(parsed.snapshots) ? parsed.snapshots : [],
+      }
+      if (sourceTargets.some((item, index) => (
+        Number(item.schedule?.intervalSeconds) !== this.state.targets[index].schedule.intervalSeconds
+      ))) {
+        await this.flush()
+      }
     } catch {
       this.state = {
         targets: [],
@@ -129,6 +144,9 @@ export class FileStore {
 }
 
 function normalizeSchedule(schedule) {
-  const intervalSeconds = Math.max(60, Number(schedule?.intervalSeconds ?? schedule?.interval ?? 3600))
+  const requested = Number(schedule?.intervalSeconds ?? schedule?.interval ?? DEFAULT_INTERVAL_SECONDS)
+  const intervalSeconds = Number.isFinite(requested)
+    ? Math.max(MIN_INTERVAL_SECONDS, requested)
+    : DEFAULT_INTERVAL_SECONDS
   return { intervalSeconds }
 }

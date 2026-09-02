@@ -27,6 +27,8 @@ npm start
 | `TLS_INSPECTOR_SCAN_TIMEOUT_MS` | `20000` | 单次 TLS 握手/探测超时 |
 | `TLS_INSPECTOR_SCHEDULER_INTERVAL_MS` | `30000` | 定时扫描轮询周期 |
 
+目标自动检测间隔默认并最低为 86400 秒（1 天）。存量目标启动时会自动归一化到该间隔；证书更换后可通过详情页手动执行一次检测。
+
 ## API
 
 - `GET /healthz`

@@ -101,6 +101,7 @@ test('tls-inspector 可以创建目标并返回深度扫描快照', async () => 
       schedule: { intervalSeconds: 3600 },
     })
     assert.equal(createResult.statusCode, 201)
+    assert.equal(createResult.body.data.schedule.intervalSeconds, 86_400)
     const targetId = createResult.body.data.id
     assert.ok(targetId)
 
@@ -126,6 +127,18 @@ test('tls-inspector 可以创建目标并返回深度扫描快照', async () => 
     assert.equal(listResult.body.data.items.length, 1)
     assert.equal(listResult.body.data.items[0].latestSummary.weakCipherDetected, true)
     assert.match(listResult.body.data.items[0].latestRating, /^[A-F](\+)?$/)
+
+    await app.store.saveSnapshot({
+      tenantId: 'tenant-test',
+      targetId,
+      startedAt: '2099-01-02T00:00:00.000Z',
+      finishedAt: '2099-01-02T00:00:01.000Z',
+      status: 'failed',
+      summary: { endpoint: `127.0.0.1:${port}`, lastInspectedAt: '2099-01-02T00:00:01.000Z' },
+    })
+    const failedListResult = await requestJson(baseUrl, 'GET', '/api/v1/tls-inspector/targets')
+    assert.equal(failedListResult.body.data.items[0].latestStatus, 'failed')
+    assert.equal(failedListResult.body.data.items[0].latestRating, listResult.body.data.items[0].latestRating)
   } finally {
     await new Promise((resolve) => app.server.close(resolve))
     await app.close()

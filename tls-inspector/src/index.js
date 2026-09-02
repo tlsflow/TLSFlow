@@ -4,6 +4,9 @@ import { fileURLToPath } from 'node:url'
 import { FileStore } from './store.js'
 import { inspectTarget } from './scanner.js'
 
+const DEFAULT_INTERVAL_SECONDS = 86_400
+const MIN_INTERVAL_SECONDS = 86_400
+
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
@@ -42,7 +45,11 @@ export function createTlsInspectorServer(options = {}) {
       if (target.status !== 'active') continue
       const latest = store.getLatestSnapshotForTarget(target.id, target.tenantId)
       const latestTime = latest?.finishedAt ? Date.parse(latest.finishedAt) : 0
-      const intervalMs = Number(target.schedule?.intervalSeconds ?? 3600) * 1000
+      const requestedInterval = Number(target.schedule?.intervalSeconds ?? DEFAULT_INTERVAL_SECONDS)
+      const intervalSeconds = Number.isFinite(requestedInterval)
+        ? Math.max(MIN_INTERVAL_SECONDS, requestedInterval)
+        : DEFAULT_INTERVAL_SECONDS
+      const intervalMs = intervalSeconds * 1000
       if (latestTime && now - latestTime < intervalMs) continue
       try {
         const snapshot = await inspectTarget(target, { timeoutMs: config.scanTimeoutMs })
@@ -129,10 +136,15 @@ async function handleRequest(request, response, context) {
   if (request.method === 'GET' && url.pathname === '/api/v1/tls-inspector/targets') {
     const items = context.store.listTargets(tenantId).map((target) => {
       const latest = context.store.getLatestSnapshotForTarget(target.id, target.tenantId)
+      // 最新检测失败时保留最近一次可用评级，避免一次临时网络故障把历史评级冲掉。
+      const ratingSnapshot = latest?.status === 'failed'
+        ? context.store.listSnapshotsForTarget(target.id, target.tenantId)
+          .find((item) => item.status === 'succeeded' || item.status === 'partial')
+        : latest
       return {
         ...target,
         latestSummary: latest?.summary ?? null,
-        latestRating: calculateLatestRating(latest),
+        latestRating: calculateLatestRating(ratingSnapshot),
         latestSnapshotId: latest?.id ?? null,
         latestStatus: latest?.status ?? null,
       }
@@ -225,9 +237,9 @@ function calculateLatestRating(snapshot) {
   }
 
   let protocolScore = 100
+  if (!snapshot.riskSummary?.tls13Supported) protocolScore -= 20
+  if (snapshot.riskSummary?.legacyProtocolEnabled) protocolScore -= 35
   const protocols = snapshot.protocols ?? []
-  if (!protocols.some((item) => item.label === 'TLS 1.3' && item.supported)) protocolScore -= 20
-  if (protocols.some((item) => item.supported && ['TLS 1.1', 'TLS 1.0', 'SSL 3.0'].includes(item.label))) protocolScore -= 35
   if (protocols.some((item) => item.label === 'SSL 3.0' && item.supported)) protocolScore -= 20
 
   let keyExchangeScore = 100
@@ -269,10 +281,15 @@ function normalizeTargetCreate(body, tenantId) {
     serverName: body.serverName ? String(body.serverName) : host,
     enabledViews: Array.isArray(body.enabledViews) ? body.enabledViews.map((item) => String(item)) : undefined,
     schedule: {
-      intervalSeconds: Math.max(60, Number(body.schedule?.intervalSeconds ?? body.intervalSeconds ?? 3600)),
+      intervalSeconds: normalizeIntervalSeconds(body.schedule?.intervalSeconds ?? body.intervalSeconds),
     },
     status: String(body.status ?? 'active'),
   }
+}
+
+function normalizeIntervalSeconds(value) {
+  const requested = Number(value ?? DEFAULT_INTERVAL_SECONDS)
+  return Number.isFinite(requested) ? Math.max(MIN_INTERVAL_SECONDS, requested) : DEFAULT_INTERVAL_SECONDS
 }
 
 class HttpError extends Error {
