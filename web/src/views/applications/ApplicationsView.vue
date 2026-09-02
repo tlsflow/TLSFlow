@@ -5712,6 +5712,8 @@ function managedTargetLabel(target: ApiRecord): string {
 
 .asset-page__card {
   min-width: 0;
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-3);
   border-color: var(--gc-color-border-soft);
   background: var(--gc-color-surface-glass);
   box-shadow: var(--gc-shadow-card);
@@ -5728,12 +5730,14 @@ function managedTargetLabel(target: ApiRecord): string {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: start;
+  gap: var(--gc-space-2);
   padding-bottom: 0;
   border-bottom: 0;
 }
 
 .asset-page__card :deep(.gc-pro-card__footer) {
   padding-top: 0;
+  gap: var(--gc-space-2);
   border-top: 0;
 }
 
@@ -5857,7 +5861,7 @@ function managedTargetLabel(target: ApiRecord): string {
   display: grid;
   gap: var(--gc-space-1);
   min-width: 0;
-  height: var(--gc-size-asset-card-fact-height);
+  height: calc(var(--gc-size-asset-card-fact-height) - var(--gc-space-1));
   padding: var(--gc-space-1);
   border-radius: var(--gc-radius-control);
   background: var(--gc-color-surface-muted);
