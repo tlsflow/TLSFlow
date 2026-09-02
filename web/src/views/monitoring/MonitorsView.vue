@@ -83,6 +83,8 @@ interface CertificateObservation {
 
 const storageKey = 'gcac.monitor.targets.v1'
 const historyStorageKey = 'gcac.monitor.probe-history.v1'
+// 评级算法改为四项加权平均后，旧缓存值不可继续复用。
+const tlsRatingStorageKey = 'gcac.monitor.tls-ratings.v2'
 
 // ── 监控页懒加载配置（可按需调整）────────────────────────────────
 // 监控目标列表完整加载的单页大小（后端分页上限 500）。
@@ -101,6 +103,7 @@ const bindings = ref<ApiRecord[]>([])
 const certificateAssets = ref<ApiRecord[]>([])
 const certificateVersions = ref<ApiRecord[]>([])
 const tlsInspectorTargets = ref<TlsInspectorTargetRecord[]>([])
+const tlsRatingCache = ref<Record<string, string>>(readTlsRatingCache())
 const tlsInspectionsByTargetId = ref<Record<string, TlsInspectionSnapshot>>({})
 const monitorTargets = ref<MonitorTarget[]>([])
 const probeResults = ref<Record<string, ProbeResult>>({})
@@ -182,7 +185,11 @@ const monitorRows = computed(() =>
     const warningReasons = monitorWarningReasons(target.assetId, latestCertificateObservation(target.assetId))
     const status = isRemovedTarget(target) ? 'REMOVED' : statusFromProbeAndRisks(probe, assetRisks, warningReasons)
     const tlsInspectorTarget = findTlsInspectorTarget(target.assetId)
-    const tlsRating = tlsInspectorTarget ? tlsRatingForTarget(tlsInspectorTarget) : '—'
+    const tlsRating = tlsInspectorTarget
+      ? tlsRatingForTarget(tlsInspectorTarget)
+      : tlsRatingCache.value[target.assetId]
+        ?? tlsRatingCache.value[endpointHost(asset)]
+        ?? '—'
     return {
       target,
       title: monitorAssetLabel(asset, target),
@@ -330,7 +337,24 @@ async function refreshAll(options: { scanRisks?: boolean; silent?: boolean } = {
     bindings.value = bindingResult.status === 'fulfilled' ? [...(bindingResult.value.data?.items ?? [])] : []
     certificateAssets.value = certificateAssetResult.status === 'fulfilled' ? [...(certificateAssetResult.value.data?.items ?? [])] : []
     certificateVersions.value = certificateVersionResult.status === 'fulfilled' ? [...(certificateVersionResult.value.data?.items ?? [])] : []
-    tlsInspectorTargets.value = tlsInspectorResult.status === 'fulfilled' ? [...(tlsInspectorResult.value.data?.items ?? [])] : []
+    if (tlsInspectorResult.status === 'fulfilled') {
+      const previousTargets = tlsInspectorTargets.value
+      const nextRatings = { ...tlsRatingCache.value }
+      tlsInspectorTargets.value = [...(tlsInspectorResult.value.data?.items ?? [])].map((target) => {
+        const availableRating = target.latestRating ?? undefined
+        if (availableRating) {
+          rememberTlsRating(nextRatings, target, availableRating)
+          return target.latestRating ? target : { ...target, latestRating: availableRating }
+        }
+        const previous = previousTargets.find((item) => item.id === target.id)
+        const fallbackRating = previous?.latestRating ?? cachedTlsRatingForTarget(nextRatings, target)
+        if (!fallbackRating) return target
+        rememberTlsRating(nextRatings, target, fallbackRating)
+        return { ...target, latestRating: fallbackRating }
+      })
+      tlsRatingCache.value = nextRatings
+      writeTlsRatingCache(nextRatings)
+    }
     // 第二批：列表级摘要（每个目标的最新探测与实测证书观测）。
     // 不再全量拉取所有监控项的探测/证书历史，其余历史在点击目标后按资产懒加载。
     await refreshListSummaries()
@@ -830,35 +854,66 @@ function handleTlsInspectionUpdated(snapshot: TlsInspectionSnapshot) {
     ...tlsInspectionsByTargetId.value,
     [snapshot.targetId]: snapshot,
   }
-  tlsInspectorTargets.value = tlsInspectorTargets.value.map((target) => (
-    target.id === snapshot.targetId
-      ? {
-          ...target,
-          latestSnapshotId: snapshot.id,
-          latestStatus: snapshot.status,
-          latestSummary: snapshot.summary,
-          latestRating: computeTlsInspectionRating(snapshot),
-          lastInspectedAt: snapshot.finishedAt,
-        }
-      : target
-  ))
+  tlsInspectorTargets.value = tlsInspectorTargets.value.map((target) => {
+    if (target.id !== snapshot.targetId) return target
+    const latestRating = snapshot.status === 'failed'
+      ? target.latestRating ?? null
+      : computeTlsInspectionRating(snapshot)
+    if (latestRating) {
+      const nextRatings = { ...tlsRatingCache.value }
+      rememberTlsRating(nextRatings, target, latestRating)
+      tlsRatingCache.value = nextRatings
+      writeTlsRatingCache(nextRatings)
+    }
+    return {
+      ...target,
+      latestSnapshotId: snapshot.id,
+      latestStatus: snapshot.status,
+      latestSummary: snapshot.summary,
+      latestRating,
+      lastInspectedAt: snapshot.finishedAt,
+    }
+  })
 }
 
 function tlsRatingForTarget(target: TlsInspectorTargetRecord): string {
   const snapshot = tlsInspectionsByTargetId.value[target.id]
-  return target.latestRating
-    ?? (snapshot ? computeTlsInspectionRating(snapshot) : ratingFromTlsSummary(target.latestSummary))
+  const currentRating = snapshot
+    ? computeTlsInspectionRating(snapshot)
+    : target.latestRating ?? '—'
+  return currentRating !== '—' ? currentRating : cachedTlsRatingForTarget(tlsRatingCache.value, target) ?? '—'
 }
 
-function ratingFromTlsSummary(summary: TlsInspectorTargetRecord['latestSummary']): string {
-  if (!summary) return '—'
-  let score = 100
-  if (!summary.tls13Supported) score -= 20
-  if (summary.legacyProtocolEnabled) score -= 35
-  score -= Math.min((summary.trustPathIssueCount ?? 0) * 4, 12)
-  score -= Math.min((summary.simulationFailedCount ?? 0) * 2, 16)
-  if (summary.weakCipherDetected) score -= 8
-  return score >= 97 ? 'A+' : score >= 92 ? 'A' : score >= 85 ? 'B' : score >= 72 ? 'C' : score >= 60 ? 'D' : 'F'
+function readTlsRatingCache(): Record<string, string> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(tlsRatingStorageKey) ?? '{}')
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const entries = Object.entries(parsed as Record<string, unknown>)
+      .filter(([, value]) => typeof value === 'string' && /^[A-F](\+)?$/u.test(value))
+    return Object.fromEntries(entries) as Record<string, string>
+  } catch {
+    return {}
+  }
+}
+
+function writeTlsRatingCache(cache: Record<string, string>) {
+  try {
+    localStorage.setItem(tlsRatingStorageKey, JSON.stringify(cache))
+  } catch {
+    // 中文说明：禁用浏览器存储时仍保留当前页面内存中的评级。
+  }
+}
+
+function rememberTlsRating(cache: Record<string, string>, target: TlsInspectorTargetRecord, rating: string) {
+  for (const key of [target.serviceAssetId, target.host.toLowerCase(), `${target.host}:${target.port}`]) {
+    if (key) cache[key] = rating
+  }
+}
+
+function cachedTlsRatingForTarget(cache: Record<string, string>, target: TlsInspectorTargetRecord): string | undefined {
+  return [target.serviceAssetId, target.host.toLowerCase(), `${target.host}:${target.port}`]
+    .map((key) => key ? cache[key] : undefined)
+    .find((rating): rating is string => Boolean(rating))
 }
 
 function endpointHost(asset: ApiRecord | null): string {
@@ -1582,7 +1637,7 @@ function trimProbeStateToTargets() {
   justify-content: space-between;
   gap: var(--gc-space-2);
   width: 100%;
-  min-height: calc(var(--gc-space-8) * 3);
+  min-height: calc(var(--gc-space-8) * 2);
   border: var(--gc-border-width-default) solid var(--gc-color-muted-bg);
   border-radius: var(--gc-radius-sm);
   padding: var(--gc-space-3);
@@ -1649,8 +1704,9 @@ function trimProbeStateToTargets() {
 
 .monitor-page__target-status {
   flex: 0 0 auto;
-  min-width: calc(var(--gc-space-10) + var(--gc-space-3));
-  min-height: var(--gc-space-8);
+  min-width: calc(var(--gc-space-10) + var(--gc-space-2));
+  min-height: var(--gc-space-6);
+  padding-inline: var(--gc-space-2);
   display: inline-grid;
   place-items: center;
   align-self: auto;
@@ -1659,22 +1715,22 @@ function trimProbeStateToTargets() {
 .monitor-page__target-indicators {
   display: grid;
   flex: 0 0 auto;
-  width: calc(var(--gc-space-10) + var(--gc-space-4));
+  width: calc(var(--gc-space-10) + var(--gc-space-3));
   justify-items: center;
-  gap: var(--gc-space-2);
+  gap: var(--gc-space-1);
 }
 
 .monitor-page__target-tls-rating,
 .monitor-page__tls-grade {
   display: inline-grid;
   place-items: center;
-  min-width: var(--gc-space-10);
-  min-height: var(--gc-space-8);
+  min-width: var(--gc-space-9);
+  min-height: var(--gc-space-6);
   border-radius: var(--gc-radius-xl);
-  padding-inline: var(--gc-space-2);
+  padding-inline: var(--gc-space-1);
   color: var(--gc-color-text-muted);
   background: var(--gc-color-surface-muted);
-  font-size: var(--gc-font-size-md);
+  font-size: var(--gc-font-size-xs);
   font-weight: 850;
 }
 

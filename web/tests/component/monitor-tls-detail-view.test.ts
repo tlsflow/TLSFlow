@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { i18n } from '@/i18n'
 
 const assetMocks = vi.hoisted(() => ({
-  listAssets: vi.fn(),
+  listApplications: vi.fn(),
 }))
 
 const monitorMocks = vi.hoisted(() => ({
@@ -20,7 +20,7 @@ const tlsInspectorMocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@/api/modules/assets.api', () => ({
-  listAssets: assetMocks.listAssets,
+  listApplications: assetMocks.listApplications,
 }))
 
 vi.mock('@/api/modules/monitors.api', () => ({
@@ -48,7 +48,7 @@ function okPage(items: readonly Record<string, unknown>[]) {
 
 describe('MonitorTlsDetailView', () => {
   it('展示 TLS 深度详情并支持页签切换', async () => {
-    assetMocks.listAssets.mockResolvedValue(okPage([
+    assetMocks.listApplications.mockResolvedValue(okPage([
       { id: 'asset-1', displayName: 'a.example.com', address: 'https://a.example.com:443' },
     ]))
     monitorMocks.listMonitorTargets.mockResolvedValue(okPage([
@@ -205,5 +205,70 @@ describe('MonitorTlsDetailView', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('max-age=172800')
     expect(wrapper.text()).toContain('BWS/1.1')
+  })
+
+  it('最新检测失败时回退展示上一条可用快照', async () => {
+    assetMocks.listApplications.mockResolvedValue(okPage([
+      { id: 'asset-1', displayName: 'a.example.com', address: 'https://a.example.com:443' },
+    ]))
+    monitorMocks.listMonitorTargets.mockResolvedValue(okPage([
+      { id: 'target-1', serviceAssetId: 'asset-1', intervalSeconds: 300 },
+    ]))
+    tlsInspectorMocks.listTlsInspectorTargets.mockResolvedValue(okPage([
+      {
+        id: 'tls-target-1',
+        serviceAssetId: 'asset-1',
+        host: 'a.example.com',
+        port: 443,
+        status: 'active',
+        schedule: { intervalSeconds: 86_400 },
+      },
+    ]))
+    tlsInspectorMocks.getLatestTlsInspection.mockResolvedValue({
+      data: { id: 'failed-snapshot', targetId: 'tls-target-1', status: 'failed' },
+    })
+    tlsInspectorMocks.listTlsInspectionSnapshots.mockResolvedValue(okPage([
+      { id: 'usable-snapshot', targetId: 'tls-target-1', status: 'succeeded' },
+    ]))
+    tlsInspectorMocks.getTlsInspectionSnapshot.mockResolvedValue({
+      data: {
+        id: 'usable-snapshot',
+        tenantId: 'tenant-1',
+        targetId: 'tls-target-1',
+        status: 'succeeded',
+        startedAt: '2026-08-07T12:00:00.000Z',
+        finishedAt: '2026-08-07T12:00:05.000Z',
+        summary: { endpoint: 'a.example.com:443' },
+        certificate: { subject: 'CN=a.example.com' },
+        trustPaths: [],
+        protocols: [],
+        cipherSuites: [],
+        simulations: [],
+        protocolDetails: {},
+        riskSummary: {
+          legacyProtocolEnabled: false,
+          weakCipherDetected: false,
+          tls13Supported: false,
+          hstsTooShort: false,
+          trustPathIssueCount: 0,
+          trustPathUnsupportedCount: 0,
+          simulationFailedCount: 0,
+          boundaryNotes: [],
+        },
+        implementationVersion: '2026.08.07',
+      },
+    })
+
+    const wrapper = mount(MonitorTlsDetailView, {
+      props: { monitorTargetId: 'target-1', embedded: true },
+      global: { plugins: [i18n] },
+    })
+    await flushPromises()
+    await flushPromises()
+
+    expect(tlsInspectorMocks.listTlsInspectionSnapshots).toHaveBeenCalledWith('tls-target-1', { page: 1, pageSize: 20 })
+    expect(tlsInspectorMocks.getTlsInspectionSnapshot).toHaveBeenCalledWith('usable-snapshot')
+    expect(wrapper.text()).toContain('基础信息13')
+    expect(wrapper.find('.tls-report-page__inline-error').exists()).toBe(false)
   })
 })

@@ -7,6 +7,8 @@ import { listMonitorTargets } from '@/api/modules/monitors.api'
 import {
   createTlsInspectorTarget,
   getLatestTlsInspection,
+  getTlsInspectionSnapshot,
+  listTlsInspectionSnapshots,
   listTlsInspectorTargets,
   runTlsInspection,
   type TlsInspectionSnapshot,
@@ -128,6 +130,7 @@ function tlsLabel(namespace: string, value: unknown): string {
 const loading = ref(true)
 const scanning = ref(false)
 const error = ref('')
+const snapshotStorageKey = 'gcac.monitor.tls-snapshots.v1'
 const monitorTargets = ref<RecordLike[]>([])
 const assets = ref<RecordLike[]>([])
 const inspectorTargets = ref<TlsInspectorTargetRecord[]>([])
@@ -151,7 +154,9 @@ const endpoint = computed(() => endpointLabel(asset.value))
 const riskSummary = computed(() => snapshot.value?.riskSummary ?? null)
 const certificate = computed(() => snapshot.value?.certificate ?? null)
 const protocolLookup = computed(() => new Map((snapshot.value?.protocols ?? []).map((item) => [item.label, item])))
-const currentRating = computed(() => computeTlsInspectionRating(snapshot.value))
+const currentRating = computed(() => snapshot.value
+  ? computeTlsInspectionRating(snapshot.value)
+  : inspectorTarget.value?.latestRating ?? '—')
 const currentRatingTone = computed(() => tlsRatingTone(currentRating.value))
 
 const tabCounts = computed<Record<string, number>>(() => ({
@@ -517,18 +522,31 @@ async function loadInspectorTarget(assetId: string) {
     throw new Error(t('monitoring.tls.messages.loadFailed'))
   }
   try {
+    const cachedSnapshot = readCachedSnapshot(assetId, asset.value)
     inspectorTarget.value = findInspectorTargetRecord(inspectorTargets.value, assetId, asset.value) ?? null
     if (!inspectorTarget.value) {
-      const created = await createTlsInspectorTarget(buildInspectorTargetPayload(asset.value, assetId))
-      const createdTarget = created.data
-      if (!createdTarget) throw new Error(t('monitoring.tls.messages.initFailed'))
-      inspectorTarget.value = createdTarget
-      inspectorTargets.value = [createdTarget, ...inspectorTargets.value.filter((item) => item.id !== createdTarget.id)]
+      try {
+        const created = await createTlsInspectorTarget(buildInspectorTargetPayload(asset.value, assetId))
+        const createdTarget = created.data
+        if (!createdTarget) throw new Error(t('monitoring.tls.messages.initFailed'))
+        inspectorTarget.value = createdTarget
+        inspectorTargets.value = [createdTarget, ...inspectorTargets.value.filter((item) => item.id !== createdTarget.id)]
+      } catch (cause) {
+        snapshot.value = cachedSnapshot
+        if (cachedSnapshot) error.value = resolveInspectorError(cause, t('monitoring.tls.messages.inspectorUnavailable'))
+        else throw cause
+      }
     }
 
+    if (!inspectorTarget.value) return
     await loadLatestSnapshot()
     if (!snapshot.value) {
-      await refreshInspection()
+      snapshot.value = cachedSnapshot
+      if (cachedSnapshot) {
+        error.value = t('monitoring.tls.messages.inspectorUnavailable')
+      } else {
+        await refreshInspection()
+      }
     }
   } catch (cause) {
     throw new Error(resolveInspectorError(cause, t('monitoring.tls.messages.inspectorUnavailable')))
@@ -538,7 +556,16 @@ async function loadInspectorTarget(assetId: string) {
 async function loadLatestSnapshot() {
   if (!inspectorTarget.value) return
   const latestResult = await getLatestTlsInspection(inspectorTarget.value.id).catch(() => null)
-  snapshot.value = latestResult?.data ?? null
+  let latestSnapshot = latestResult?.data ?? null
+  if (latestSnapshot?.status === 'failed') {
+    const historyResult = await listTlsInspectionSnapshots(inspectorTarget.value.id, { page: 1, pageSize: 20 }).catch(() => null)
+    const usable = historyResult?.data?.items?.find((item) => item.status === 'succeeded' || item.status === 'partial')
+    if (usable) {
+      latestSnapshot = await getTlsInspectionSnapshot(usable.id).then((result) => result.data ?? null).catch(() => null)
+    }
+  }
+  snapshot.value = latestSnapshot
+  if (snapshot.value) writeCachedSnapshot(snapshot.value, asset.value)
 }
 
 async function refreshInspection() {
@@ -550,6 +577,7 @@ async function refreshInspection() {
     const refreshed = result.data
     if (!refreshed) throw new Error(t('monitoring.tls.messages.scanFailed'))
     snapshot.value = refreshed
+    writeCachedSnapshot(refreshed, asset.value)
     emit('inspectionUpdated', refreshed)
     inspectorTarget.value = {
       ...inspectorTarget.value,
@@ -574,6 +602,48 @@ async function refreshInspection() {
   } finally {
     scanning.value = false
   }
+}
+
+function readCachedSnapshot(assetId: string, assetRecord: RecordLike | null): TlsInspectionSnapshot | null {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(snapshotStorageKey) ?? '{}')
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    for (const key of snapshotCacheKeys(assetId, assetRecord)) {
+      const candidate = (parsed as Record<string, unknown>)[key]
+      if (isTlsInspectionSnapshot(candidate)) return candidate
+    }
+  } catch {
+    // 中文说明：禁用浏览器存储时回退到服务端实时数据，不阻断详情页加载。
+  }
+  return null
+}
+
+function writeCachedSnapshot(value: TlsInspectionSnapshot, assetRecord: RecordLike | null) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(snapshotStorageKey) ?? '{}')
+    const cache = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? { ...(parsed as Record<string, unknown>) }
+      : {}
+    for (const key of snapshotCacheKeys(value.targetId, assetRecord)) cache[key] = value
+    localStorage.setItem(snapshotStorageKey, JSON.stringify(cache))
+  } catch {
+    // 中文说明：存储空间不足或被禁用时只保留当前页面内存中的快照。
+  }
+}
+
+function snapshotCacheKeys(assetId: string, assetRecord: RecordLike | null): string[] {
+  const address = readString(assetRecord, ['address', 'domainName', 'displayName'])
+  const host = address ? parseEndpoint(address).host.toLowerCase() : ''
+  return [...new Set([assetId, host].filter(Boolean))]
+}
+
+function isTlsInspectionSnapshot(value: unknown): value is TlsInspectionSnapshot {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as RecordLike
+  return typeof candidate.id === 'string'
+    && typeof candidate.targetId === 'string'
+    && (candidate.status === 'succeeded' || candidate.status === 'partial' || candidate.status === 'failed')
+    && typeof candidate.summary === 'object'
 }
 
 function buildMetricCard(key: string, score: number): ReportMetric {
@@ -760,7 +830,8 @@ function buildInspectorTargetPayload(currentAsset: RecordLike, assetId: string) 
     host: parsed.host,
     port: parsed.port,
     serverName: parsed.serverName,
-    intervalSeconds: Number(readValue(monitorTarget.value, ['intervalSeconds']) ?? 3600),
+    // TLS 能力和证书变化很少，自动检测按天执行；需要立即确认时仍可手动检测。
+    intervalSeconds: 86_400,
   }
 }
 
@@ -849,7 +920,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
             {{ scanning ? t('monitoring.tls.actions.refreshing') : t('businessPage.retry') }}
           </GcButton>
         </div>
-        <template v-else-if="snapshot">
+        <template v-if="snapshot">
       <section v-if="activeTab === 'overview'" class="tls-section-stack">
         <section class="tls-overview-shell" :aria-label="t('monitoring.tls.report.summaryAriaLabel')">
           <article class="tls-grade-panel">
