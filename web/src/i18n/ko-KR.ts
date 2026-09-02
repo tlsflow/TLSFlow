@@ -2088,7 +2088,8 @@ export default {
     actions: {
       exportEvidence: '감사 자격 증명 내보내기',
       exporting: '내보내기 중…',
-      refreshing: '새로 고침 중...'
+      refreshing: '새로 고침 중...',
+      viewDetail: '세부 정보 보기'
     },
     filters: {
       keywordPlaceholder: '작업, 개체 또는 요약 검색',
@@ -2123,6 +2124,10 @@ export default {
       title: '로그 목록',
       summary: '총 {total} 바, 기본값은 최신 시간 순으로 정렬합니다.',
       timeNotRecorded: '기록되지 않은 시간'
+    },
+    detail: {
+      title: '감사 로그 세부 정보',
+      description: '백엔드에서 반환된 전체 비식별화 기록을 확인합니다.'
     },
     empty: {
       title: '아직 이벤트 기록이 없습니다.',

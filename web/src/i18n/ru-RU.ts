@@ -2088,7 +2088,8 @@ export default {
     actions: {
       exportEvidence: 'Экспортировать доказательства аудита',
       exporting: 'Экспорт...',
-      refreshing: 'Обновление...'
+      refreshing: 'Обновление...',
+      viewDetail: 'Подробнее'
     },
     filters: {
       keywordPlaceholder: 'Поиск действий, объектов или сводок',
@@ -2123,6 +2124,10 @@ export default {
       title: 'Список журналов',
       summary: 'Всего {total}, по умолчанию сортировка от новых к старым.',
       timeNotRecorded: 'Время не записано'
+    },
+    detail: {
+      title: 'Подробности журнала аудита',
+      description: 'Просмотр полной обезличенной записи, возвращенной сервером.'
     },
     empty: {
       title: 'Событий аудита пока нет',

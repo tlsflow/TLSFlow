@@ -2110,7 +2110,8 @@ export default {
     actions: {
       exportEvidence: 'エクスポート監査証拠',
       exporting: 'エクスポート中…',
-      refreshing: '更新中…'
+      refreshing: '更新中…',
+      viewDetail: '詳細を表示'
     },
     filters: {
       keywordPlaceholder: '操作、オブジェクト、概要を検索',
@@ -2145,6 +2146,10 @@ export default {
       title: 'ログ一覧',
       summary: '合計 {total} 件。デフォルトでは最新時刻順に並びます。',
       timeNotRecorded: '未記録時刻'
+    },
+    detail: {
+      title: '監査ログの詳細',
+      description: 'バックエンドから返された完全なマスク済み記録を表示します。'
     },
     empty: {
       title: '監査イベントはまだありません',

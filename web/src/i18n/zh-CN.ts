@@ -2218,7 +2218,8 @@ export default {
     actions: {
       exportEvidence: '导出审计证据',
       exporting: '导出中…',
-      refreshing: '刷新中…'
+      refreshing: '刷新中…',
+      viewDetail: '查看详情'
     },
     filters: {
       keywordPlaceholder: '搜索操作、对象或摘要',
@@ -2253,6 +2254,10 @@ export default {
       title: '日志列表',
       summary: '共 {total} 条，默认按最新时间排序。',
       timeNotRecorded: '未记录时间'
+    },
+    detail: {
+      title: '审计日志详情',
+      description: '查看该事件从后端返回的完整脱敏记录。'
     },
     empty: {
       title: '暂无审计事件',

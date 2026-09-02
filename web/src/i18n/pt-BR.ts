@@ -2088,7 +2088,8 @@ export default {
     actions: {
       exportEvidence: 'Exportar evidências de auditoria',
       exporting: 'Exportando…',
-      refreshing: 'Atualizando…'
+      refreshing: 'Atualizando…',
+      viewDetail: 'Ver detalhes'
     },
     filters: {
       keywordPlaceholder: 'Buscar ações, objetos ou resumos',
@@ -2123,6 +2124,10 @@ export default {
       title: 'Lista de logs',
       summary: '{total} no total, ordenados por mais recentes primeiro.',
       timeNotRecorded: 'Horário não registrado'
+    },
+    detail: {
+      title: 'Detalhes do log de auditoria',
+      description: 'Veja o registro completo e redigido retornado pelo back-end.'
     },
     empty: {
       title: 'Nenhum evento de auditoria',

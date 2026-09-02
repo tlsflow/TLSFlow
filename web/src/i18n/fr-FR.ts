@@ -2110,7 +2110,8 @@ export default {
     actions: {
       exportEvidence: 'Export audit evidence',
       exporting: 'Exporting…',
-      refreshing: 'Refreshing…'
+      refreshing: 'Refreshing…',
+      viewDetail: 'View details'
     },
     filters: {
       keywordPlaceholder: 'Search actions, objects, or summaries',
@@ -2145,6 +2146,10 @@ export default {
       title: 'Log list',
       summary: '{total} total, sorted by newest first.',
       timeNotRecorded: 'Time not recorded'
+    },
+    detail: {
+      title: 'Audit log details',
+      description: 'View the complete redacted record returned by the backend.'
     },
     empty: {
       title: 'No audit events',

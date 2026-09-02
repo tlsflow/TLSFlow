@@ -21,12 +21,30 @@ export function isSuppressedAudit(item: Pick<AuditDisplayItem, 'eventType' | 're
   const permissionReason = readDetailString(item.detail, 'reason')
   return item.eventType === 'secret.used'
     || (item.eventType === 'permission.denied' && (permissionReason === 'no allow policy' || permissionReason === 'no object grant'))
+    || isSuppressedProviderReconciliation(item.eventType, item.detail)
+}
+
+function isSuppressedProviderReconciliation(eventType: string, detail: unknown): boolean {
+  if (!['internal_ca.provider.created', 'internal_ca.provider.updated', 'internal_ca.provider_action_binding.updated'].includes(eventType)) return false
+  if (readDetailString(detail, 'source') !== 'reconciliation') return false
+  if (eventType === 'internal_ca.provider.created') return true
+  const changedFields = readDetailStringArray(detail, 'changedFields')
+  return !changedFields.some((field) => field === 'status'
+    || field === 'endpoint'
+    || field === 'credentialSecretRef'
+    || field.endsWith('pluginVersionId'))
 }
 
 function readDetailString(detail: unknown, key: string): string | undefined {
   if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return undefined
   const value = (detail as Record<string, unknown>)[key]
   return typeof value === 'string' ? value : undefined
+}
+
+function readDetailStringArray(detail: unknown, key: string): string[] {
+  if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return []
+  const value = (detail as Record<string, unknown>)[key]
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 }
 
 export function isHttpHeaderSecretReadAudit(item: Pick<AuditDisplayItem, 'eventType' | 'action' | 'resourceType' | 'detail'>): boolean {

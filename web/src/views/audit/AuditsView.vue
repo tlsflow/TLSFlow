@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { GcEmptyState, GcPagination, GcPermissionButton, GcStatusTag, type StatusTone } from '@/design-system/components'
+import { GcEmptyState, GcModal, GcPagination, GcPermissionButton, GcStatusTag, type StatusTone } from '@/design-system/components'
 import { exportAuditEvidence, listAudits } from '@/api/modules/audits.api'
 import type { ApiRecord } from '@/api/modules/common'
 import { ApiClientError } from '@/api/client'
@@ -11,6 +11,7 @@ import { auditReadableTitle, auditResultLabel, auditSummary, auditTypeLabel, isS
 interface AuditRow extends AuditDisplayItem {
   readonly id: string
   readonly createdAt: string
+  readonly raw: ApiRecord
 }
 
 const rows = ref<AuditRow[]>([])
@@ -23,6 +24,8 @@ const currentPage = ref(1)
 const pageSize = ref(50)
 const keyword = ref('')
 const keywordDraft = ref('')
+const detailOpen = ref(false)
+const detailRow = ref<AuditRow | null>(null)
 const { t } = useI18n()
 
 const failedCount = computed(() => rows.value.filter((row) => row.result === 'failure' || row.result === 'denied').length)
@@ -112,6 +115,21 @@ function toAuditRow(record: ApiRecord): AuditRow {
     detail: readPath(record, 'detail'),
     presentation: readPresentation(record),
     createdAt: readString(record, ['createdAt', 'timestamp'], ''),
+    raw: record,
+  }
+}
+
+function openDetail(row: AuditRow): void {
+  detailRow.value = row
+  detailOpen.value = true
+}
+
+function formatRawLog(row: AuditRow | null): string {
+  if (!row) return ''
+  try {
+    return JSON.stringify(row.raw, null, 2)
+  } catch {
+    return String(row.raw)
   }
 }
 
@@ -234,7 +252,12 @@ function readPath(record: ApiRecord, path: string): unknown {
             </div>
             <p>{{ auditSummary(item, t) }}</p>
           </div>
-          <time>{{ item.createdAt ? formatBrowserLocalTime(item.createdAt, { includeSeconds: false }) : t('audit.list.timeNotRecorded') }}</time>
+          <div class="audit-list__meta">
+            <button class="audit-list__detail-button" type="button" @click.stop="openDetail(item)">
+              {{ t('audit.actions.viewDetail') }}
+            </button>
+            <time>{{ item.createdAt ? formatBrowserLocalTime(item.createdAt, { includeSeconds: false }) : t('audit.list.timeNotRecorded') }}</time>
+          </div>
         </li>
       </ol>
       <GcEmptyState v-else :title="t('audit.empty.title')" :description="t('audit.empty.description')" />
@@ -250,6 +273,15 @@ function readPath(record: ApiRecord, path: string): unknown {
         />
       </footer>
     </section>
+
+    <GcModal
+      v-model:open="detailOpen"
+      :title="t('audit.detail.title')"
+      :description="t('audit.detail.description')"
+      size="lg"
+    >
+      <pre class="audit-detail__raw">{{ formatRawLog(detailRow) }}</pre>
+    </GcModal>
   </section>
 </template>
 
@@ -509,6 +541,50 @@ function readPath(record: ApiRecord, path: string): unknown {
   white-space: nowrap;
 }
 
+.audit-list__meta {
+  display: grid;
+  justify-items: end;
+  gap: var(--gc-space-1);
+  min-width: max-content;
+}
+
+.audit-list__detail-button {
+  padding: 0;
+  border: 0;
+  color: var(--gc-color-primary);
+  background: transparent;
+  font: inherit;
+  font-size: var(--gc-font-size-xs);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.audit-list__detail-button:hover {
+  text-decoration: underline;
+}
+
+.audit-list__detail-button:focus-visible {
+  border-radius: var(--gc-radius-sm);
+  outline: var(--gc-border-width-default) solid var(--gc-color-focus);
+  outline-offset: var(--gc-space-tight);
+}
+
+.audit-detail__raw {
+  max-block-size: min(60vh, 36rem);
+  margin: 0;
+  overflow: auto;
+  padding: var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
+  border-radius: var(--gc-radius-md);
+  color: var(--gc-color-text);
+  background: var(--gc-color-surface-field);
+  font-family: var(--gc-font-family-mono);
+  font-size: var(--gc-font-size-xs);
+  line-height: var(--gc-line-height-relaxed);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 56rem) {
   .audit-list__header {
     align-items: flex-start;
@@ -536,6 +612,10 @@ function readPath(record: ApiRecord, path: string): unknown {
   .audit-list time {
     padding-top: 0;
     white-space: normal;
+  }
+
+  .audit-list__meta {
+    justify-items: start;
   }
 }
 </style>

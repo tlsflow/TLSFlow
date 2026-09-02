@@ -2113,7 +2113,8 @@ export default {
     actions: {
       exportEvidence: "匯出審計證據",
       exporting: "匯出中…",
-      refreshing: "重新整理中…"
+      refreshing: "重新整理中…",
+      viewDetail: "檢視詳情"
     },
     filters: {
       keywordPlaceholder: "搜尋操作、物件或摘要",
@@ -2148,6 +2149,10 @@ export default {
       title: "記錄列表",
       summary: "共 {total} 筆，預設按最新時間排序。",
       timeNotRecorded: "未記錄時間"
+    },
+    detail: {
+      title: "審計記錄詳情",
+      description: "查看後端返回的完整脫敏記錄。"
     },
     empty: {
       title: "暫無審計事件",
