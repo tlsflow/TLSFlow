@@ -429,6 +429,15 @@ export class CloudResourceProjectionService {
                 raw_facts->>'scopeName' as region
            from pg_framework_instances
           where tenant_id=$1 and ${resolvedOwnerType === 'SERVICE_ASSET' ? 'service_asset_id' : 'asset_id'}=$2 and deleted_at is null
+            and status='ACTIVE'
+            and exists (
+              select 1
+                from pg_site_assets site
+               where site.tenant_id=pg_framework_instances.tenant_id
+                 and site.framework_instance_id=pg_framework_instances.id
+                 and site.status='ACTIVE'
+                 and site.deleted_at is null
+            )
           order by display_name, id`,
         [tenantId, serviceAssetId],
       ),
@@ -445,7 +454,7 @@ export class CloudResourceProjectionService {
         `select id, tenant_id, asset_id, service_asset_id, device_id, framework_instance_id, discovery_provider_key, site_type,
                 site_name, site_key, discovery_source, last_discovered_at, status, metadata
            from pg_site_assets
-          where tenant_id=$1 and ${ownerColumn}=$2 and deleted_at is null
+          where tenant_id=$1 and ${ownerColumn}=$2 and status='ACTIVE' and deleted_at is null
           order by site_name, id`,
         [tenantId, serviceAssetId],
       ),

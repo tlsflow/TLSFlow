@@ -360,7 +360,6 @@ export class PgAssetsRepository implements AssetsRepository {
         : input.metadata ?? {},
       input.verifyUrl,
     );
-    if (input.pluginVersionId) metadata.pluginVersionId = input.pluginVersionId;
     const asset: ServiceAssetDto = {
       id: newId('sat'),
       tenantId,
@@ -1639,7 +1638,6 @@ function toServiceAsset(row: ServiceAssetRow): ServiceAssetDto {
     status: row.status,
     tags: asArray(row.tags),
     metadata,
-    pluginVersionId: typeof metadata.pluginVersionId === 'string' ? metadata.pluginVersionId : undefined,
     deploymentStrategy: readStoredDeploymentStrategy(metadata),
     createdAt: row.created_at,
     updatedAt: row.updated_at,

@@ -351,6 +351,24 @@ test('Projection batch persist 重复发现保持单 Framework、多 Site 和 Ma
   await db.close();
 });
 
+test('详情投影隐藏没有 ACTIVE Site 的孤立 Framework', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db);
+  const assets = new PgAssetsRepository(db);
+  const asset = await assets.createServiceAsset('tenant-orphan-framework', {
+    address: 'cloud.aliyun.example', port: 443, protocol: 'HTTPS', assetKind: 'CLOUD_SERVICE', displayName: '孤立框架账号',
+    metadata: { pluginId: 'cloud.aliyun' },
+  });
+  const service = new CloudResourceProjectionService(db);
+  const persisted = await service.persist({ ...serviceAssetContext('tenant-orphan-framework', asset.id) }, resource);
+  await db.query('update pg_site_assets set status=$1 where id=$2', ['STALE', persisted.site.id]);
+
+  const listed = await service.listForAsset('tenant-orphan-framework', asset.id, 'SERVICE_ASSET');
+  assert.equal(listed.sites.length, 0);
+  assert.equal(listed.frameworks.length, 0);
+  await db.close();
+});
+
 test('云 CDN 证书事实会持久化为 Site 绑定，未匹配证书库时保留未纳管指纹', async () => {
   const db = new PgliteDatabase();
   await runMigrations(db);

@@ -181,6 +181,7 @@ const hasPlatformKeyword = computed(() => platformSearchKeyword.value.trim().len
 const sortedPlatforms = computed(() => [...platforms.value].sort(comparePlatformsByName))
 const filteredPlatforms = computed(() => {
   const keyword = platformSearchKeyword.value.trim().toLocaleLowerCase(locale.value)
+  if (!keyword) return sortedPlatforms.value
   return sortedPlatforms.value.filter((platform) => {
     const metadata = platform.businessMetadata
     const searchableValues = [
@@ -284,7 +285,7 @@ watch(footerActions, (actions) => {
 }, { immediate: true })
 
 async function loadPlatforms(): Promise<void> {
-  loading.value = true; error.value = ''; categoryFilter.value = 'all'
+  loading.value = true; error.value = ''
   try {
     platforms.value = readArray<Platform>((await listOnboardingPlatforms(locale.value)).data)
   } catch (cause) { error.value = messageFor(cause) } finally { loading.value = false }
@@ -1024,20 +1025,6 @@ defineExpose({ goPrevious, runFooterPrimary, cancel })
           >
         </label>
       </div>
-      <nav class="platform-category-tabs" :aria-label="t('plugins.categories.label')" role="tablist">
-        <button
-          v-for="option in categoryOptions"
-          :key="option.value"
-          type="button"
-          class="platform-category-tab"
-          :class="{ 'platform-category-tab--active': categoryFilter === option.value }"
-          role="tab"
-          :aria-selected="categoryFilter === option.value"
-          @click="categoryFilter = option.value"
-        >
-          {{ option.label }}
-        </button>
-      </nav>
       <div class="platform-grid">
         <div
           v-if="loading && platforms.length === 0"
@@ -1272,17 +1259,12 @@ h1, h2, p { margin: 0; }
 .onboarding-platform-loading__spinner { inline-size: var(--gc-space-5); aspect-ratio: 1; border: var(--gc-border-width-thick) solid var(--gc-color-primary-border); border-top-color: var(--gc-color-primary); border-radius: var(--gc-radius-full); animation: application-onboarding-platform-spin 700ms linear infinite; }
 @keyframes application-onboarding-platform-spin { to { transform: rotate(1turn); } }
 .platform-card { display: grid; grid-template-columns: calc(var(--gc-space-4) * 3) minmax(0, 1fr); align-items: start; gap: var(--gc-space-3); block-size: var(--gc-size-application-onboarding-card); min-block-size: 0; padding: var(--gc-space-3); text-align: left; color: var(--gc-color-text); cursor: pointer; background: var(--gc-color-surface-soft); border: var(--gc-space-hairline) solid var(--gc-color-border); border-radius: var(--gc-radius-card); box-shadow: var(--gc-shadow-sm); transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
-.platform-category-tabs { display: flex; gap: var(--gc-space-2); overflow-x: auto; padding-block: var(--gc-space-1); border-bottom: var(--gc-space-hairline) solid var(--gc-color-border); }
-.platform-category-tab { flex: 0 0 auto; padding: var(--gc-space-2) var(--gc-space-3); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); background: transparent; border: 0; border-bottom: var(--gc-border-width-thick) solid transparent; cursor: pointer; }
-.platform-category-tab:hover, .platform-category-tab--active { color: var(--gc-color-primary); border-bottom-color: var(--gc-color-primary); }
-.platform-category-tab:focus-visible { outline: none; box-shadow: var(--gc-shadow-focus); }
 .platform-card:hover:not(:disabled) { background: var(--gc-color-surface); border-color: var(--gc-color-primary-border-strong); box-shadow: var(--gc-shadow-hover); }
 .platform-card:focus-visible { outline: none; box-shadow: var(--gc-shadow-focus); }
 .platform-card:disabled { cursor: not-allowed; opacity: var(--gc-opacity-disabled); }
 .platform-card--review { background: var(--gc-color-surface); }
 .platform-card__copy { display: grid; min-inline-size: 0; gap: var(--gc-space-compact); }
 .platform-card__copy strong { color: var(--gc-color-text-strong); font-size: var(--gc-font-size-label); line-height: var(--gc-line-height-tight); overflow-wrap: anywhere; }
-.platform-card__copy .platform-card__category { color: var(--gc-color-primary); }
 .platform-card__copy small { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-caption); line-height: var(--gc-line-height-tight); overflow-wrap: anywhere; }
 .platform-card__metadata { display: grid; gap: var(--gc-space-compact); }
 .platform-card__metadata-row { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: baseline; column-gap: var(--gc-space-compact); }

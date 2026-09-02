@@ -5840,16 +5840,6 @@ function managedTargetLabel(target: ApiRecord): string {
   white-space: nowrap;
 }
 
-.asset-page__card-category {
-  inline-size: fit-content;
-  padding: var(--gc-space-compact) var(--gc-space-2);
-  color: var(--gc-color-primary);
-  font-size: var(--gc-font-size-caption);
-  line-height: var(--gc-line-height-tight);
-  background: var(--gc-color-primary-soft);
-  border-radius: var(--gc-radius-control);
-}
-
 .asset-page__card-heading h3 {
   color: var(--gc-color-text);
   font-size: var(--gc-font-size-sm);
