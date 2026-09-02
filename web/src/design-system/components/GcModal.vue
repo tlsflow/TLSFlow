@@ -298,7 +298,7 @@ onBeforeUnmount(() => {
         >
           <header v-if="!frameless && (title || description)" class="gc-modal__header">
             <div>
-              <h2 v-if="title" :id="titleId">{{ title }}</h2>
+              <h2 v-if="title" :id="titleId"><slot name="title">{{ title }}</slot></h2>
               <p v-if="description" :id="descriptionId">{{ description }}</p>
             </div>
             <div class="gc-modal__header-actions">

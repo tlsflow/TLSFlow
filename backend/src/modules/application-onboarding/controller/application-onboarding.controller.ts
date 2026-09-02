@@ -125,7 +125,7 @@ export class ApplicationOnboardingController {
 
   private async selectCertificate(request: HttpRequest) {
     await this.assertWrite(request);
-    const body = validateObject(request.body, { expectedStateVersion: { type: 'number', required: true }, certificateId: { type: 'string', required: true }, certificateVersionId: { type: 'string', required: true }, selectionMode: { type: 'string', enum: ['EXPLICIT', 'LATEST_AUTO'] } });
+    const body = validateObject(request.body, { expectedStateVersion: { type: 'number', required: true }, certificateId: { type: 'string' }, certificateVersionId: { type: 'string' }, selectionMode: { type: 'string', enum: ['EXPLICIT', 'LATEST_AUTO', 'DEDICATED'] } });
     return this.service.selectCertificate(requireTenantId(request), this.sessionId(request), body as never);
   }
 

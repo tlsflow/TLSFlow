@@ -1,13 +1,32 @@
 <script setup lang="ts">
-defineProps<{
+import { onBeforeUnmount, onMounted, ref } from 'vue'
+
+const props = withDefaults(defineProps<{
   content: string
   ariaLabel: string
-}>()
+  clickOnly?: boolean
+}>(), {
+  clickOnly: false,
+})
+
+const root = ref<HTMLElement | null>(null)
+const open = ref(false)
+
+function toggle(): void {
+  if (props.clickOnly) open.value = !open.value
+}
+
+function closeWhenOutside(event: MouseEvent): void {
+  if (props.clickOnly && root.value && !root.value.contains(event.target as Node)) open.value = false
+}
+
+onMounted(() => document.addEventListener('click', closeWhenOutside))
+onBeforeUnmount(() => document.removeEventListener('click', closeWhenOutside))
 </script>
 
 <template>
-  <span class="gc-help-tip">
-    <button class="gc-help-tip__button" type="button" :aria-label="ariaLabel">
+  <span ref="root" class="gc-help-tip" :class="{ 'gc-help-tip--click-only': clickOnly, 'gc-help-tip--open': open }">
+    <button class="gc-help-tip__button" type="button" :aria-label="ariaLabel" :aria-expanded="clickOnly ? open : undefined" @click.stop="toggle">
       <span aria-hidden="true">?</span>
     </button>
     <span class="gc-help-tip__popover" role="tooltip">{{ content }}</span>
@@ -51,10 +70,10 @@ defineProps<{
 .gc-help-tip__popover {
   position: absolute;
   top: calc(100% + var(--gc-space-2));
-  right: 0;
+  inset-inline-start: 0;
   z-index: var(--gc-z-tooltip);
-  width: max-content;
-  max-width: calc(var(--gc-size-card-min) + var(--gc-space-10));
+  width: min(22rem, calc(100vw - var(--gc-space-8)));
+  max-width: calc(100vw - var(--gc-space-8));
   padding: var(--gc-space-3) var(--gc-space-4);
   border: var(--gc-border-width-default) solid var(--gc-color-border-strong);
   border-radius: var(--gc-radius-md);
@@ -76,6 +95,20 @@ defineProps<{
 .gc-help-tip:focus-within .gc-help-tip__popover {
   opacity: 1;
   visibility: visible;
+  transform: translateY(0);
+}
+
+.gc-help-tip--click-only:hover .gc-help-tip__popover,
+.gc-help-tip--click-only:focus-within .gc-help-tip__popover {
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(calc(var(--gc-space-1) * -1));
+}
+
+.gc-help-tip--click-only.gc-help-tip--open .gc-help-tip__popover {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
   transform: translateY(0);
 }
 </style>

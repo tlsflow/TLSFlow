@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { type LocationQueryRaw, useRoute, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
@@ -30,6 +30,8 @@ import {
 import { projectApplicationAssetPluginInputs, type ApplicationAssetDeploymentDefaults } from '@/api/modules/deployment-inputs.api'
 import { listCredentials, type CredentialProfileSummary } from '@/api/modules/credentials.api'
 import { listCertificateFormats } from '@/api/modules/certificates.api'
+import { saveApplicationCertificateSupplyPolicy } from '@/api/modules/assets.api'
+import { automationAction, createAutomation, type AutomationConfiguration } from '@/api/modules/automations.api'
 import { sortDeployableCertificateVersions } from '@/views/deployments/certificate-version-selection'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { localizeCertificateFormatName } from '@/utils/certificate-format-localization'
@@ -40,13 +42,13 @@ import { createInputBindingsV1, readInputBindingsV1 } from '@/views/assets/asset
 interface PlatformBusinessMetadata { capabilityVersion: string; compatibleVersions: string[]; requiredInformation: string[] }
 type ProductCategory = 'WEB_SITE' | 'APPLICATION_MIDDLEWARE' | 'NETWORK_GATEWAY' | 'CLOUD_PLATFORM'
 interface Platform { platformKey: string; source: 'PLUGIN' | 'CUSTOM_MANUAL'; productCategory?: ProductCategory; pluginVersionId?: string; displayNameKey: string; displayName?: string; description?: string; logoUrl?: string; logoSquareUrl?: string; businessMetadata?: PlatformBusinessMetadata; deploymentMode?: string; deviceSelection?: 'EXISTING_OR_NEW' | 'EXISTING_ONLY' | 'NONE'; newDeviceOnboarding?: DeviceOnboardingInitialSelection; supportStatus?: string; acceptedCertificateFormats?: string[]; deploymentDefaults?: ApplicationAssetDeploymentDefaults }
-interface Session { id: string; platformKey: string; state: string; stateVersion: number; deploymentMode?: string; deviceId?: string | null; assetId?: string | null; targetId?: string | null; certificateId?: string | null; certificateVersionId?: string | null; targets?: Target[]; inputSnapshot?: Record<string, unknown>; lastErrorCode?: string }
+interface Session { id: string; platformKey: string; state: string; stateVersion: number; deploymentMode?: string; deviceId?: string | null; assetId?: string | null; targetId?: string | null; certificateId?: string | null; certificateVersionId?: string | null; targets?: Target[]; inputSnapshot?: Record<string, unknown>; result?: Record<string, unknown>; lastErrorCode?: string }
 interface TargetEndpoint { host?: string; port?: number; protocol?: string }
 interface Target { managedTargetId: string; displayName: string; targetType: string; endpoint?: TargetEndpoint; configFingerprint: string; selectable: boolean; reasonCode?: string }
 interface ResourceOption { assetRef: { rootType: 'DEVICE' | 'SERVICE_ASSET'; id: string }; resourceType: 'DEVICE' | 'SERVICE_ASSET'; displayName: string; address?: string; health: string; selectable: boolean }
-interface CertificateOption { id: string; label: string }
+interface CertificateOption { id: string; label: string; domains: string[] }
 type OnboardingStep = 1 | 2 | 3 | 4 | 5
-type FooterPrimaryAction = 'RESOURCE' | 'TARGET' | 'CERTIFICATE' | 'COMPLETE' | null
+type FooterPrimaryAction = 'RESOURCE' | 'TARGET' | 'CERTIFICATE' | 'COMPLETE' | 'CLOSE' | null
 interface OnboardingFooterActions {
   visible: boolean
   showCancel: boolean
@@ -93,11 +95,21 @@ const deviceMode = ref<'EXISTING_DEVICE' | 'EXISTING_SERVICE_ASSET' | 'NEW_DEVIC
 const deviceId = ref('')
 const assetId = ref('')
 const pendingTarget = ref<Target | null>(null)
+const targetConfigRef = ref<HTMLElement | null>(null)
 const accessDomain = ref('')
 const verifyUrl = ref('')
 const certificateId = ref('')
 const certificateVersionId = ref('')
-const certificateSelectionMode = ref<'EXPLICIT' | 'LATEST_AUTO'>('EXPLICIT')
+const certificateSelectionMode = ref<'EXPLICIT' | 'LATEST_AUTO' | 'DEDICATED'>('EXPLICIT')
+const certificateSupplyMode = ref<'manual' | 'dedicated'>('manual')
+const dedicatedProviderType = ref<'internal_ca' | 'acme'>('internal_ca')
+const automationTrigger = ref<'none' | 'certificate_version_created' | 'once' | 'schedule'>('none')
+const automationRunAt = ref('')
+const automationScheduleUnit = ref<'daily' | 'weekly' | 'monthly'>('daily')
+const automationScheduleDay = ref('1')
+const automationScheduleTime = ref('02:00')
+const automationTimeZone = ref(Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai')
+const commitProgress = ref<Array<{ key: string; status: 'pending' | 'running' | 'success' | 'failed' }>>([])
 const certificateAssets = ref<CertificateOption[]>([])
 const certificateVersions = ref<Record<string, unknown>[]>([])
 const deploymentInputProjection = ref<DeploymentInputProjectionV1 | null>(null)
@@ -139,7 +151,17 @@ const footerActions = computed<OnboardingFooterActions>(() => {
       : t('applicationOnboarding.actions.review')
     primaryDisabled = session.value.state === 'READY_TO_COMMIT'
       ? loading.value
-      : loading.value || !certificateId.value || !certificateVersionId.value
+      : loading.value
+        || (certificateSupplyMode.value === 'manual' && (!certificateId.value || !certificateVersionId.value))
+        || (automationTrigger.value === 'once' && !automationRunAt.value)
+  } else if (step.value === 5) {
+    // 如果还没有开始创建（commitProgress为空），显示"确认并创建"按钮
+    // 如果已经开始创建了，显示"关闭"按钮
+    primaryAction = commitProgress.value.length === 0 ? 'COMPLETE' : 'CLOSE'
+    primaryLabel = commitProgress.value.length === 0
+      ? t('applicationOnboarding.actions.complete')
+      : t('applicationOnboarding.actions.close')
+    primaryDisabled = loading.value
   } else if (step.value === 3 && session.value) {
     primaryAction = 'TARGET'
     primaryLabel = t('applicationOnboarding.actions.continue')
@@ -153,7 +175,7 @@ const footerActions = computed<OnboardingFooterActions>(() => {
   }
 
   const showPrevious = canGoPrevious.value
-  const showCancel = activeSession
+  const showCancel = activeSession && !loading.value
   return {
     visible: showCancel || showPrevious || primaryAction !== null,
     showCancel,
@@ -208,6 +230,7 @@ const filteredPlatforms = computed(() => {
 const selectableTargets = computed(() => targets.value.filter((target) => target.selectable))
 // 证书版本列表按到期时间倒序，第一项即最新可部署版本。
 const latestCertificateVersion = computed(() => certificateVersions.value[0] ?? null)
+const selectedCertificateVersion = computed(() => certificateVersions.value.find((item) => certificateVersionIdOf(item) === certificateVersionId.value) ?? latestCertificateVersion.value)
 // 插件配方声明的平台接受格式，作为证书步骤的向导参数展示。
 const platformAcceptedFormats = computed(() => selectedPlatform.value?.acceptedCertificateFormats ?? [])
 // “始终使用最新版本”选项在提交时解析为当前最新版本 ID，作为 LATEST_AUTO 计划的种子版本。
@@ -368,6 +391,7 @@ async function runFooterPrimary(): Promise<void> {
     return
   }
   if (footerActions.value.primaryAction === 'COMPLETE') await complete()
+  if (footerActions.value.primaryAction === 'CLOSE') await closeCompleted()
 }
 
 async function refreshTargets(): Promise<void> { if (session.value) targets.value = readArray<Target>((await listOnboardingTargets(session.value.id)).data) }
@@ -398,13 +422,18 @@ function selectNewDevice(): void {
   deviceId.value = ''
   assetId.value = ''
 }
-function chooseTarget(target: Target): void {
+async function chooseTarget(target: Target): Promise<void> {
   if (!session.value || !target.selectable || loading.value) return
   pendingTarget.value = target
   accessDomain.value = suggestedAccessDomain(target)
   verifyUrl.value = suggestedVerifyUrl(accessDomain.value, target.endpoint?.port, target.endpoint?.protocol)
   error.value = ''
   void loadDeploymentInputProjection(target)
+  await nextTick()
+  if (targetConfigRef.value && typeof targetConfigRef.value.scrollIntoView === 'function') {
+    targetConfigRef.value.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }
+  targetConfigRef.value?.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true })
 }
 async function loadDeploymentInputProjection(target: Target, options: { preserveBindings?: boolean } = {}): Promise<void> {
   const sequence = ++deploymentInputRequestSequence
@@ -513,7 +542,23 @@ async function saveTarget(): Promise<void> {
 async function saveCertificate(): Promise<void> {
   if (!session.value) return
   loading.value = true
+  error.value = ''
   try {
+    if (certificateSupplyMode.value === 'dedicated') {
+      session.value = readObject<Session>((await selectOnboardingCertificate(session.value.id, {
+        expectedStateVersion: session.value.stateVersion,
+        certificateId: '',
+        certificateVersionId: '',
+        selectionMode: 'DEDICATED',
+      })).data)
+      currentStepOverride.value = null
+      // 跳转到步骤5显示摘要
+      await nextTick()
+      if (session.value.state === 'READY_TO_COMMIT') {
+        currentStepOverride.value = 5
+      }
+      return
+    }
     session.value = readObject<Session>((await selectOnboardingCertificate(session.value.id, {
       expectedStateVersion: session.value.stateVersion,
       certificateId: certificateId.value,
@@ -521,15 +566,106 @@ async function saveCertificate(): Promise<void> {
       selectionMode: certificateVersionId.value === LATEST_VERSION_MARKER ? 'LATEST_AUTO' : 'EXPLICIT',
     })).data)
     currentStepOverride.value = null
+    // 跳转到步骤5显示摘要
+    await nextTick()
+    if (session.value.state === 'READY_TO_COMMIT') {
+      currentStepOverride.value = 5
+    }
   } catch (cause) { error.value = messageFor(cause) } finally { loading.value = false }
 }
 async function complete(): Promise<void> {
   if (!session.value) return
   loading.value = true
+  currentStepOverride.value = 5
+  commitProgress.value = [
+    { key: 'application', status: 'running' },
+    { key: 'certificate', status: 'pending' },
+    { key: 'automation', status: automationTrigger.value === 'none' ? 'success' : 'pending' },
+  ]
   try {
     session.value = readObject<Session>((await completeOnboardingSession(session.value.id, session.value.stateVersion)).data)
+    commitProgress.value[0].status = 'success'
+    const result = readRecord(session.value.result) ?? {}
+    const applicationAssetId = readString(result, ['applicationAssetId'])
+    if (certificateSupplyMode.value === 'dedicated' && applicationAssetId) {
+      commitProgress.value[1].status = 'running'
+      await saveApplicationCertificateSupplyPolicy(applicationAssetId, {
+        supplyMode: 'dedicated',
+        providerType: dedicatedProviderType.value,
+        status: 'draft',
+      })
+      commitProgress.value[1].status = 'success'
+    } else {
+      commitProgress.value[1].status = 'success'
+    }
+    if (automationTrigger.value !== 'none' && applicationAssetId) {
+      commitProgress.value[2].status = 'running'
+      const automation = await createAutomation(buildAutomationConfiguration(applicationAssetId))
+      await automationAction(automation.id, 'enable', automation.version)
+      commitProgress.value[2].status = 'success'
+    }
     currentStepOverride.value = null
-  } catch (cause) { error.value = messageFor(cause) } finally { loading.value = false }
+  } catch (cause) {
+    const failed = commitProgress.value.find((item) => item.status === 'running')
+    if (failed) failed.status = 'failed'
+    error.value = messageFor(cause)
+    // 如果是 ApiClientError，尝试显示更详细的错误信息
+    if (cause instanceof ApiClientError && cause.details) {
+      const details = cause.details as Record<string, unknown>
+      if (details.issues && Array.isArray(details.issues)) {
+        const issuesText = details.issues.map((issue) => {
+          if (typeof issue === 'string') return issue
+          if (typeof issue === 'object' && issue !== null) {
+            return JSON.stringify(issue, null, 2)
+          }
+          return String(issue)
+        }).join('\n')
+        error.value += '\n\n详细信息：\n' + issuesText
+      }
+      // 显示插件版本不匹配的详细信息
+      if (details.pluginVersionId || details.bindingPluginVersionId) {
+        error.value += '\n\n插件版本不匹配：'
+        if (details.pluginVersionId) error.value += `\n当前插件版本：${details.pluginVersionId}`
+        if (details.bindingPluginVersionId) error.value += `\n应用绑定版本：${details.bindingPluginVersionId}`
+        error.value += '\n\n建议：请尝试删除此应用并重新创建，或联系管理员更新应用的插件绑定。'
+      }
+      // 显示其他可能有用的详细信息
+      if (details.sourceType || details.sourceId) {
+        error.value += `\n\n来源类型：${details.sourceType || '未知'}`
+        if (details.sourceId) error.value += `\n来源ID：${details.sourceId}`
+      }
+    }
+    currentStepOverride.value = 4
+  } finally { loading.value = false }
+}
+function buildAutomationConfiguration(applicationAssetId: string): AutomationConfiguration & { name: string; description: string } {
+  const trigger: AutomationConfiguration['trigger'] = automationTrigger.value === 'certificate_version_created'
+    ? { type: 'certificate_version_created', sources: ['manual_import', 'acme_issue'] }
+    : automationTrigger.value === 'once'
+      ? { type: 'once', runAt: new Date(automationRunAt.value).toISOString() }
+      : { type: 'schedule', cron: buildAutomationCron(), timeZone: automationTimeZone.value || 'Asia/Shanghai' }
+  return {
+    name: t('applicationOnboarding.automation.defaultName'),
+    description: t('applicationOnboarding.automation.defaultDescription'),
+    trigger,
+    targetResolver: { type: 'certificate_version_targets', assetIds: [applicationAssetId] },
+    actions: [
+      { type: 'create_deployment_plan', position: 1, config: { selectionMode: 'LATEST_AUTO', planType: 'UPDATE' } },
+      { type: 'execute_deployment_plan', position: 2, config: { source: 'created_by_previous_action', dryRunFirst: true } },
+    ],
+    guardrails: { maxTargetsPerRun: 1, concurrencyLimit: 1, requirePreview: true, requireDryRun: true, requireApproval: false },
+  }
+}
+function buildAutomationCron(): string {
+  const [hour = '2', minute = '0'] = (automationScheduleTime.value || '02:00').split(':')
+  if (automationScheduleUnit.value === 'weekly') return `${Number(minute)} ${Number(hour)} * * ${automationScheduleDay.value}`
+  if (automationScheduleUnit.value === 'monthly') return `${Number(minute)} ${Number(hour)} ${Number(automationScheduleDay.value)} * *`
+  return `${Number(minute)} ${Number(hour)} * * *`
+}
+async function closeCompleted(): Promise<void> {
+  resetOnboardingState()
+  await clearOnboardingRoute()
+  if (props.embedded) emit('close')
 }
 async function cancel(): Promise<void> {
   await cancelCurrentSessionBestEffort()
@@ -552,7 +688,10 @@ async function restoreSession(): Promise<void> {
     verifyUrl.value = readString(session.value.inputSnapshot ?? {}, ['verifyUrl'])
     certificateId.value = session.value.certificateId ?? certificateId.value
     certificateVersionId.value = session.value.certificateVersionId ?? certificateVersionId.value
-    certificateSelectionMode.value = session.value.inputSnapshot?.certificateSelectionMode === 'LATEST_AUTO' ? 'LATEST_AUTO' : 'EXPLICIT'
+    certificateSelectionMode.value = session.value.inputSnapshot?.certificateSelectionMode === 'DEDICATED'
+      ? 'DEDICATED'
+      : session.value.inputSnapshot?.certificateSelectionMode === 'LATEST_AUTO' ? 'LATEST_AUTO' : 'EXPLICIT'
+    certificateSupplyMode.value = certificateSelectionMode.value === 'DEDICATED' ? 'dedicated' : 'manual'
     deploymentInputBindings.value = readInputBindingsV1(session.value.inputSnapshot?.deploymentInputBindings) ?? createInputBindingsV1()
     if (!selectedPlatform.value) { resetOnboardingState(); await clearOnboardingRoute(); return }
     if (isRestartableSessionState(session.value.state)) {
@@ -584,7 +723,10 @@ async function readTargets(): Promise<Target[]> {
 async function loadCertificateAssets(): Promise<void> {
   if (!session.value) return
   const options = readObject<{ assets: unknown; versions: unknown }>((await listOnboardingCertificateOptions(session.value.id)).data)
-  certificateAssets.value = readArray<Record<string, unknown>>(options.assets).map(toCertificateOption).filter((item): item is CertificateOption => item !== null)
+  const domain = normalizeDomain(accessDomain.value)
+  certificateAssets.value = readArray<Record<string, unknown>>(options.assets)
+    .map(toCertificateOption)
+    .filter((item): item is CertificateOption => item !== null && Boolean(domain) && item.domains.some((candidate) => certificateDomainMatches(candidate, domain)))
   const currentCertificateId = certificateId.value
   if (!currentCertificateId || !certificateAssets.value.some((item) => item.id === currentCertificateId)) {
     certificateId.value = certificateAssets.value[0]?.id ?? ''
@@ -643,7 +785,20 @@ function formatDateOnly(value: string): string {
 function toCertificateOption(record: Record<string, unknown>): CertificateOption | null {
   const id = readString(record, ['id', 'certificateAssetId', 'certificateVersionId'])
   if (!id) return null
-  return { id, label: readString(record, ['primaryDomain', 'commonName', 'name', 'displayName', 'fingerprintSha256']) || id }
+  const domains = [
+    readString(record, ['primaryDomain', 'commonName', 'name', 'displayName']),
+    ...readStringArray(record, ['sans', 'san', 'domains', 'subjectAlternativeNames']),
+  ].map(normalizeDomain).filter(Boolean)
+  return { id, domains, label: readString(record, ['primaryDomain', 'commonName', 'name', 'displayName', 'fingerprintSha256']) || id }
+}
+function normalizeDomain(value: string): string {
+  return value.trim().toLowerCase().replace(/^\*\./, '*.').replace(/\.$/, '')
+}
+function certificateDomainMatches(pattern: string, domain: string): boolean {
+  const candidate = normalizeDomain(pattern)
+  if (!candidate || !domain) return false
+  if (candidate === domain) return true
+  return candidate.startsWith('*.') && domain.endsWith(candidate.slice(1)) && domain.split('.').length === candidate.split('.').length
 }
 function certificateFormatLabel(item: Record<string, unknown>): string {
   const parameters = readRecord(item.parameters) ?? {}
@@ -683,6 +838,14 @@ function isPreferredCertificateVersion(record: Record<string, unknown>): boolean
 function readString(record: Record<string, unknown>, keys: string[]): string {
   for (const key of keys) if (typeof record[key] === 'string' && record[key].trim()) return record[key].trim()
   return ''
+}
+function readStringArray(record: Record<string, unknown>, keys: string[]): string[] {
+  for (const key of keys) {
+    const value = record[key]
+    if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).map((item) => item.trim())
+    if (typeof value === 'string' && value.trim()) return value.split(',').map((item) => item.trim()).filter(Boolean)
+  }
+  return []
 }
 function readRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
@@ -839,6 +1002,15 @@ function resetOnboardingState(): void {
   loading.value = false
   deviceListLoading.value = false
   submitInFlight.value = false
+  certificateSupplyMode.value = 'manual'
+  dedicatedProviderType.value = 'internal_ca'
+  automationTrigger.value = 'none'
+  automationRunAt.value = ''
+  automationScheduleUnit.value = 'daily'
+  automationScheduleDay.value = '1'
+  automationScheduleTime.value = '02:00'
+  automationTimeZone.value = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai'
+  commitProgress.value = []
   resetDeviceSelection()
   resetTargetSelection()
 }
@@ -861,7 +1033,7 @@ function canNavigateToStep(nextStep: number): boolean {
   if (nextStep === 2) return true
   if (nextStep === 3) return backendStep.value >= 3
   if (nextStep === 4) return backendStep.value >= 4
-  if (nextStep === 5) return backendStep.value === 5
+  if (nextStep === 5) return backendStep.value === 5 || commitProgress.value.length > 0 || session.value.state === 'READY_TO_COMMIT'
   return false
 }
 async function navigateToStep(nextStep: number): Promise<void> {
@@ -1192,7 +1364,7 @@ defineExpose({ goPrevious, runFooterPrimary, cancel })
             </span>
           </button>
         </div>
-        <div v-if="pendingTarget" class="target-config" aria-live="polite">
+        <div v-if="pendingTarget" ref="targetConfigRef" class="target-config" aria-live="polite">
           <div class="target-config__header">
             <div>
               <small>{{ t('applicationOnboarding.target.selectedSite') }}</small>
@@ -1228,19 +1400,120 @@ defineExpose({ goPrevious, runFooterPrimary, cancel })
       <div v-else-if="step === 4" class="onboarding-panel">
         <h2>{{ t('applicationOnboarding.certificate.title') }}</h2>
         <p v-if="platformAcceptedFormats.length" class="onboarding-hint">{{ t('applicationOnboarding.certificate.requiredFormat', { formats: platformAcceptedFormats.join(' / ') }) }}</p>
-        <label>{{ t('applicationOnboarding.certificate.asset') }}
-          <select v-model="certificateId" :disabled="loading || certificateAssets.length === 0" @change="loadCertificateVersions">
-            <option v-for="asset in certificateAssets" :key="asset.id" :value="asset.id">{{ asset.label }}</option>
-          </select>
-        </label>
-        <label>{{ t('applicationOnboarding.certificate.version') }}
-          <select v-model="certificateVersionId" :disabled="loading || certificateVersions.length === 0" @change="onCertificateVersionChange">
-            <option v-if="latestCertificateVersion" :value="LATEST_VERSION_MARKER">{{ autoLatestVersionLabel(latestCertificateVersion) }}</option>
-            <option v-for="version in certificateVersions" :key="certificateVersionIdOf(version)" :value="certificateVersionIdOf(version)">{{ certificateVersionOptionLabel(version) }}</option>
-          </select>
-        </label>
+        <div class="onboarding-choice-grid" role="radiogroup" :aria-label="t('applicationOnboarding.certificate.modeLabel')">
+          <label class="onboarding-choice" :class="{ 'onboarding-choice--selected': certificateSupplyMode === 'manual' }">
+            <input v-model="certificateSupplyMode" type="radio" value="manual" @change="certificateSelectionMode = 'EXPLICIT'">
+            <span><strong>{{ t('applicationOnboarding.certificate.manual') }}</strong><small>{{ t('applicationOnboarding.certificate.manualDescription') }}</small></span>
+          </label>
+          <label class="onboarding-choice" :class="{ 'onboarding-choice--selected': certificateSupplyMode === 'dedicated' }">
+            <input v-model="certificateSupplyMode" type="radio" value="dedicated" @change="certificateSelectionMode = 'DEDICATED'">
+            <span><strong>{{ t('applicationOnboarding.certificate.dedicated') }} <em>{{ t('applicationOnboarding.certificate.testPhase') }}</em></strong><small>{{ t('applicationOnboarding.certificate.dedicatedDescription') }}</small></span>
+          </label>
+        </div>
+        <template v-if="certificateSupplyMode === 'manual'">
+          <p v-if="certificateAssets.length === 0" class="onboarding-empty">{{ t('applicationOnboarding.certificate.noMatchingAssets', { domain: accessDomain }) }}</p>
+          <label>{{ t('applicationOnboarding.certificate.asset') }}
+            <select v-model="certificateId" :disabled="loading || certificateAssets.length === 0" @change="loadCertificateVersions">
+              <option v-for="asset in certificateAssets" :key="asset.id" :value="asset.id">{{ asset.label }}</option>
+            </select>
+          </label>
+          <label>{{ t('applicationOnboarding.certificate.version') }}
+            <select v-model="certificateVersionId" :disabled="loading || certificateVersions.length === 0" @change="onCertificateVersionChange">
+              <option v-if="latestCertificateVersion" :value="LATEST_VERSION_MARKER">{{ autoLatestVersionLabel(latestCertificateVersion) }}</option>
+              <option v-for="version in certificateVersions" :key="certificateVersionIdOf(version)" :value="certificateVersionIdOf(version)">{{ certificateVersionOptionLabel(version) }}</option>
+            </select>
+          </label>
+        </template>
+        <template v-else>
+          <label>{{ t('applicationOnboarding.certificate.provider') }}
+            <select v-model="dedicatedProviderType">
+              <option value="internal_ca">{{ t('applicationOnboarding.certificate.internalCa') }}</option>
+              <option value="acme">{{ t('applicationOnboarding.certificate.acme') }}</option>
+            </select>
+          </label>
+          <p class="onboarding-hint">{{ t('applicationOnboarding.certificate.dedicatedHint') }}</p>
+        </template>
+        <section class="onboarding-automation" :aria-label="t('applicationOnboarding.automation.title')">
+          <h3>{{ t('applicationOnboarding.automation.title') }}</h3>
+          <fieldset class="onboarding-automation__triggers">
+            <legend>{{ t('applicationOnboarding.automation.triggerLabel') }}</legend>
+            <div class="onboarding-automation__options-row">
+              <label v-for="option in [
+                { value: 'none', label: t('applicationOnboarding.automation.none'), description: t('applicationOnboarding.automation.noneDescription') },
+                { value: 'certificate_version_created', label: t('applicationOnboarding.automation.certificateVersionCreated'), description: t('applicationOnboarding.automation.certificateVersionCreatedDescription') },
+                { value: 'once', label: t('applicationOnboarding.automation.once'), description: t('applicationOnboarding.automation.onceDescription') },
+                { value: 'schedule', label: t('applicationOnboarding.automation.schedule'), description: t('applicationOnboarding.automation.scheduleDescription') },
+              ]" :key="option.value" class="onboarding-automation__option" :class="{ 'onboarding-automation__option--selected': automationTrigger === option.value }">
+                <input v-model="automationTrigger" type="radio" :value="option.value">
+                <span><strong>{{ option.label }}</strong><small>{{ option.description }}</small></span>
+              </label>
+            </div>
+          </fieldset>
+          <div v-if="automationTrigger === 'once'" class="onboarding-automation__detail">
+            <label>{{ t('applicationOnboarding.automation.runAt') }}<input v-model="automationRunAt" type="datetime-local"></label>
+            <p class="onboarding-hint">{{ t('applicationOnboarding.automation.onceHint') }}</p>
+          </div>
+          <div v-if="automationTrigger === 'schedule'" class="onboarding-automation__detail">
+            <div class="onboarding-automation__schedule-fields">
+              <label>{{ t('applicationOnboarding.automation.frequency') }}
+                <select v-model="automationScheduleUnit">
+                  <option value="daily">{{ t('applicationOnboarding.automation.daily') }}</option>
+                  <option value="weekly">{{ t('applicationOnboarding.automation.weekly') }}</option>
+                  <option value="monthly">{{ t('applicationOnboarding.automation.monthly') }}</option>
+                </select>
+              </label>
+              <label v-if="automationScheduleUnit !== 'daily'">{{ t('applicationOnboarding.automation.scheduleDay') }}
+                <select v-model="automationScheduleDay">
+                  <template v-if="automationScheduleUnit === 'weekly'">
+                    <option value="1">{{ t('applicationOnboarding.automation.monday') }}</option><option value="2">{{ t('applicationOnboarding.automation.tuesday') }}</option><option value="3">{{ t('applicationOnboarding.automation.wednesday') }}</option><option value="4">{{ t('applicationOnboarding.automation.thursday') }}</option><option value="5">{{ t('applicationOnboarding.automation.friday') }}</option><option value="6">{{ t('applicationOnboarding.automation.saturday') }}</option><option value="0">{{ t('applicationOnboarding.automation.sunday') }}</option>
+                  </template>
+                  <template v-else><option v-for="day in 28" :key="day" :value="String(day)">{{ day }}</option></template>
+                </select>
+              </label>
+              <label>{{ t('applicationOnboarding.automation.scheduleTime') }}<input v-model="automationScheduleTime" type="time"></label>
+            </div>
+            <p class="onboarding-hint">{{ t('applicationOnboarding.automation.scheduleHint') }}</p>
+          </div>
+        </section>
       </div>
-      <div v-else-if="step === 5" class="onboarding-panel onboarding-panel--success"><h2>{{ t('applicationOnboarding.complete.title') }}</h2><p>{{ t('applicationOnboarding.complete.description') }}</p></div>
+      <div v-else-if="step === 5" class="onboarding-panel onboarding-panel--success">
+        <div class="onboarding-complete-header">
+          <div class="onboarding-complete-icon">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+          </div>
+          <div>
+            <h2>{{ t('applicationOnboarding.complete.title') }}</h2>
+            <p>{{ t('applicationOnboarding.complete.description') }}</p>
+          </div>
+        </div>
+        <div v-if="commitProgress.length === 0" class="onboarding-summary-section">
+          <h3 class="onboarding-summary-title">{{ t('applicationOnboarding.complete.viewSummary') }}</h3>
+          <dl class="onboarding-summary">
+            <div><dt>{{ t('applicationOnboarding.steps.platform') }}</dt><dd>{{ selectedPlatform ? platformLabel(selectedPlatform) : t('applicationOnboarding.target.missingValue') }}</dd></div>
+            <div><dt>{{ t('applicationOnboarding.steps.device') }}</dt><dd>{{ deviceId || assetId || t('applicationOnboarding.target.missingValue') }}</dd></div>
+            <div><dt>{{ t('applicationOnboarding.steps.target') }}</dt><dd>{{ pendingTarget?.displayName || readString(session?.inputSnapshot ?? {}, ['displayName']) || t('applicationOnboarding.target.missingValue') }}</dd></div>
+            <div><dt>{{ t('applicationOnboarding.steps.certificate') }}</dt><dd>{{ certificateSupplyMode === 'dedicated' ? t('applicationOnboarding.certificate.dedicated') : (certificateVersionId === LATEST_VERSION_MARKER ? t('applicationOnboarding.certificate.latest') : certificateVersionOptionLabel(selectedCertificateVersion)) }}</dd></div>
+          </dl>
+        </div>
+        <ol v-if="commitProgress.length" class="onboarding-progress" :aria-label="t('applicationOnboarding.complete.progressAria')">
+          <li v-for="item in commitProgress" :key="item.key" :class="`onboarding-progress__item--${item.status}`">
+            <span class="onboarding-progress__icon">
+              <svg v-if="item.status === 'success'" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+              <svg v-else-if="item.status === 'failed'" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+              <span v-else-if="item.status === 'running'" class="onboarding-progress__spinner" aria-hidden="true" />
+              <span v-else class="onboarding-progress__pending" aria-hidden="true" />
+            </span>
+            <span class="onboarding-progress__label">{{ t(`applicationOnboarding.complete.stages.${item.key}`) }}</span>
+            <strong class="onboarding-progress__status">{{ t(`applicationOnboarding.complete.status.${item.status}`) }}</strong>
+          </li>
+        </ol>
+      </div>
       <div v-if="!props.embedded && footerActions.visible" class="onboarding-actions">
         <button v-if="footerActions.showCancel" class="gc-button gc-button--ghost" type="button" @click="cancel">{{ t('applicationOnboarding.actions.cancel') }}</button>
         <span class="onboarding-actions__spacer" aria-hidden="true" />
@@ -1331,10 +1604,67 @@ h1, h2, p { margin: 0; }
 .target-config label { display: grid; gap: var(--gc-space-2); color: var(--gc-color-text-muted); }
 .target-config input { min-height: var(--gc-control-height-md); padding: 0 var(--gc-space-3); color: var(--gc-color-text); background: var(--gc-color-surface-field); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-sm); }
 .onboarding-workspace { display: grid; gap: var(--gc-space-4); max-width: var(--gc-size-content-readable); }
-.onboarding-panel { display: grid; gap: var(--gc-space-4); padding: var(--gc-space-6); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface); }
+.onboarding-panel { display: grid; gap: var(--gc-space-3); padding: var(--gc-space-4); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface); }
+.onboarding-choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-3); }
+.onboarding-choice { display: flex; align-items: flex-start; gap: var(--gc-space-2); min-block-size: 50px; padding: var(--gc-space-3); color: var(--gc-color-text); cursor: pointer; border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-soft); }
+.onboarding-choice--selected { border-color: var(--gc-color-primary-border-strong); background: var(--gc-color-primary-soft); box-shadow: var(--gc-shadow-focus); }
+.onboarding-choice input { position: absolute; opacity: 0; pointer-events: none; }
+.onboarding-automation__option input { position: absolute; opacity: 0; pointer-events: none; }
+.onboarding-choice span { display: grid; gap: var(--gc-space-1); }
+.onboarding-choice strong { color: var(--gc-color-text-strong); }
+.onboarding-choice small { color: var(--gc-color-text-muted); line-height: var(--gc-line-height-normal); }
+.onboarding-choice em { padding: var(--gc-space-badge-block) var(--gc-space-2); color: var(--gc-color-warning); font-size: var(--gc-font-size-xs); font-style: normal; border: var(--gc-border-width) solid var(--gc-color-warning-border); border-radius: var(--gc-radius-pill); }
+.onboarding-automation { display: grid; gap: var(--gc-space-2); padding-block-start: var(--gc-space-2); border-block-start: var(--gc-border-width) solid var(--gc-color-border-subtle); }
+.onboarding-automation h3 { color: var(--gc-color-text-strong); font-size: var(--gc-font-size-body); }
+.onboarding-automation__triggers { display: grid; gap: var(--gc-space-2); padding: 0; margin: 0; border: 0; }
+.onboarding-automation__triggers legend { padding: 0; margin-block-end: var(--gc-space-2); color: var(--gc-color-text-muted); }
+.onboarding-automation__options-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gc-space-2); }
+.onboarding-automation__option { display: flex; flex-direction: column; align-items: flex-start; gap: var(--gc-space-1); padding: var(--gc-space-2); color: var(--gc-color-text); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-sm); background: var(--gc-color-surface-soft); cursor: pointer; min-block-size: 0; }
+.onboarding-automation__option--selected { border-color: var(--gc-color-primary-border-strong); background: var(--gc-color-primary-soft); }
+.onboarding-automation__option input { flex: 0 0 auto; inline-size: auto; min-height: auto; margin: 0; }
+.onboarding-automation__option span { display: grid; gap: var(--gc-space-compact); }
+.onboarding-automation__option strong { color: var(--gc-color-text-strong); font-size: var(--gc-font-size-xs); font-weight: var(--gc-font-weight-semibold); line-height: var(--gc-line-height-tight); }
+.onboarding-automation__option small { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-caption); line-height: var(--gc-line-height-tight); }
+.onboarding-automation__detail { display: grid; gap: var(--gc-space-2); padding: var(--gc-space-3); border-inline-start: var(--gc-space-1) solid var(--gc-color-primary-border); background: var(--gc-color-surface-soft); }
+.onboarding-automation__schedule-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-2); }
+.onboarding-summary-section { display: grid; gap: var(--gc-space-3); }
+.onboarding-summary-title { margin: 0; padding-block-end: var(--gc-space-2); color: var(--gc-color-text-strong); font-size: var(--gc-font-size-body); font-weight: var(--gc-font-weight-semibold); border-block-end: var(--gc-border-width) solid var(--gc-color-border-subtle); }
+.onboarding-summary { display: grid; gap: var(--gc-space-3); margin: 0; }
+.onboarding-summary > div { display: grid; grid-template-columns: minmax(8rem, max-content) minmax(0, 1fr); gap: var(--gc-space-4); padding: var(--gc-space-3) var(--gc-space-4); background: var(--gc-color-surface); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-md); transition: all 200ms ease; }
+.onboarding-summary > div:hover { border-color: var(--gc-color-primary-border); box-shadow: var(--gc-shadow-sm); }
+.onboarding-summary dt { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); font-weight: var(--gc-font-weight-medium); }
+.onboarding-summary dd { margin: 0; color: var(--gc-color-text-strong); font-size: var(--gc-font-size-body); font-weight: var(--gc-font-weight-semibold); overflow-wrap: anywhere; }
+.onboarding-complete-header { display: flex; align-items: flex-start; gap: var(--gc-space-4); margin-block-end: var(--gc-space-4); }
+.onboarding-complete-icon { flex: 0 0 auto; display: grid; place-items: center; inline-size: calc(var(--gc-space-6) * 2); block-size: calc(var(--gc-space-6) * 2); color: var(--gc-color-success); background: var(--gc-color-success-soft); border: var(--gc-border-width-thick) solid var(--gc-color-success-border); border-radius: var(--gc-radius-full); animation: onboarding-complete-icon-pop 400ms cubic-bezier(0.68, -0.55, 0.265, 1.55); }
+.onboarding-complete-icon svg { inline-size: var(--gc-space-7); block-size: var(--gc-space-7); fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: calc(var(--gc-border-width-thick) * 1.5); }
+@keyframes onboarding-complete-icon-pop { 0% { transform: scale(0); opacity: 0; } 50% { transform: scale(1.1); } 100% { transform: scale(1); opacity: 1; } }
+.onboarding-complete-header > div { flex: 1 1 auto; min-inline-size: 0; }
+.onboarding-complete-header h2 { margin-block-end: var(--gc-space-1); }
+.onboarding-complete-header p { margin: 0; color: var(--gc-color-text-muted); }
+.onboarding-progress { display: grid; gap: var(--gc-space-2); padding: 0; margin: 0; list-style: none; }
+.onboarding-progress li { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: var(--gc-space-3); padding: var(--gc-space-3); background: var(--gc-color-surface); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-sm); transition: all 200ms ease; }
+.onboarding-progress__icon { display: grid; place-items: center; inline-size: var(--gc-space-6); block-size: var(--gc-space-6); }
+.onboarding-progress__icon svg { inline-size: var(--gc-size-icon-md); block-size: var(--gc-size-icon-md); fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: var(--gc-border-width-thick); }
+.onboarding-progress__spinner { display: block; inline-size: var(--gc-size-icon-md); block-size: var(--gc-size-icon-md); border: var(--gc-border-width-thick) solid var(--gc-color-primary-border); border-top-color: var(--gc-color-primary); border-radius: var(--gc-radius-full); animation: onboarding-progress-spin 800ms linear infinite; }
+@keyframes onboarding-progress-spin { to { transform: rotate(1turn); } }
+.onboarding-progress__pending { display: block; inline-size: calc(var(--gc-space-2) * 1.5); block-size: calc(var(--gc-space-2) * 1.5); background: var(--gc-color-border); border-radius: var(--gc-radius-full); }
+.onboarding-progress__label { color: var(--gc-color-text); font-size: var(--gc-font-size-body); }
+.onboarding-progress__status { font-weight: var(--gc-font-weight-semibold); font-size: var(--gc-font-size-sm); }
+.onboarding-progress__item--pending { opacity: 0.6; }
+.onboarding-progress__item--pending .onboarding-progress__status { color: var(--gc-color-text-muted); }
+.onboarding-progress__item--running { border-color: var(--gc-color-primary-border); background: var(--gc-color-primary-soft); }
+.onboarding-progress__item--running .onboarding-progress__icon { color: var(--gc-color-primary); }
+.onboarding-progress__item--running .onboarding-progress__status { color: var(--gc-color-primary); }
+.onboarding-progress__item--success { border-color: var(--gc-color-success-border); background: var(--gc-color-success-soft); animation: onboarding-progress-success 300ms ease; }
+.onboarding-progress__item--success .onboarding-progress__icon { color: var(--gc-color-success); }
+.onboarding-progress__item--success .onboarding-progress__status { color: var(--gc-color-success); }
+@keyframes onboarding-progress-success { 0% { transform: scale(0.98); } 50% { transform: scale(1.02); } 100% { transform: scale(1); } }
+.onboarding-progress__item--failed { border-color: var(--gc-color-danger-border); background: var(--gc-color-danger-soft); }
+.onboarding-progress__item--failed .onboarding-progress__icon { color: var(--gc-color-danger); }
+.onboarding-progress__item--failed .onboarding-progress__status { color: var(--gc-color-danger); }
 .onboarding-panel__header, .onboarding-device-step__header { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-3); }
-.onboarding-panel label { display: grid; gap: var(--gc-space-2); color: var(--gc-color-text-muted); }
-.onboarding-panel input, .onboarding-panel select { min-height: var(--gc-control-height-md); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-sm); padding: 0 var(--gc-space-3); background: var(--gc-color-surface-field); color: var(--gc-color-text); }
+.onboarding-panel label { display: grid; gap: var(--gc-space-1); color: var(--gc-color-text-muted); }
+.onboarding-panel input:not([type="radio"]), .onboarding-panel select { min-height: var(--gc-control-height-sm); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-sm); padding: 0 var(--gc-space-2); background: var(--gc-color-surface-field); color: var(--gc-color-text); }
 .onboarding-device-step { display: grid; gap: var(--gc-space-5); }
 .onboarding-device-step__header h2 { color: var(--gc-color-text-strong); }
 .onboarding-device-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-2); }
@@ -1354,7 +1684,7 @@ h1, h2, p { margin: 0; }
 .onboarding-error { color: var(--gc-color-danger); background: var(--gc-color-danger-soft); padding: var(--gc-space-3); border-radius: var(--gc-radius-sm); }
 .onboarding-empty { color: var(--gc-color-text-muted); }
 .onboarding-hint { margin: 0; color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); }
-.onboarding-panel--success { border-color: var(--gc-color-success-border); background: var(--gc-color-success-soft); }
+.onboarding-panel--success { border-color: var(--gc-color-border); background: var(--gc-color-surface); }
 @media (max-width: 64rem) { .onboarding-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); } .platform-grid, .onboarding-device-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 48rem) { .onboarding-page__header { flex-direction: column; } .onboarding-steps { grid-template-columns: 1fr; } .platform-grid, .onboarding-device-grid { grid-template-columns: 1fr; max-block-size: none; padding-inline-end: 0; overflow: visible; } .target-row__metadata, .target-config__fields { grid-template-columns: 1fr; } .target-config__header { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 48rem) { .onboarding-page__header { flex-direction: column; } .onboarding-steps { grid-template-columns: 1fr; } .platform-grid, .onboarding-device-grid, .onboarding-choice-grid { grid-template-columns: 1fr; max-block-size: none; padding-inline-end: 0; overflow: visible; } .target-row__metadata, .target-config__fields, .onboarding-automation__schedule-fields { grid-template-columns: 1fr; } .target-config__header { align-items: flex-start; flex-direction: column; } .onboarding-automation__options-row { grid-template-columns: 1fr; } }
 </style>

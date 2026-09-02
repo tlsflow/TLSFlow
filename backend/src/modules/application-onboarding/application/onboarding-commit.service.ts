@@ -35,7 +35,8 @@ export class OnboardingCommitService implements OnboardingCommitPort {
     });
     const targetId = session.targetId;
     if (recipe.recipe.deploymentMode === 'MANAGED_TARGET' && !targetId) throw new AppError('VALIDATION_FAILED', '受管设备向导缺少目标站点');
-    if (!session.certificateVersionId) throw new AppError('VALIDATION_FAILED', '向导缺少证书版本');
+    const dedicatedCertificate = session.inputSnapshot.certificateSelectionMode === 'DEDICATED';
+    if (!dedicatedCertificate && !session.certificateVersionId) throw new AppError('VALIDATION_FAILED', '向导缺少证书版本');
     if (recipe.recipe.deploymentMode === 'DIRECT_WORKFLOW' && (!endpoint.host || !endpoint.port || !endpoint.protocol)) {
       throw new AppError('VALIDATION_FAILED', '直接工作流目标缺少已发现的访问端点', {
         code: 'ONBOARDING_DIRECT_WORKFLOW_ENDPOINT_REQUIRED',
@@ -135,6 +136,9 @@ export class OnboardingCommitService implements OnboardingCommitPort {
           managedTarget: { managedTargetId: targetId, executionMode: 'PLUGIN' },
         }, actorId);
       }
+    }
+    if (dedicatedCertificate) {
+      return { applicationAssetId: asset.id, pluginVersionId: recipe.pluginVersionId, recipeHash: recipe.recipeHash, certificateSupplyMode: 'dedicated' };
     }
     const plan = await this.deploymentPlans.createFromApplicationAsset({
       applicationAssetId: asset.id,

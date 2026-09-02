@@ -271,18 +271,20 @@ export class ApplicationOnboardingService {
     return this.execution.listCertificateOptions(tenantId, session, recipe, certificateAssetId?.trim() || undefined);
   }
 
-  async selectCertificate(tenantId: string, id: string, input: StateVersionInput & { certificateId: string; certificateVersionId: string; selectionMode?: 'EXPLICIT' | 'LATEST_AUTO' }): Promise<ApplicationOnboardingSessionDto> {
+  async selectCertificate(tenantId: string, id: string, input: StateVersionInput & { certificateId?: string; certificateVersionId?: string; selectionMode?: 'EXPLICIT' | 'LATEST_AUTO' | 'DEDICATED' }): Promise<ApplicationOnboardingSessionDto> {
     const session = await this.getSession(tenantId, id);
     const recipe = await this.recipeForSession(tenantId, session);
     if (session.state !== 'CERTIFICATE_SELECTION_REQUIRED') throw invalidState(session, '当前阶段不能选择证书');
     if (!session.targetId || !session.targetFingerprint) throw new AppError('VALIDATION_FAILED', '请先选择业务站点', { code: 'ONBOARDING_TARGET_REQUIRED' });
     const certificateId = input.certificateId?.trim();
     const certificateVersionId = input.certificateVersionId?.trim();
-    if (!certificateId || !certificateVersionId) throw new AppError('VALIDATION_FAILED', '必须选择证书资产和精确版本', { code: 'ONBOARDING_CERTIFICATE_REQUIRED' });
-    if (this.execution.validateCertificate) await this.execution.validateCertificate(tenantId, certificateId, certificateVersionId, session, recipe);
-    const certificateSelectionMode = input.selectionMode === 'LATEST_AUTO' ? 'LATEST_AUTO' : 'EXPLICIT';
+    const certificateSelectionMode = input.selectionMode === 'DEDICATED' ? 'DEDICATED' : input.selectionMode === 'LATEST_AUTO' ? 'LATEST_AUTO' : 'EXPLICIT';
+    if (certificateSelectionMode !== 'DEDICATED') {
+      if (!certificateId || !certificateVersionId) throw new AppError('VALIDATION_FAILED', '必须选择证书资产和精确版本', { code: 'ONBOARDING_CERTIFICATE_REQUIRED' });
+      if (this.execution.validateCertificate) await this.execution.validateCertificate(tenantId, certificateId, certificateVersionId, session, recipe);
+    }
     const updated = await this.repository.update(tenantId, id, input.expectedStateVersion, {
-      state: 'READY_TO_COMMIT', certificateId, certificateVersionId,
+      state: 'READY_TO_COMMIT', certificateId: certificateId || null, certificateVersionId: certificateVersionId || null,
       inputSnapshot: { ...session.inputSnapshot, certificateId, certificateVersionId, certificateSelectionMode },
     });
     if (!updated) throw versionConflict();
@@ -330,7 +332,8 @@ export class ApplicationOnboardingService {
     if (session.state !== 'READY_TO_COMMIT') throw invalidState(session, '接入会话尚未完成必要选择');
     const recipe = await this.recipeForSession(tenantId, session);
     if (!session.targetId || !session.targetFingerprint) throw new AppError('VALIDATION_FAILED', '向导缺少已复核的目标站点', { code: 'ONBOARDING_TARGET_REQUIRED' });
-    if (!session.certificateId || !session.certificateVersionId) throw new AppError('VALIDATION_FAILED', '向导缺少已复核的证书版本', { code: 'ONBOARDING_CERTIFICATE_REQUIRED' });
+    const dedicatedCertificate = session.inputSnapshot.certificateSelectionMode === 'DEDICATED';
+    if (!dedicatedCertificate && (!session.certificateId || !session.certificateVersionId)) throw new AppError('VALIDATION_FAILED', '向导缺少已复核的证书版本', { code: 'ONBOARDING_CERTIFICATE_REQUIRED' });
     if (!this.commit) throw new AppError('SYSTEM_INTERNAL_ERROR', '应用接入提交服务未接入', { code: 'ONBOARDING_COMMIT_UNAVAILABLE' });
     const committing = await this.repository.update(tenantId, id, input.expectedStateVersion, { state: 'COMMITTING' });
     if (!committing) throw versionConflict();
