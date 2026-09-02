@@ -35,7 +35,10 @@ export class AgentCapabilityDiscoveryProjector {
     if (!inventory) return emptyProjectionSummary();
     const host = await this.resolveHost(snapshot.tenantId, agent.id);
     const discovery = this.buildDiscovery(agent, snapshot, host, inventory);
-    const preserveEmptyWeb = discovery.frameworks.length === 0 && discovery.sites.length === 0;
+    // 框架清单可以在配置解析失败时仍被识别出来，但没有站点就没有可替换的
+    // Web 事实。此时若按全量快照清理，会把上一次成功发现的站点全部标成 STALE。
+    // 只有拿到至少一个站点，才允许本次结果替换既有 Web 资产。
+    const preserveEmptyWeb = discovery.sites.length === 0;
     const summary = await this.projector.project({
       tenantId: snapshot.tenantId,
       hostId: host.id,

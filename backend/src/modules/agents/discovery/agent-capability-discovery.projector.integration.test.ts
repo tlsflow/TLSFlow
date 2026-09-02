@@ -78,6 +78,36 @@ test('Agent Web 空快照不会把历史 Web 资产立即标记为 STALE', async
   assert.equal(await status(db, 'pg_managed_targets', 'plugin:web-nginx-v1'), 'ACTIVE');
 });
 
+test('Agent 仅返回框架但没有站点时不会覆盖历史 Web 资产', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db, undefined, {
+    appliedBy: 'test',
+    checksum: (content) => createHash('sha256').update(content).digest('hex'),
+  });
+  await db.query(`insert into pg_hosts (id, tenant_id, agent_id, hostname, os_type, discovery_source, compatibility_level, management_mode, status)
+    values ('host-1','tenant-1','agent-1','agent.example.test','WINDOWS','AGENT','L1','AGENT','ACTIVE')`);
+
+  const standardProjector = new StandardDeviceDiscoveryProjector(db);
+  await standardProjector.project({
+    tenantId: 'tenant-1', hostId: 'host-1', discoveryProviderKey: 'plugin:web-nginx-v1', discoverySource: 'AGENT',
+  }, legacyDiscovery('web.nginx', 'nginx', 'legacy-web', true));
+
+  const service = new AgentCapabilityDiscoveryProjector(db, standardProjector);
+  await service.project(agent(), snapshot([{
+    capabilityKey: 'web.inventory',
+    confidence: 0.9,
+    value: {
+      scope: 'FULL_WEB_DISCOVERY',
+      frameworks: [{ frameworkType: 'web.nginx', displayName: 'Nginx' }],
+      sites: [],
+    },
+  }]));
+
+  assert.equal(await status(db, 'pg_framework_instances', 'plugin:web-nginx-v1'), 'ACTIVE');
+  assert.equal(await status(db, 'pg_site_assets', 'plugin:web-nginx-v1'), 'ACTIVE');
+  assert.equal(await status(db, 'pg_managed_targets', 'plugin:web-nginx-v1'), 'ACTIVE');
+});
+
 test('真实 Web 框架出现后会淘汰旧 device.generic，后续空快照也不会重新激活它', async () => {
   const db = new PgliteDatabase();
   await runMigrations(db, undefined, {
