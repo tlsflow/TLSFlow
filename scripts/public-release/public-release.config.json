@@ -18,6 +18,7 @@
     "README.md",
     "docs/Documentation",
     "docs/项目规范",
+    ".github/workflows/docs-pages.yml",
     ".dockerignore",
     "LICENSE",
     "version",
