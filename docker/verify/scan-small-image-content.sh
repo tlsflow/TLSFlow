@@ -24,7 +24,27 @@ scan_root() {
       *) continue ;;
     esac
 
-    if grep -Eiq '"(chromium|google-chrome|xvfb|x11vnc|novnc|websockify|playwright(-core)?)"[[:space:]]*:' "$path" 2>/dev/null; then
+    if node - "$path" <<'NODE'
+const fs = require('node:fs');
+const filePath = process.argv[2];
+const forbidden = /^(chromium|google-chrome|xvfb|x11vnc|novnc|websockify|playwright(?:-core)?)$/i;
+const packageJson = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+const dependencySections = [
+  'dependencies',
+  'optionalDependencies',
+  'peerDependencies',
+  'bundledDependencies',
+  'bundleDependencies'
+];
+process.exit(
+  dependencySections.some((section) => {
+    const dependencies = packageJson[section];
+    if (Array.isArray(dependencies)) return dependencies.some((name) => forbidden.test(name));
+    return dependencies && Object.keys(dependencies).some((name) => forbidden.test(name));
+  }) ? 0 : 1
+);
+NODE
+    then
       printf '%s\n' "$path" >> "$findings_file"
     fi
   done

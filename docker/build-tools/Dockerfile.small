@@ -6,10 +6,19 @@ ARG DOCS_VERSION=1.0.0
 
 FROM ${NODE_IMAGE} AS docs-build
 ENV DOCS_BASE=/docs/
-WORKDIR /src/docs
+WORKDIR /src/docs/Documentation
 COPY docs/Documentation/package.json docs/Documentation/package-lock.json ./
-RUN npm ci
-COPY docs/Documentation ./
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git \
+  && rm -rf /var/lib/apt/lists/* \
+  && npm ci
+WORKDIR /src
+# 文档 codeRefs 使用仓库根目录相对路径，校验阶段必须保留对应源码。
+COPY backend ./backend
+COPY docker ./docker
+COPY web ./web
+COPY docs/Documentation ./docs/Documentation
+WORKDIR /src/docs/Documentation
 RUN npm run docs:check && npm run docs:build
 
 FROM ${NODE_IMAGE} AS web-build
@@ -22,7 +31,7 @@ COPY web/package.json web/package-lock.json ./
 COPY version /src/version
 RUN npm ci
 COPY web ./
-COPY --from=docs-build /src/docs/.vitepress/dist ./public/docs
+COPY --from=docs-build /src/docs/Documentation/.vitepress/dist ./public/docs
 RUN npm run build
 
 FROM ${NODE_IMAGE} AS backend-build
