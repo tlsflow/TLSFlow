@@ -15,9 +15,9 @@ async function fixture() {
   const db = new PgliteDatabase();
   await runMigrations(db);
   await db.exec(`
-    insert into pg_service_assets (id, tenant_id, address, address_type, port, protocol, discovery_source, status, asset_kind)
-    values ('app-supply-a', '${tenantA}', 'app.example.test', 'DNS', 443, 'HTTPS', 'MANUAL', 'ACTIVE', 'APPLICATION'),
-           ('app-supply-b', '${tenantB}', 'app.example.test', 'DNS', 443, 'HTTPS', 'MANUAL', 'ACTIVE', 'APPLICATION');
+    insert into pg_service_assets (id, tenant_id, address, address_type, port, protocol, display_name, discovery_source, status, asset_kind)
+    values ('app-supply-a', '${tenantA}', 'app.example.test', 'DNS', 443, 'HTTPS', '订单系统', 'MANUAL', 'ACTIVE', 'APPLICATION'),
+           ('app-supply-b', '${tenantB}', 'app.example.test', 'DNS', 443, 'HTTPS', '订单系统', 'MANUAL', 'ACTIVE', 'APPLICATION');
     insert into pg_certificate_assets (id, tenant_id, name, primary_domain, sans, source_type, current_version_id, status, created_by)
     values ('cert-supply-a', '${tenantA}', 'app certificate', 'other.example.test', '["app.example.test"]', 'manual', 'version-supply-a', 'active', 'test');
     insert into pg_certificate_versions (id, tenant_id, certificate_asset_id, version_no, common_name, sans, issuer, subject, serial_number, not_before, not_after, fingerprint_sha256, public_key_algorithm, signature_algorithm, leaf_storage_ref, chain_status, deployable, source_type, status, created_by)
@@ -128,8 +128,8 @@ describe('应用证书供应策略', () => {
     const db = new PgliteDatabase();
     await runMigrations(db);
     await db.exec(`
-      insert into pg_service_assets (id, tenant_id, address, address_type, port, protocol, discovery_source, status, asset_kind)
-      values ('app-dedicated-a', '${tenantA}', 'dedicated.example.test', 'DNS', 443, 'HTTPS', 'MANUAL', 'ACTIVE', 'APPLICATION');
+      insert into pg_service_assets (id, tenant_id, address, address_type, port, protocol, display_name, discovery_source, status, asset_kind)
+      values ('app-dedicated-a', '${tenantA}', 'dedicated.example.test', 'DNS', 443, 'HTTPS', '专属订单系统', 'MANUAL', 'ACTIVE', 'APPLICATION');
       insert into pg_managed_targets (id, tenant_id, service_asset_id, target_type, target_key, discovery_provider_key, supported_capabilities, execution_locations, created_at, updated_at)
       values ('target-dedicated-a', '${tenantA}', 'app-dedicated-a', 'server.test', 'dedicated.example.test', 'test', '[\"key.generate_csr\",\"certificate.install_issued\"]', '[\"agent\"]', now(), now());
       insert into pg_application_asset_targets (id, tenant_id, application_asset_id, managed_target_id, status, created_at, updated_at)
@@ -186,6 +186,10 @@ describe('应用证书供应策略', () => {
     assert.equal(enqueued.length, 1);
     assert.equal(enqueued[0]?.taskType, 'CERTIFICATE_ISSUE');
     assert.equal(enqueued[0]?.payload?.certificateRequestId, requests[0]?.id);
+    assert.equal(enqueued[0]?.resourceSummary?.displayName, '专属订单系统');
+    assert.equal(enqueued[0]?.resourceSummary?.applicationDisplayName, '专属订单系统');
+    assert.equal(enqueued[0]?.resourceSummary?.applicationDomain, 'dedicated.example.test');
+    assert.equal(enqueued[0]?.resourceSummary?.certificateRequestName, '专属订单系统 专属证书申请');
   });
 
   it('完整专属配置默认只保存 draft，不创建证书资产或申请', async () => {

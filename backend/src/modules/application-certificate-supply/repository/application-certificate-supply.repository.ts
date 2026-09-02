@@ -13,6 +13,7 @@ interface ApplicationRow {
   tenant_id: string;
   address: string;
   sni_name?: string | null;
+  display_name?: string | null;
   asset_kind: string;
   deleted_at?: string | null;
 }
@@ -59,7 +60,7 @@ interface VersionRow {
 }
 
 export interface ApplicationCertificateSupplyRepositoryPort {
-  getApplication(tenantId: string, applicationAssetId: string): Promise<{ id: string; primaryDomain: string } | undefined>;
+  getApplication(tenantId: string, applicationAssetId: string): Promise<{ id: string; primaryDomain: string; displayName?: string } | undefined>;
   resolveCustodyCapability(tenantId: string, applicationAssetId: string): Promise<{ mode: 'agent_local' | 'device_local' | 'managed_secret'; evidence: Record<string, unknown> }>;
   getPolicy(tenantId: string, applicationAssetId: string): Promise<{ policy: ApplicationCertificatePolicyEntity; currentVersion?: ApplicationCertificatePolicyVersionEntity } | undefined>;
   listCertificateCandidates(tenantId: string): Promise<CertificateSupplyCandidateDto[]>;
@@ -71,15 +72,19 @@ export interface ApplicationCertificateSupplyRepositoryPort {
 export class ApplicationCertificateSupplyRepository implements ApplicationCertificateSupplyRepositoryPort {
   constructor(private readonly db: DatabasePort) {}
 
-  async getApplication(tenantId: string, applicationAssetId: string): Promise<{ id: string; primaryDomain: string } | undefined> {
+  async getApplication(tenantId: string, applicationAssetId: string): Promise<{ id: string; primaryDomain: string; displayName?: string } | undefined> {
     const row = (await this.db.query<ApplicationRow>(
-      `select id, tenant_id, address, sni_name, asset_kind, deleted_at
+      `select id, tenant_id, address, sni_name, display_name, asset_kind, deleted_at
          from pg_service_assets
         where tenant_id = $1 and id = $2 and asset_kind = 'APPLICATION' and deleted_at is null`,
       [tenantId, applicationAssetId],
     )).rows[0];
     if (!row) return undefined;
-    return { id: row.id, primaryDomain: normalizeDomain(row.sni_name || row.address) };
+    return {
+      id: row.id,
+      primaryDomain: normalizeDomain(row.sni_name || row.address),
+      ...(typeof row.display_name === 'string' && row.display_name.trim() ? { displayName: row.display_name.trim() } : {}),
+    };
   }
 
   async getPolicy(tenantId: string, applicationAssetId: string): Promise<{ policy: ApplicationCertificatePolicyEntity; currentVersion?: ApplicationCertificatePolicyVersionEntity } | undefined> {

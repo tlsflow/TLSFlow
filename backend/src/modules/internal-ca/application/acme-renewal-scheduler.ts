@@ -216,12 +216,18 @@ export class AcmeRenewalScheduler {
    * 专属 ACME provisioning 完成后立即创建首次 RenewalJob。
    * 任务仍由同一个调度器和 Worker 执行，后台扫描只是兜底补偿。
    */
-  async scheduleInitialIssuance(tenantId: string, certificateAssetId: string, now = new Date(), parentTaskId?: string): Promise<AcmeRenewalJobEntity | undefined> {
+  async scheduleInitialIssuance(
+    tenantId: string,
+    certificateAssetId: string,
+    now = new Date(),
+    parentTaskId?: string,
+    presentation?: { applicationDisplayName?: string; applicationDomain?: string; certificateRequestName?: string },
+  ): Promise<AcmeRenewalJobEntity | undefined> {
     const policy = (await this.repository.listPolicies(tenantId))
       .find((item) => item.certificateAssetId === certificateAssetId && item.enabled && item.status === 'active');
     if (!policy) throw new AppError('RESOURCE_NOT_FOUND', '证书没有关联的活动 ACME 续签策略', { certificateAssetId });
     const job = await this.scheduleMissingInitialIssuance(policy, now);
-    if (job) await this.ensureRenewalTask(job, parentTaskId);
+    if (job) await this.ensureRenewalTask(job, parentTaskId, presentation);
     return job;
   }
 
@@ -343,7 +349,11 @@ export class AcmeRenewalScheduler {
       ?? binding?.localCertificateVersionId;
   }
 
-  private async ensureRenewalTask(job: AcmeRenewalJobEntity, parentTaskId?: string): Promise<void> {
+  private async ensureRenewalTask(
+    job: AcmeRenewalJobEntity,
+    parentTaskId?: string,
+    presentation?: { applicationDisplayName?: string; applicationDomain?: string; certificateRequestName?: string },
+  ): Promise<void> {
     if (!this.tasks || !isUnifiedTaskWorkerEnabled()) return;
     // 应用专属 ACME 首次签发使用统一签发任务；历史/续期 Job 保持原任务类型兼容。
     const taskType = !job.sourceCertificateVersionId && job.applicationAssetId
@@ -386,13 +396,17 @@ export class AcmeRenewalScheduler {
         error: error instanceof Error ? error.message : String(error),
       }, { module: 'acme-renewal-scheduler', resourceType: 'acmeRenewalJob', resourceId: job.id });
     }
+    const resourceSummary = job.applicationAssetId
+      ? await this.dedicatedResourceSummary(job, presentation)
+      : undefined;
     const taskInput = {
       tenantId: job.tenantId,
       taskType,
       triggerSource: 'acme.renewal.scheduler',
       idempotencyKey,
       payload: renewalTaskPayload(job),
-      parentTaskId,
+      ...(parentTaskId ? { parentTaskId } : {}),
+      ...(resourceSummary ? { resourceSummary } : {}),
       resourceRefs: [
         { resourceType: 'acmeRenewalJob', resourceId: job.id },
         ...(job.certificateVersionId ? [{ resourceType: 'certificateVersion', resourceId: job.certificateVersionId }] : []),
@@ -401,6 +415,41 @@ export class AcmeRenewalScheduler {
     // 父任务编排要求申请子任务可观测；此路径入队失败必须回滚到父任务重试，不能吞掉异常。
     if (parentTaskId && this.tasks) await this.tasks.enqueue(taskInput);
     else await enqueueTaskBestEffort(this.tasks, taskInput);
+  }
+
+  /** 中文说明：专属 ACME 任务必须携带业务摘要，避免任务中心只显示内部作业 ID。 */
+  private async dedicatedResourceSummary(
+    job: AcmeRenewalJobEntity,
+    presentation?: { applicationDisplayName?: string; applicationDomain?: string; certificateRequestName?: string },
+  ): Promise<Record<string, unknown>> {
+    let applicationDomain = presentation?.applicationDomain?.trim() || '';
+    let certificateAssetId: string | undefined;
+    try {
+      const policy = (await this.repository.listPolicies(job.tenantId)).find((item) => item.id === job.policyId);
+      certificateAssetId = policy?.certificateAssetId;
+      if (!applicationDomain && certificateAssetId) {
+        applicationDomain = (await this.certificates.getAsset(certificateAssetId, job.tenantId))?.primaryDomain?.trim() || '';
+      }
+    } catch (error: unknown) {
+      structuredLogger.warn('专属 ACME 任务业务摘要补全失败', {
+        tenantId: job.tenantId,
+        renewalJobId: job.id,
+        error: error instanceof Error ? error.message : String(error),
+      }, { module: 'acme-renewal-scheduler', resourceType: 'acmeRenewalJob', resourceId: job.id });
+    }
+    const applicationDisplayName = presentation?.applicationDisplayName?.trim() || '';
+    const displayName = applicationDisplayName || applicationDomain || '应用专属证书';
+    return {
+      displayName,
+      ...(applicationDisplayName ? { applicationDisplayName } : {}),
+      ...(applicationDomain ? { applicationDomain } : {}),
+      certificateRequestName: presentation?.certificateRequestName?.trim() || `${displayName} 专属证书申请`,
+      applicationAssetId: job.applicationAssetId,
+      ...(certificateAssetId ? { certificateAssetId } : {}),
+      ...(job.applicationCertificatePolicyVersionId ? { policyVersionId: job.applicationCertificatePolicyVersionId } : {}),
+      ...(job.certificateRequestId ? { certificateRequestId: job.certificateRequestId } : {}),
+      renewalJobId: job.id,
+    };
   }
 }
 

@@ -170,6 +170,45 @@ test('专属 ACME provisioning 可通过统一 Scheduler 立即创建首次 Job'
   assert.equal(job?.applicationCertificatePolicyVersionId, 'acpv-acme');
   assert.equal(saved.length, 1);
   assert.equal(enqueued.length, 1);
+  assert.deepEqual((enqueued[0] as { resourceSummary?: Record<string, unknown> }).resourceSummary, {
+    displayName: '*.ginease.cn',
+    applicationDomain: '*.ginease.cn',
+    certificateRequestName: '*.ginease.cn 专属证书申请',
+    applicationAssetId: 'application-acme',
+    certificateAssetId: assetId,
+    policyVersionId: 'acpv-acme',
+    certificateRequestId: requestId,
+    renewalJobId: job?.id,
+  });
+});
+
+test('专属 ACME 首次签发可携带应用显示名称到任务摘要', async () => {
+  const enqueued: any[] = [];
+  const scheduler = new AcmeRenewalScheduler({
+    listPolicies: async () => [
+      { ...policy(), applicationAssetId: 'application-acme', applicationCertificatePolicyVersionId: 'acpv-acme' },
+    ],
+    getRenewalJobByWindow: async () => undefined,
+    saveRenewalJob: async (job: unknown) => job,
+  } as never, {
+    getAsset: async () => asset(),
+  } as never, undefined, {
+    getRequestByIdempotencyKey: async () => approvedInitialRequest(),
+    ensureAcmeIssuanceContext: async () => { throw new Error('已有申请不应再次解析签发上下文'); },
+    createCertificateRequest: async () => { throw new Error('已有申请不应重复创建'); },
+  } as never, {
+    enqueue: async (input: unknown) => { enqueued.push(input); return {}; },
+  } as never);
+
+  await scheduler.scheduleInitialIssuance(tenantId, assetId, fixedNow, undefined, {
+    applicationDisplayName: '订单系统',
+    applicationDomain: 'app.example.test',
+    certificateRequestName: '订单系统专属证书申请',
+  });
+
+  assert.equal((enqueued[0] as { resourceSummary?: Record<string, unknown> }).resourceSummary?.displayName, '订单系统');
+  assert.equal((enqueued[0] as { resourceSummary?: Record<string, unknown> }).resourceSummary?.applicationDomain, 'app.example.test');
+  assert.equal((enqueued[0] as { resourceSummary?: Record<string, unknown> }).resourceSummary?.certificateRequestName, '订单系统专属证书申请');
 });
 
 test('已有 ACME 策略的复用资产不因历史来源类型而丢失首次续签上下文', async () => {

@@ -2340,6 +2340,12 @@ export class InternalCaApplicationService {
           ...(next.certificateAssetId ? { certificateAssetId: next.certificateAssetId } : {}),
           policyVersionId: next.applicationCertificatePolicyVersionId,
         },
+        resourceSummary: {
+          ...(next.subjectCommonName ? { displayName: next.subjectCommonName } : {}),
+          ...(next.applicationAssetId ? { applicationAssetId: next.applicationAssetId } : {}),
+          ...(next.certificateAssetId ? { certificateAssetId: next.certificateAssetId } : {}),
+          policyVersionId: next.applicationCertificatePolicyVersionId,
+        },
         resourceRefs: [
           { resourceType: 'certificateRequest', resourceId: next.id },
           ...(next.certificateAssetId ? [{ resourceType: 'certificateAsset', resourceId: next.certificateAssetId }] : []),

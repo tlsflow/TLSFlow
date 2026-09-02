@@ -48,6 +48,7 @@ export class ApplicationCertificateSupplyApplicationService {
 
   async enqueueDedicatedDeployment(input: { tenantId: string; applicationAssetId: string; actorId: string; reapply?: boolean }): Promise<TaskRun> {
     if (!this.tasks) throw new AppError('SYSTEM_INTERNAL_ERROR', '统一任务控制面未接入');
+    const application = await this.requireApplication(input.tenantId, input.applicationAssetId);
     const current = await this.repository.getPolicy(input.tenantId, input.applicationAssetId);
     if (!current?.currentVersion || current.currentVersion.supplyMode !== 'dedicated') {
       throw new AppError('APPLICATION_CERTIFICATE_POLICY_INVALID', '应用没有可部署的专属证书策略');
@@ -61,7 +62,14 @@ export class ApplicationCertificateSupplyApplicationService {
       idempotencyKey: `application-certificate-deploy:${input.applicationAssetId}:${input.reapply === true ? `reapply:${current.currentVersion.id}` : current.currentVersion.certificateVersionId ?? 'current'}`,
       payload: { applicationAssetId: input.applicationAssetId, reapply: input.reapply === true },
       resourceRefs: [{ resourceType: 'applicationAsset', resourceId: input.applicationAssetId }],
-      resourceSummary: { applicationAssetId: input.applicationAssetId, reapply: input.reapply === true },
+      resourceSummary: {
+        displayName: application.displayName ?? current.currentVersion.primaryDomain,
+        ...(application.displayName ? { applicationDisplayName: application.displayName } : {}),
+        applicationDomain: current.currentVersion.primaryDomain,
+        certificateRequestName: `${application.displayName ?? current.currentVersion.primaryDomain} 专属证书申请`,
+        applicationAssetId: input.applicationAssetId,
+        reapply: input.reapply === true,
+      },
     });
   }
 
@@ -297,6 +305,7 @@ export class ApplicationCertificateSupplyApplicationService {
     parentTaskId?: string,
   ): Promise<{ policy: ApplicationCertificatePolicyEntity; currentVersion: ApplicationCertificatePolicyVersionEntity } | undefined> {
     if (input.supplyMode !== 'dedicated' || !input.providerType || !this.certificates || !this.issuance) return undefined;
+    const application = await this.requireApplication(tenantId, applicationAssetId);
     if (!['provisioning', 'issued', 'ready_to_deploy', 'deployed', 'tls_verified', 'renewing'].includes(input.status)) return undefined;
     let acmeAccountId: string | undefined;
     let acmeContactEmail: string | undefined;
@@ -397,6 +406,15 @@ export class ApplicationCertificateSupplyApplicationService {
         idempotencyKey: `certificate-issue:${request.id}`,
         parentTaskId,
         payload: { certificateRequestId: request.id, applicationAssetId, certificateAssetId: asset.id, policyVersionId: boundVersion.id },
+        resourceSummary: {
+          displayName: application.displayName ?? primaryDomain,
+          ...(application.displayName ? { applicationDisplayName: application.displayName } : {}),
+          applicationDomain: primaryDomain,
+          certificateRequestName: `${application.displayName ?? primaryDomain} 专属证书申请`,
+          applicationAssetId,
+          certificateAssetId: asset.id,
+          policyVersionId: boundVersion.id,
+        },
         resourceRefs: [
           { resourceType: 'certificateRequest', resourceId: request.id },
           { resourceType: 'certificateAsset', resourceId: asset.id },
@@ -442,7 +460,11 @@ export class ApplicationCertificateSupplyApplicationService {
       }
       // 立即接入统一 ACME 调度器，后台扫描仍负责进程重启或写入竞争后的补偿。
       if (this.acmeScheduler) {
-        await this.acmeScheduler.scheduleInitialIssuance(tenantId, asset.id, new Date(), parentTaskId);
+        await this.acmeScheduler.scheduleInitialIssuance(tenantId, asset.id, new Date(), parentTaskId, {
+          ...(application.displayName ? { applicationDisplayName: application.displayName } : {}),
+          applicationDomain: primaryDomain,
+          certificateRequestName: `${application.displayName ?? primaryDomain} 专属证书申请`,
+        });
       }
     }
     const current = await this.repository.getPolicy(tenantId, applicationAssetId);
@@ -450,7 +472,7 @@ export class ApplicationCertificateSupplyApplicationService {
     return { policy: current.policy, currentVersion: current.currentVersion };
   }
 
-  private async requireApplication(tenantId: string, applicationAssetId: string): Promise<{ id: string; primaryDomain: string }> {
+  private async requireApplication(tenantId: string, applicationAssetId: string): Promise<{ id: string; primaryDomain: string; displayName?: string }> {
     const application = await this.repository.getApplication(tenantId, applicationAssetId);
     if (!application) throw new AppError('RESOURCE_NOT_FOUND', 'Application 不存在', { applicationAssetId });
     return application;
