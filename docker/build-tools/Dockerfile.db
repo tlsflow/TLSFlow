@@ -2,4 +2,4 @@ ARG POSTGRES_IMAGE=postgres:16-alpine
 FROM ${POSTGRES_IMAGE}
 
 LABEL org.opencontainers.image.title="GCAC PostgreSQL"
-LABEL org.opencontainers.image.description="GCAC 标准版数据库运行单元，迁移由 Backend 启动流程执行"
+LABEL org.opencontainers.image.description="GCAC standard database unit; migrations run during Backend startup"

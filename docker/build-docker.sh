@@ -15,20 +15,20 @@ list_only=false
 help=false
 
 print_choices() {
-  printf '%s\n' "GCAC $RELEASE_VERSION Docker 镜像构建列表："
-  printf '%s\n' '  0. 构建全部镜像'
-  printf '%s\n' '  1. gcac-small（单机版）'
-  printf '%s\n' '  2. gcac-db（标准版数据库）'
-  printf '%s\n' '  3. gcac-backend（标准版后端）'
-  printf '%s\n' '  4. gcac-web（标准版前端）'
-  printf '%s\n' '  5. gcac-browser-runtime（标准版浏览器运行时）'
-  printf '%s\n' '  q. 退出'
+  printf '%s\n' "GCAC $RELEASE_VERSION Docker image build targets:"
+  printf '%s\n' '  0. Build all images'
+  printf '%s\n' '  1. gcac-small (standalone)'
+  printf '%s\n' '  2. gcac-db (standard database)'
+  printf '%s\n' '  3. gcac-backend (standard backend)'
+  printf '%s\n' '  4. gcac-web (standard web)'
+  printf '%s\n' '  5. gcac-browser-runtime (standard browser runtime)'
+  printf '%s\n' '  q. Quit'
 }
 
 print_help() {
-  printf '%s\n' '用法：sh docker/build-docker.sh [数字] [选项]'
-  printf '%s\n' '不传数字时显示交互式构建列表；默认镜像标签读取根目录 version 文件。'
-  printf '%s\n' '选项：--all、--architecture small|standard|all、--image <镜像>、--platform <平台>、--edition public|enterprise、--list、--help'
+  printf '%s\n' 'Usage: sh docker/build-docker.sh [number] [options]'
+  printf '%s\n' 'Without a number, show the interactive build list; the default image tag comes from the root version file.'
+  printf '%s\n' 'Options: --all, --architecture small|standard|all, --image <image>, --platform <platform>, --edition public|enterprise, --list, --help'
   print_choices
 }
 
@@ -41,7 +41,7 @@ normalize_image_name() {
 }
 
 fail() {
-  printf '错误：%s\n' "$1" >&2
+  printf 'Error: %s\n' "$1" >&2
   exit 1
 }
 
@@ -62,7 +62,7 @@ while [ "$#" -gt 0 ]; do
       architecture=${argument#*=}
       ;;
     --architecture)
-      [ "$#" -gt 0 ] || fail '参数缺少值：--architecture'
+      [ "$#" -gt 0 ] || fail 'Missing value for argument: --architecture'
       architecture=$1
       shift
       ;;
@@ -70,7 +70,7 @@ while [ "$#" -gt 0 ]; do
       image=$(normalize_image_name "${argument#*=}")
       ;;
     --image)
-      [ "$#" -gt 0 ] || fail '参数缺少值：--image'
+      [ "$#" -gt 0 ] || fail 'Missing value for argument: --image'
       image=$(normalize_image_name "$1")
       shift
       ;;
@@ -78,7 +78,7 @@ while [ "$#" -gt 0 ]; do
       platform=${argument#*=}
       ;;
     --platform)
-      [ "$#" -gt 0 ] || fail '参数缺少值：--platform'
+      [ "$#" -gt 0 ] || fail 'Missing value for argument: --platform'
       platform=$1
       shift
       ;;
@@ -86,19 +86,19 @@ while [ "$#" -gt 0 ]; do
       edition=${argument#*=}
       ;;
     --edition)
-      [ "$#" -gt 0 ] || fail '参数缺少值：--edition'
+      [ "$#" -gt 0 ] || fail 'Missing value for argument: --edition'
       edition=$1
       shift
       ;;
     [0-9]*)
-      [ -z "$selection" ] || fail '只能选择一个构建菜单项'
+      [ -z "$selection" ] || fail 'Only one build menu item may be selected'
       selection=$argument
       ;;
     --*)
-      fail "不支持的参数：$argument"
+      fail "Unsupported argument: $argument"
       ;;
     *)
-      fail "不支持的参数：$argument"
+      fail "Unsupported argument: $argument"
       ;;
   esac
 done
@@ -113,19 +113,19 @@ done
 }
 
 if [ -n "$architecture" ] && { [ -n "$selection" ] || [ -n "$image" ]; }; then
-  fail '--architecture/--all 与 --image/数字选择不能同时使用'
+  fail '--architecture/--all cannot be combined with --image or a numeric selection'
 fi
 
 if [ -z "$selection" ] && [ -z "$image" ] && [ -z "$architecture" ]; then
   print_choices
-  printf '%s' '请选择构建项（输入数字或 q）：'
+  printf '%s' 'Select a build target (number or q): '
   IFS= read -r selection
 fi
 
 if [ -n "$selection" ]; then
   case "$selection" in
     q|quit|exit|'')
-      printf '%s\n' '已退出 Docker 镜像构建。'
+      printf '%s\n' 'Docker image build exited.'
       exit 0
       ;;
     0)
@@ -147,7 +147,7 @@ if [ -n "$selection" ]; then
       image=gcac-browser-runtime
       ;;
     *)
-      fail "无效选择：$selection，请输入 0-5 或 q"
+      fail "Invalid selection: $selection; enter 0-5 or q"
       ;;
   esac
 fi
@@ -155,23 +155,23 @@ fi
 if [ -n "$architecture" ]; then
   case "$architecture" in
     small|standard|all) ;;
-    *) fail '--architecture 只允许 small、standard 或 all' ;;
+    *) fail '--architecture must be small, standard, or all' ;;
   esac
-  label="构建 $architecture 架构镜像"
+  label="Build $architecture architecture images"
   set -- --architecture "$architecture"
 elif [ -n "$image" ]; then
   case "$image" in
     gcac-small|gcac-db|gcac-backend|gcac-web|gcac-browser-runtime) ;;
-    *) fail "未知镜像：$image" ;;
+    *) fail "Unknown image: $image" ;;
   esac
-  label="构建 $image"
+  label="Build $image"
   set -- --image "$image"
 else
-  fail '缺少构建目标'
+  fail 'Missing build target'
 fi
 
 [ -n "$platform" ] && set -- "$@" --platform "$platform"
 [ -n "$edition" ] && set -- "$@" --edition "$edition"
 
-printf 'GCAC %s Docker 镜像构建：%s\n' "$RELEASE_VERSION" "$label"
+printf 'GCAC %s Docker image build: %s\n' "$RELEASE_VERSION" "$label"
 exec sh "$BUILD_SCRIPT" "$@"

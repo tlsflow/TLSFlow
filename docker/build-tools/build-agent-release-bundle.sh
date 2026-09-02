@@ -28,13 +28,13 @@ ITEMS_FILE=$(mktemp)
 trap 'rm -f "$ITEMS_FILE"' EXIT INT TERM
 
 fail() {
-  printf '错误：%s\n' "$1" >&2
+  printf 'Error: %s\n' "$1" >&2
   exit 1
 }
 
 case "$OUTPUT_ROOT/" in
   "$REPOSITORY_ROOT"/*) ;;
-  *) fail "拒绝写入仓库外部目录：$OUTPUT_ROOT" ;;
+  *) fail "Refusing to write outside repository: $OUTPUT_ROOT" ;;
 esac
 
 read_go_version() {
@@ -58,14 +58,14 @@ assert_full_agent_go() {
   version=$(read_go_version "$FULL_AGENT_GO")
   minor=$(go_minor_version "$version")
   [ -n "$minor" ] && [ "$minor" -ge 23 ] 2>/dev/null ||
-    fail "Full Agent 构建需要 Go 1.23.x 或更高版本，当前为 ${version:-未知版本}。请安装独立工具链后设置 GCAC_FULL_GO=/path/to/go，再重新执行。"
+    fail "Full Agent build requires Go 1.23.x or newer; current version is ${version:-unknown}. Install a standalone toolchain, set GCAC_FULL_GO=/path/to/go, then rerun."
 }
 
 assert_compatibility_go() {
   version=$(read_go_version "$COMPATIBILITY_GO")
   minor=$(go_minor_version "$version")
   [ -n "$minor" ] && [ "$minor" -eq 20 ] 2>/dev/null ||
-    fail "Compatibility Agent 构建必须使用 Go 1.20.x，当前为 ${version:-未知版本}。"
+    fail "Compatibility Agent build requires Go 1.20.x; current version is ${version:-unknown}."
 }
 
 has_compatibility_artifacts() {
@@ -110,7 +110,7 @@ run_compatibility_tests_and_build() {
       GOOS=windows GOARCH=amd64 CGO_ENABLED=0 "$COMPATIBILITY_GO" test -c -o "$test_path" "$package_path"
     )
     test_hash=$(sha256sum "$test_path" | awk '{print $1}')
-    printf 'Compatibility 测试程序通过：%s，SHA256=%s\n' "$test_path" "$test_hash"
+    printf 'Compatibility test program passed: %s, SHA256=%s\n' "$test_path" "$test_hash"
     rm -f "$test_path"
   done
   rm -rf "$test_root"
@@ -130,12 +130,12 @@ fi
 
 case "$OUTPUT_ROOT/" in
   "$REPOSITORY_ROOT"/*) ;;
-  *) fail "拒绝写入仓库外部目录：$OUTPUT_ROOT" ;;
+  *) fail "Refusing to write outside repository: $OUTPUT_ROOT" ;;
 esac
 assert_full_agent_go
 [ -z "$COMPATIBILITY_GO" ] || assert_compatibility_go
-[ -n "$LINUX_AGENT_VERSION" ] || fail '无法从 Linux Go Agent 构建脚本读取版本'
-[ -n "$WINDOWS_GO_AGENT_VERSION" ] || fail '无法从 Windows Go Agent 源码读取版本'
+[ -n "$LINUX_AGENT_VERSION" ] || fail 'unable to read the Linux Go Agent build script version'
+[ -n "$WINDOWS_GO_AGENT_VERSION" ] || fail 'unable to read the Windows Go Agent source version'
 rm -rf "$OUTPUT_ROOT"
 mkdir -p "$OUTPUT_ROOT"
 
@@ -181,7 +181,7 @@ done
 
 for artifact in $COMPATIBILITY_ARTIFACTS; do
   source="$COMPATIBILITY_DIST/$artifact"
-  [ -f "$source" ] || fail "Compatibility Go 产物缺失：$source。请准备 Go 1.20.x 后执行 agents/windows-compat-full-agent/build.sh（该结果仅是交叉编译检查）。"
+  [ -f "$source" ] || fail "Compatibility Go artifact is missing: $source. Prepare Go 1.20.x and run agents/windows-compat-full-agent/build.sh (this result is only a cross-compilation check)."
 done
 
 compatibility_target="$OUTPUT_ROOT/windows/amd64/compatibility"
@@ -212,8 +212,8 @@ find "$OUTPUT_ROOT" -type f -print | LC_ALL=C sort | while IFS= read -r file; do
   item_count=$((item_count + 1))
 done
 
-# 管道中的 while 在部分 POSIX shell 中运行于子 shell，文件内容是事实来源。
-[ -s "$ITEMS_FILE" ] || fail 'Agent Release Bundle 没有可记录的文件'
+# The while loop in some POSIX shells runs in a subshell; file contents are the source of truth.
+[ -s "$ITEMS_FILE" ] || fail 'Agent Release Bundle has no recordable files'
 generated_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 {
   printf '{\n'
@@ -238,4 +238,4 @@ generated_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
   printf '}\n'
 } > "$OUTPUT_ROOT/manifest.json"
 
-printf 'Agent Release Bundle 已生成：%s\n' "$OUTPUT_ROOT"
+printf 'Agent Release Bundle generated: %s\n' "$OUTPUT_ROOT"

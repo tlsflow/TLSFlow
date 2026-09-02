@@ -35,11 +35,11 @@ for root in "$@"; do
 done
 
 if [ -s "$findings_file" ]; then
-  printf '%s\n' '小型版镜像检测到浏览器运行时相关内容：' >&2
+  printf '%s\n' 'Small image contains browser runtime content:' >&2
   sort -u "$findings_file" | while IFS= read -r finding; do
     printf '%s\n' "- $finding" >&2
   done
   exit 1
 fi
 
-printf '%s\n' '小型版镜像内容扫描通过：未检测到 Chromium、Xvfb、VNC 或 Playwright 浏览器依赖'
+printf '%s\n' 'Small image content scan passed: no Chromium, Xvfb, VNC, or Playwright browser dependency found'
