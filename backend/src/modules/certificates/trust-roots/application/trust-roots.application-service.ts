@@ -115,7 +115,10 @@ export class TrustRootsApplicationService {
     void createdBy;
     const resolved = selected ?? await this.selectVersionInstallableRoot(certificateVersionId, tenantId);
     if (!resolved) return undefined;
-    const artifact = await this.artifacts.get(resolved.root.certificateArtifactRef, tenantId);
+    // 项目根证书是公共证书材料，历史版本可能按默认租户保存；优先使用当前租户，
+    // 找不到时再读取公共记录，避免材料租户迁移导致已验证根证书失效。
+    const artifact = await this.artifacts.get(resolved.root.certificateArtifactRef, tenantId)
+      ?? await this.artifacts.get(resolved.root.certificateArtifactRef);
     if (!artifact) {
       throw new AppError('RESOURCE_NOT_FOUND', '根证书产物不存在，不能生成安装材料', {
         certificateVersionId,
@@ -138,7 +141,7 @@ export class TrustRootsApplicationService {
         fingerprintSha256: candidate.fingerprintSha256,
       });
     }
-    const root = await this.upsertRoot(candidate, input.createdBy);
+    const root = await this.upsertRoot(candidate, input.createdBy, input.tenantId);
     await this.repository.createObservation({
       id: newId('rootobs'),
       rootCertificateId: root.id,
@@ -252,6 +255,10 @@ export class TrustRootsApplicationService {
       return;
     }
     if (version.chainStatus === 'incomplete') {
+      const candidate = await this.resolveManagedVersionRootFromLibrary(version);
+      if (candidate) {
+        await this.attachVersionRoot(version, candidate, 'selected_root', 'resolved', 'backfill_root_library');
+      }
       return;
     }
     if (version.chainStatus !== 'valid') return;
@@ -293,6 +300,50 @@ export class TrustRootsApplicationService {
     return undefined;
   }
 
+  private async resolveManagedVersionRootFromLibrary(
+    version: CertificateVersionEntity,
+  ): Promise<RootCertificateRecordEntity | undefined> {
+    const tailFingerprint = normalizeFingerprint(version.chainOrder.at(-1));
+    if (!tailFingerprint) return undefined;
+    const tail = await this.readManagedVersionCertificate(version, tailFingerprint);
+    if (!tail || !tail.ca || tail.subject.raw === tail.issuer.raw) return undefined;
+    const roots = await this.repository.listRootsBySubject(tail.issuer.raw);
+    const matches: RootCertificateRecordEntity[] = [];
+    for (const root of roots) {
+      if (root.validationStatus !== 'verified' || !root.basicConstraints.ca) continue;
+      const artifact = await this.artifacts.get(root.certificateArtifactRef, version.tenantId)
+        ?? await this.artifacts.get(root.certificateArtifactRef);
+      if (!artifact) continue;
+      try {
+        const certificate = new X509Certificate(artifact.content);
+        if (normalizeFingerprint(certificate.fingerprint256.replaceAll(':', '')) !== normalizeFingerprint(root.fingerprintSha256)) continue;
+        if (certificate.subject !== certificate.issuer || !tail.x509.verify(certificate.publicKey)) continue;
+        matches.push(root);
+      } catch {
+        continue;
+      }
+    }
+    return matches.length === 1 ? matches[0] : undefined;
+  }
+
+  private async readManagedVersionCertificate(
+    version: CertificateVersionEntity,
+    fingerprintSha256: string,
+  ): Promise<{ x509: X509Certificate; ca: boolean; subject: CertificateDistinguishedName; issuer: CertificateDistinguishedName } | undefined> {
+    for (const artifactRef of [version.leafStorageRef, ...version.chainCertificateRefs]) {
+      const artifact = await this.artifacts.get(artifactRef, version.tenantId);
+      if (!artifact) continue;
+      try {
+        const x509 = new X509Certificate(artifact.content);
+        if (normalizeFingerprint(x509.fingerprint256.replaceAll(':', '')) !== fingerprintSha256) continue;
+        return { x509, ca: x509.ca, subject: parseDistinguishedName(x509.subject), issuer: parseDistinguishedName(x509.issuer) };
+      } catch {
+        continue;
+      }
+    }
+    return undefined;
+  }
+
   private async persistManagedVersionRoot(
     version: CertificateVersionEntity,
     rootCandidate: ParsedRootCandidate,
@@ -303,7 +354,7 @@ export class TrustRootsApplicationService {
       sourceRef?: string;
     },
   ): Promise<void> {
-    const root = await this.upsertRoot(rootCandidate, actorId);
+    const root = await this.upsertRoot(rootCandidate, actorId, version.tenantId);
     await this.recordRootObservation(
       root.id,
       observation?.sourceType ?? 'manual',
@@ -344,10 +395,11 @@ export class TrustRootsApplicationService {
     return normalizeFingerprint(version.chainOrder.at(-1));
   }
 
-  private async upsertRoot(candidate: ParsedRootCandidate, createdBy: string): Promise<RootCertificateRecordEntity> {
+  private async upsertRoot(candidate: ParsedRootCandidate, createdBy: string, tenantId?: string): Promise<RootCertificateRecordEntity> {
     const now = new Date().toISOString();
     const artifactRef = `artifact://trust-root/${candidate.fingerprintSha256}`;
     await this.artifacts.put({
+      tenantId,
       artifactRef,
       content: candidate.der,
       contentType: 'application/pkix-cert',

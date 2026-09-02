@@ -13,6 +13,7 @@ export interface TrustRootsRepository {
   createOrUpdateRoot(entity: RootCertificateRecordEntity): Promise<RootCertificateRecordEntity>;
   getRoot(id: string): Promise<RootCertificateRecordEntity | undefined>;
   getRootByFingerprint(fingerprintSha256: string): Promise<RootCertificateRecordEntity | undefined>;
+  listRootsBySubject(subjectRaw: string): Promise<RootCertificateRecordEntity[]>;
   listRoots(query: PageQuery): Promise<PageResponse<RootCertificateRecordEntity>>;
   createObservation(entity: RootCertificateSourceObservationEntity): Promise<RootCertificateSourceObservationEntity>;
   listObservationsByRoot(rootCertificateId: string): Promise<RootCertificateSourceObservationEntity[]>;
@@ -74,6 +75,16 @@ export class PgTrustRootsRepository implements TrustRootsRepository {
       [fingerprintSha256],
     );
     return result.rows[0] ? toRootEntity(result.rows[0]) : undefined;
+  }
+
+  async listRootsBySubject(subjectRaw: string): Promise<RootCertificateRecordEntity[]> {
+    const result = await this.db.query<RootCertificateRecordRow>(
+      `select * from pg_root_certificate_records
+        where subject->>'raw' = $1
+        order by updated_at desc, created_at desc`,
+      [subjectRaw],
+    );
+    return result.rows.map(toRootEntity);
   }
 
   async listRoots(query: PageQuery): Promise<PageResponse<RootCertificateRecordEntity>> {

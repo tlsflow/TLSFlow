@@ -104,6 +104,34 @@ test('TrustRootsApplicationService 在控制面宿主也找不到根时不会伪
   }
 });
 
+test('TrustRootsApplicationService 会用项目根库补齐不完整链的根关联', async () => {
+  const db = new PgliteDatabase();
+  try {
+    await runMigrations(db);
+    const certificates = createCertificatesApplicationService(db);
+    const chain = createPemChainFixture();
+    const pemBlocks = chain.pem.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g) ?? [];
+    await certificates.getTrustRoots().importRoot({
+      tenantId: 'tenant_1',
+      certificatePem: pemBlocks[2],
+      createdBy: 'user_root_library',
+    });
+
+    const imported = await certificates.importVersion({
+      tenantId: 'tenant_1',
+      certificatePem: pemBlocks.slice(0, 2).join('\n'),
+      privateKeyPem: chain.privateKeyPem,
+      createdBy: 'user_root_library_version',
+    });
+
+    const detail = await certificates.getVersionDetail(imported.version.id, 'tenant_1');
+    assert.equal(detail.trustRoots?.length, 1);
+    assert.equal(detail.trustRoots?.[0]?.resolutionStatus, 'resolved');
+  } finally {
+    await db.close();
+  }
+});
+
 function createCertificatesApplicationService(db: PgliteDatabase): CertificatesApplicationService {
   return new CertificatesApplicationService({
     db,
