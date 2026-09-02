@@ -196,26 +196,25 @@ docker run -d \
   --restart unless-stopped \
   --label com.gcac.deployment.architecture=small \
   -p 8085:3003 \
-  -e GCAC_TOKEN_SECRET=TLSFlow-Token-K4r8-Np2z-2026 \
+  -e GCAC_PUBLIC_BASE_URL=http://your-tlsflow-host:8085 \
   -e GCAC_SECRET_KEK=TLSFlow-KEK-H7s3-Lx6v-2026 \
   -v "$DATA_ROOT/pglite:/var/lib/gcac/pglite" \
   -v "$DATA_ROOT/workflows:/app/data/workflows" \
   -v "$DATA_ROOT/runtime:/app/data/runtime" \
   -v "$DATA_ROOT/tls-inspector:/app/data/tls-inspector" \
   -v "$DATA_ROOT/plugins:/app/data/plugins:ro" \
-  your-dockerhub-namespace/gcac-small:latest
+  tlsflow/gcac-small:latest
 ```
 
-将 `your-dockerhub-namespace` 替换为实际 Docker Hub 命名空间。
-
-默认访问地址为 `http://<主机地址>:8085/`。首次启动后按初始化向导创建管理员,
+默认访问地址为 `http://<主机地址>:8085/`。Token 签名密钥未手动提供时由容器首次启动自动生成并持久化；
+首次启动后按初始化向导创建管理员,
 不要在生产环境复用示例密钥。
 
 ### 标准部署
 
 标准版由 PostgreSQL、Backend、Web 和按需启用的 Browser Runtime 组成,适合正式环境
 和多企业后台任务场景。复制 `docker/.env.example` 为 `docker/.env`,填写
-`GCAC_IMAGE_NAMESPACE`、`GCAC_RELEASE_VERSION`、`POSTGRES_PASSWORD`、
+`GCAC_RELEASE_VERSION`、`POSTGRES_PASSWORD`、
 `GCAC_PUBLIC_BASE_URL`、`GCAC_TOKEN_SECRET` 和 `GCAC_SECRET_KEK`,然后执行：
 
 ```bash
@@ -228,6 +227,15 @@ docker compose ps
 需要 Browser Runtime 时执行 `docker compose --profile browser-runtime up -d`。
 标准部署默认 Web 端口为 `8085`,Backend 只在 Compose 内部网络提供服务。Browser Runtime
 应只在容器内网使用,不应直接暴露到公网。完整变量、备份和首次登录步骤见[安装部署文档](docs/Documentation/installation/)。
+
+开发者从当前源码构建并启动标准版时，先生成 Agent 发布包，再使用开发 Compose：
+
+```bash
+sh docker/build-tools/build-agent-release-bundle-docker.sh
+docker compose -f docker/dev-compose.yml up --build -d
+```
+
+开发 Compose 使用 `tlsflow-dev-*` 本地镜像标签，不会覆盖或推送 Docker Hub 的用户镜像。
 
 ## 项目目录
 

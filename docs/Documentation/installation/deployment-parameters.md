@@ -7,7 +7,7 @@ sourceLocale: zh-CN
 locale: zh-CN
 specRefs: []
 codeRefs:
-  - docker/compose.yml
+  - docker/docker-compose.yml
   - backend/src/config
   - docker/versions.env
 testRefs: []
@@ -34,18 +34,19 @@ small 通过 `docker run -e` 传入。
 
 | 参数 | 用途 |
 | --- | --- |
-| `GCAC_IMAGE_NAMESPACE` | standard 镜像所在的 Docker Hub 命名空间 |
 | `GCAC_RELEASE_VERSION` | standard 镜像标签；建议使用固定发布版本，默认 `latest` |
 | `GCAC_PUBLIC_BASE_URL` | Agent 可访问的 TLSFlow Web 地址，例如 `http://主机地址:8085` |
-| `GCAC_TOKEN_SECRET` | 登录令牌签名密钥；standard 和 small 必填 |
+| `GCAC_TOKEN_SECRET` | 登录令牌签名密钥；standard 必填，small 未设置时首次启动自动生成并持久化 |
 | `GCAC_SECRET_KEK` | Secret（敏感值）加密密钥；standard 和 small 必填 |
 | `POSTGRES_PASSWORD` | standard PostgreSQL 密码；small 不需要 |
 
-small 只要求 `GCAC_TOKEN_SECRET` 和 `GCAC_SECRET_KEK` 两个应用密钥。PGlite 数据库、
-用户名、密码、主机和端口均使用镜像内置默认值。
+small 只要求 `GCAC_PUBLIC_BASE_URL` 和 `GCAC_SECRET_KEK` 两个应用参数。`GCAC_TOKEN_SECRET`
+未设置时首次启动自动生成并保存到 `data/runtime/token-secret`，重启时复用；手动传入时覆盖自动值。
+PGlite 数据库、用户名、密码、主机和端口均使用镜像内置默认值。
 
-`GCAC_INITIAL_ADMIN_PASSWORD`、`GCAC_CA_CONFIRMATION_SECRET` 和
-`BROWSER_RUNTIME_SHARED_SECRET` 不再是基础启动必填项：前两项分别由初始化向导和按需的 CA 操作使用，最后一项仅在启用 Browser Runtime 时必填。
+管理员密码由首次启动时的系统初始化向导设置。CA 高风险操作确认密钥由容器首启自动生成，使用
+`GCAC_SECRET_KEK` 加密后持久化；不需要在 Compose 或环境文件中配置。`BROWSER_RUNTIME_SHARED_SECRET`
+仅在启用 Browser Runtime 时必填。
 
 运行时安全材料（信任根、签名私钥、密钥集合和策略包等）由容器首次启动时自动生成，并使用 `GCAC_SECRET_KEK` 加密保存到 `/app/data/runtime/runtime-secrets.enc`。该目录必须持久化：删除它会生成全新的信任根，更换 `GCAC_SECRET_KEK` 会导致服务无法启动。不要在任何文档、日志或工单中粘贴解密后的材料。
 
@@ -70,12 +71,11 @@ small 只要求 `GCAC_TOKEN_SECRET` 和 `GCAC_SECRET_KEK` 两个应用密钥。P
 | --- | --- |
 | `AUTH_COOKIE_SECURE` | 是否强制安全 Cookie；生产环境默认开启 |
 | `AUTH_BROWSER_SESSION_TTL_SECONDS` | 浏览器会话有效期（秒） |
-| `GCAC_APPROVAL_ALLOW_SELF_APPROVAL` | 是否允许审批发起人自批；默认不允许 |
 | `GCAC_TENANT_MODE` | 租户模式；切换前先在控制台预检查 |
 | `GCAC_LICENSE_STORAGE_KEY` | 许可证敏感材料存储密钥；未设置时使用 `GCAC_SECRET_KEK` |
 | `GCAC_ENABLE_LEGACY_ADMIN_SEED` | 是否启用旧版固定 Admin seed；默认关闭 |
 | `GCAC_INITIAL_ADMIN_PASSWORD` | 旧版自动化 seed 的 Admin 密码；新部署留空并使用初始化向导 |
-| `GCAC_CA_CONFIRMATION_SECRET` | CA 高风险操作确认密钥；未配置时相关操作失败关闭 |
+| `GCAC_CA_CONFIRMATION_SECRET` | CA 高风险操作确认密钥；由生产容器首启自动生成并加密持久化，不应手工配置 |
 | `GCAC_VERSION` | 覆盖运行时版本；正式发布保持为 `1.0.0` |
 
 ## Browser Runtime

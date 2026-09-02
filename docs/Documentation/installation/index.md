@@ -7,7 +7,7 @@ sourceLocale: zh-CN
 locale: zh-CN
 specRefs: []
 codeRefs:
-  - docker/compose.yml
+  - docker/docker-compose.yml
   - docker/build-tools/Dockerfile.small
   - docker/build-tools/Dockerfile.backend
 testRefs: []

@@ -10,7 +10,7 @@ codeRefs:
   - backend/src/modules/security
   - backend/src/modules/secrets
   - backend/src/modules/audits
-  - docker/compose.yml
+  - docker/docker-compose.yml
 testRefs: []
 lastVerified: 2026-08-22
 ---

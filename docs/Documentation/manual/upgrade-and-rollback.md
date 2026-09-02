@@ -7,7 +7,7 @@ sourceLocale: zh-CN
 locale: zh-CN
 specRefs: []
 codeRefs:
-  - docker/compose.yml
+  - docker/docker-compose.yml
   - docker/docs/20260806-Docker发布说明.md
   - backend/src/modules/agents
   - backend/src/modules/executions

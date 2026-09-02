@@ -7,7 +7,7 @@ sourceLocale: zh-CN
 locale: zh-CN
 specRefs: []
 codeRefs:
-  - docker/compose.yml
+  - docker/docker-compose.yml
   - backend/src/database/migration-runner.ts
 testRefs: []
 lastVerified: 2026-08-22

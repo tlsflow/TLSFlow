@@ -7,7 +7,7 @@ sourceLocale: zh-CN
 locale: zh-CN
 specRefs: []
 codeRefs:
-  - docker/compose.yml
+  - docker/docker-compose.yml
   - docker/.env.example
   - docker/build-tools/Dockerfile.small
 testRefs: []
@@ -24,14 +24,16 @@ small 只需要 Docker CLI。部署预构建镜像不需要 Node.js、Go、Build
 
 ## 准备部署文件
 
-从公开仓库或发行包取得 `docker/compose.yml` 和 `docker/.env.example`。标准版在
-`docker/.env` 中填写 Docker Hub 命名空间、镜像标签、数据库密码和两个 GCAC 密钥；
+从公开仓库或发行包取得 `docker/docker-compose.yml` 和 `docker/.env.example`。标准版在
+`docker/.env` 中填写镜像标签、数据库密码和两个 GCAC 密钥。用户版 Compose 已固定
+使用 Docker Hub `tlsflow` 命名空间；
 small 不需要 `.env` 文件，只需按[单机部署](./single-node-deployment.md)准备数据目录。
 
 ## 选择一种拓扑
 
 - 标准版：按[标准部署](./standard-deployment.md)使用 Compose。
 - small：按[单机部署](./single-node-deployment.md)使用单个 `docker run` 容器。
+- 源码开发：使用仓库内的 `docker/dev-compose.yml` 构建并启动，不用于生产部署。
 
 small 和 standard 不允许同时运行。切换架构前必须先停止原架构，并确认没有容器继续占用
 `8085` 端口或挂载同一组数据目录。
