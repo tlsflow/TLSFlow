@@ -66,7 +66,7 @@
   "forbiddenPathPatterns": [
     "^(?:specs|data|output|tmp|temp|private|secrets)(?:/|$)",
     "^data/license-generator/keys(?:/|$)",
-    "^docs/(?!Documentation(?:/|$)|项目规范(?:/|$))",
+    "^docs/(?!Documentation(?:/|$)|项目规范(?:/|$)|Readme(?:/|$))",
     "^docs/Documentation/(?:node_modules|\\.vitepress/(?:dist|cache))(?:/|$)",
     "^docker/docs/20260806-Docker镜像发布与凭据边界说明\\.md$",
     "^AGENTS\\.md$",
