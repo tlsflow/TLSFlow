@@ -1075,6 +1075,9 @@ export default {
       searchLabel: 'Search plugins',
       searchPlaceholder: 'Search by name, tag, category, or path',
       allSources: 'All sources',
+      sourceAll: 'All',
+      sourceBuiltin: 'Built-in',
+      sourceUser: 'User',
       allStatuses: 'All statuses',
       statusLabel: 'Plugin status'
     },

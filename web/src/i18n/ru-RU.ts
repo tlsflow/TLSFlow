@@ -1023,7 +1023,7 @@ export default {
     sources: { builtin: 'Встроенный', user: 'Пользовательский' },
     categories: { label: 'Категория продукта', all: 'Все', WEB_SITE: 'Веб-сайты', APPLICATION_MIDDLEWARE: 'Промежуточное ПО приложений', NETWORK_GATEWAY: 'Сетевые устройства и шлюзы', CLOUD_PLATFORM: 'Облачные платформы', CA_ISSUANCE: 'ЦС и выпуск' },
     statuses: { valid: 'Доступен', invalid: 'Недействителен', available: 'Можно создать', enabled: 'Включен', disabled: 'Не включен', pendingApproval: 'Ожидает одобрения', inUse: 'Используется', notInUse: 'Не используется' },
-    filters: { searchLabel: 'Поиск плагинов', searchPlaceholder: 'Поиск по имени, тегу, категории или пути', allSources: 'Все источники', allStatuses: 'Все статусы', statusLabel: 'Статус плагина' },
+    filters: { searchLabel: 'Поиск плагинов', searchPlaceholder: 'Поиск по имени, тегу, категории или пути', allSources: 'Все источники', sourceAll: 'Все', sourceBuiltin: 'Встроенные', sourceUser: 'Пользовательские', allStatuses: 'Все статусы', statusLabel: 'Статус плагина' },
     card: { defaultDescription: 'Для этого DSL-плагина пока нет описания.', unversioned: 'Без версии', stepCount: 'Шагов выполнения: {count}', moreTags: 'Еще {count}' },
     columns: {
       name: 'Название плагина',

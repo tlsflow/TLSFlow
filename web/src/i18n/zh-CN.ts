@@ -1072,21 +1072,24 @@ export default {
       builtin: '内置插件',
       user: '用户插件'
     },
-    categories: { label: '产品分类', all: '全部', WEB_SITE: 'Web 站点', APPLICATION_MIDDLEWARE: '应用中间件', NETWORK_GATEWAY: '网络设备与网关', CLOUD_PLATFORM: '云平台', CA_ISSUANCE: 'CA 与签发' },
+    categories: { label: '产品分类', all: '全部', WEB_SITE: 'Web 站点', APPLICATION_MIDDLEWARE: '应用中间件', NETWORK_GATEWAY: '网络与设备', CLOUD_PLATFORM: '云平台', CA_ISSUANCE: 'CA 与签发' },
     statuses: {
       valid: '可用',
       invalid: '无效',
       available: '可创建',
       enabled: '已启用',
-      disabled: '未启用',
+      disabled: '已禁用',
       pendingApproval: '待审批',
       inUse: '正在使用',
       notInUse: '尚未使用'
     },
     filters: {
       searchLabel: '搜索插件',
-      searchPlaceholder: '按名称、标签、分类或路径搜索',
+      searchPlaceholder: '按照名称、标签进行搜索',
       allSources: '全部来源',
+      sourceAll: '全部',
+      sourceBuiltin: '内置',
+      sourceUser: '用户',
       allStatuses: '全部状态',
       statusLabel: '插件状态'
     },

@@ -1023,7 +1023,7 @@ export default {
     sources: { builtin: 'Integrado', user: 'Plugin do usuário' },
     categories: { label: 'Categoria do produto', all: 'Todos', WEB_SITE: 'Sites Web', APPLICATION_MIDDLEWARE: 'Middleware de aplicação', NETWORK_GATEWAY: 'Dispositivos de rede e gateways', CLOUD_PLATFORM: 'Plataformas de nuvem', CA_ISSUANCE: 'CA e emissão' },
     statuses: { valid: 'Disponível', invalid: 'Inválido', available: 'Pronto para criar', enabled: 'Habilitado', disabled: 'Não habilitado', pendingApproval: 'Aguardando aprovação', inUse: 'Em uso', notInUse: 'Não utilizado' },
-    filters: { searchLabel: 'Pesquisar plugins', searchPlaceholder: 'Pesquisar por nome, tag, categoria ou caminho', allSources: 'Todas as origens', allStatuses: 'Todos os estados', statusLabel: 'Estado do plugin' },
+    filters: { searchLabel: 'Pesquisar plugins', searchPlaceholder: 'Pesquisar por nome, tag, categoria ou caminho', allSources: 'Todas as origens', sourceAll: 'Todos', sourceBuiltin: 'Nativos', sourceUser: 'Usuário', allStatuses: 'Todos os estados', statusLabel: 'Estado do plugin' },
     card: { defaultDescription: 'Este plugin DSL ainda não possui descrição.', unversioned: 'Sem versão', stepCount: '{count} etapas de execução', moreTags: '+{count} itens' },
     columns: {
       name: 'Nome do plugin',

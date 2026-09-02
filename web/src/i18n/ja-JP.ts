@@ -1049,7 +1049,7 @@ export default {
     sources: { builtin: '組み込み', user: 'ユーザープラグイン' },
     categories: { label: '製品カテゴリ', all: 'すべて', WEB_SITE: 'Web サイト', APPLICATION_MIDDLEWARE: 'アプリケーションミドルウェア', NETWORK_GATEWAY: 'ネットワーク機器とゲートウェイ', CLOUD_PLATFORM: 'クラウドプラットフォーム', CA_ISSUANCE: 'CA と発行' },
     statuses: { valid: '利用可能', invalid: '無効', available: '作成可能', enabled: '有効', disabled: '未有効化', pendingApproval: '承認待ち', inUse: '使用中', notInUse: '未使用' },
-    filters: { searchLabel: 'プラグイン検索', searchPlaceholder: '名前、タグ、カテゴリ、パスで検索', allSources: 'すべての提供元', allStatuses: 'すべての状態', statusLabel: 'プラグイン状態' },
+    filters: { searchLabel: 'プラグイン検索', searchPlaceholder: '名前、タグ、カテゴリ、パスで検索', allSources: 'すべての提供元', sourceAll: 'すべて', sourceBuiltin: '内蔵', sourceUser: 'ユーザー', allStatuses: 'すべての状態', statusLabel: 'プラグイン状態' },
     card: { defaultDescription: 'この DSL プラグインには説明がありません。', unversioned: 'バージョン未設定', stepCount: '実行ステップ {count} 件', moreTags: 'ほか {count} 件' },
     columns: {
       name: 'プラグイン名前',

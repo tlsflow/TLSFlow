@@ -1023,7 +1023,7 @@ export default {
     sources: { builtin: '기본 제공', user: '사용자 플러그인' },
     categories: { label: '제품 분류', all: '전체', WEB_SITE: '웹 사이트', APPLICATION_MIDDLEWARE: '애플리케이션 미들웨어', NETWORK_GATEWAY: '네트워크 장치 및 게이트웨이', CLOUD_PLATFORM: '클라우드 플랫폼', CA_ISSUANCE: 'CA 및 발급' },
     statuses: { valid: '사용 가능', invalid: '유효하지 않음', available: '생성 가능', enabled: '활성화됨', disabled: '활성화되지 않음', pendingApproval: '승인 대기', inUse: '사용 중', notInUse: '사용하지 않음' },
-    filters: { searchLabel: '플러그인 검색', searchPlaceholder: '이름, 태그, 분류 또는 경로로 검색', allSources: '모든 출처', allStatuses: '모든 상태', statusLabel: '플러그인 상태' },
+    filters: { searchLabel: '플러그인 검색', searchPlaceholder: '이름, 태그, 분류 또는 경로로 검색', allSources: '모든 출처', sourceAll: '전체', sourceBuiltin: '내장', sourceUser: '사용자', allStatuses: '모든 상태', statusLabel: '플러그인 상태' },
     card: { defaultDescription: '이 DSL 플러그인에는 아직 설명이 없습니다.', unversioned: '버전 없음', stepCount: '실행 단계 {count}개', moreTags: '{count}개 더' },
     columns: {
       name: '플러그인 이름',
