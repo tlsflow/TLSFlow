@@ -196,13 +196,9 @@ docker run -d \
   --restart unless-stopped \
   --label com.gcac.deployment.architecture=small \
   -p 8085:3003 \
-  -e GCAC_PUBLIC_BASE_URL=http://your-tlsflow-host:8085 \
-  -e GCAC_SECRET_KEK=TLSFlow-KEK-H7s3-Lx6v-2026 \
-  -v "$DATA_ROOT/pglite:/var/lib/gcac/pglite" \
-  -v "$DATA_ROOT/workflows:/app/data/workflows" \
-  -v "$DATA_ROOT/runtime:/app/data/runtime" \
-  -v "$DATA_ROOT/tls-inspector:/app/data/tls-inspector" \
-  -v "$DATA_ROOT/plugins:/app/data/plugins:ro" \
+  -e GCAC_PUBLIC_BASE_URL=http://your-host:8085 \
+  -e GCAC_SECRET_KEK=your-random-kek \
+  -v tlsflow-small-data:/app/data \
   tlsflow/gcac-small:latest
 ```
 
