@@ -7,6 +7,7 @@ export interface AppConfig {
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   webRoot?: string;
   tlsInspectorUrl?: string;
+  tlsInspectorDataDir?: string;
 }
 
 function parsePort(value: string | undefined, fallback: number): number {
@@ -23,6 +24,8 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     openApiEnabled: env.OPENAPI_ENABLED !== 'false',
     logLevel: (env.LOG_LEVEL as AppConfig['logLevel']) ?? 'info',
     webRoot: env.GCAC_WEB_ROOT?.trim() || undefined,
-    tlsInspectorUrl: env.GCAC_TLS_INSPECTOR_URL?.trim() || undefined,
+    // 中文说明：开发脚本不额外注入该变量时，仍默认连接同机 Inspector；连接失败由代理回放历史快照。
+    tlsInspectorUrl: env.GCAC_TLS_INSPECTOR_URL?.trim() || 'http://127.0.0.1:8788',
+    tlsInspectorDataDir: env.TLS_INSPECTOR_DATA_DIR?.trim() || undefined,
   };
 }

@@ -89,9 +89,9 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true
         },
         '/tls-inspector': {
-          target: 'http://127.0.0.1:8788',
-          changeOrigin: true,
-          rewrite: (path) => path.replace(/^\/tls-inspector/, '')
+          // 统一经过 Backend，Inspector 不可用时由 Backend 回放持久化快照。
+          target: 'http://127.0.0.1:3003',
+          changeOrigin: true
         }
       }
     },

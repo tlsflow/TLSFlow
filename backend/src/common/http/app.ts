@@ -135,7 +135,9 @@ export class App {
       const url = new URL(req.url ?? '/', `http://${host}`);
       const method = (req.method ?? 'GET').toUpperCase();
       if (this.config.tlsInspectorUrl && isTlsInspectorProxyPath(url.pathname)) {
-        await proxyTlsInspectorRequest(req, res, this.config.tlsInspectorUrl);
+        await proxyTlsInspectorRequest(req, res, this.config.tlsInspectorUrl, {
+          dataDir: this.config.tlsInspectorDataDir,
+        });
         return;
       }
       const route = this.router.match(method, url.pathname);
