@@ -10,7 +10,6 @@ import DeviceOnboardingWizard from '@/views/devices/DeviceOnboardingWizard.vue'
 import UnifiedAssetDetailModal from './UnifiedAssetDetailModal.vue'
 import UnifiedAssetEditModal from './UnifiedAssetEditModal.vue'
 import { readString, type ViewRow } from '@/composables/useBusinessPage'
-import { PRODUCT_CATEGORIES, type ProductCategory } from '@/views/plugins/plugin-record'
 
 const PRODUCT_FAMILY_LABEL_KEYS: Readonly<Record<string, string>> = {
   'agent_host': 'devices.products.agentHost',
@@ -29,7 +28,6 @@ const { t } = useI18n()
 const route = useRoute?.() ?? { query: {} as Record<string, string | string[] | undefined> }
 const filters = ref<Record<string, string>>({
   category: readQueryString('category'),
-  productCategory: readQueryString('productCategory'),
   managementMethod: readQueryString('managementMethod'),
   health: readQueryString('health'),
 })
@@ -201,16 +199,6 @@ const config = computed<BusinessPageConfig>(() => ({
       width: '11%',
     },
     {
-      key: 'productCategory',
-      title: t('plugins.categories.label'),
-      candidates: ['productCategory'],
-      format: (record) => {
-        const value = String(record.productCategory ?? '').toUpperCase() as ProductCategory
-        return PRODUCT_CATEGORIES.includes(value) ? t(`plugins.categories.${value}`) : readString(record, ['productCategory'])
-      },
-      width: '12%',
-    },
-    {
       key: 'managementMethod',
       title: t('assets.inventory.columns.managementMethod'),
       candidates: ['managementMethod'],
@@ -240,9 +228,6 @@ const config = computed<BusinessPageConfig>(() => ({
       { label: t('assets.inventory.categories.networkAppliance'), value: 'NETWORK_APPLIANCE' },
       { label: t('assets.inventory.categories.securityAppliance'), value: 'SECURITY_APPLIANCE' },
       { label: t('assets.inventory.categories.cloud'), value: 'CLOUD' },
-    ] },
-    { key: 'productCategory', label: t('plugins.categories.label'), type: 'select', options: [
-      ...PRODUCT_CATEGORIES.map((value) => ({ label: t(`plugins.categories.${value}`), value })),
     ] },
     { key: 'managementMethod', label: t('assets.inventory.filters.managementMethod'), type: 'select', options: [
       { label: t('assets.inventory.managementMethods.agent'), value: 'AGENT' },

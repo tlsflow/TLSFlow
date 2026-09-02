@@ -56,13 +56,14 @@ export function toCatalogPluginRecord(record: PluginCatalogItem, versionRecord?:
   if (versionRecord && (versionRecord.id !== pluginVersionId || versionRecord.pluginId !== pluginId || versionRecord.version !== version)) return undefined
 
   const status = readString(record.status)
+  const productCategory = readProductCategory(record.productCategory ?? versionRecord?.manifest?.productCategory)
   return {
     id: pluginVersionId,
     pluginId,
     pluginVersionId,
     version,
     source: record.source === 'USER' ? 'user' : 'builtin',
-    productCategory: readOptionalString(record.productCategory) as ProductCategory | undefined,
+    ...(productCategory ? { productCategory } : {}),
     valid: !['INVALID', 'REJECTED', 'QUARANTINED', 'RETIRED'].includes(status.toUpperCase()),
     updatedAt: readString(versionRecord?.updatedAt),
     metadata: {
@@ -94,6 +95,13 @@ function readString(value: string | undefined, fallback = ''): string {
 
 function readOptionalString(value: string | undefined): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined
+}
+
+function readProductCategory(value: string | undefined): ProductCategory | undefined {
+  const normalized = readOptionalString(value)?.toUpperCase()
+  return normalized && PRODUCT_CATEGORIES.includes(normalized as ProductCategory)
+    ? normalized as ProductCategory
+    : undefined
 }
 
 function readNumber(value: number): number {

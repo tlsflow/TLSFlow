@@ -144,7 +144,8 @@ async function loadPlugins(refreshBuiltins = false): Promise<void> {
       page: 1,
       pageSize: 500,
       sort: 'updatedAt:desc',
-      filters: { locale: locale.value, ...(categoryFilter.value !== 'all' ? { productCategory: categoryFilter.value } : {}) },
+      // 分类筛选在页面统一执行；这样旧后端或目录缓存缺少 productCategory 时，仍可用版本 Manifest 补齐并正确显示。
+      filters: { locale: locale.value },
     } as const
     const catalogResult = await listPluginCatalog(query)
     const versionResult = await listUnifiedPluginVersions(query).catch(() => undefined)

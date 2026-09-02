@@ -150,16 +150,6 @@ export class ManagedTargetPluginQueryService {
             ? await services.plugins.getVersion(input.value.pluginOverride.pluginVersionId)
             : undefined
         : undefined;
-      if (overridePlugin?.manifest.productCategory
-        && applicationAsset.productCategory
-        && overridePlugin.manifest.productCategory !== applicationAsset.productCategory) {
-        throw new AppError('VALIDATION_FAILED', '应用资产产品分类与来源插件不一致', {
-          code: 'PRODUCT_CATEGORY_MISMATCH',
-          productCategory: applicationAsset.productCategory,
-          declaredProductCategory: overridePlugin.manifest.productCategory,
-          pluginVersionId: overridePlugin.id,
-        });
-      }
       const overrideContract = overridePlugin
         ? this.contractLoader.fromPlugin(overridePlugin, capabilityKey)
         : undefined;
@@ -256,16 +246,6 @@ export class ManagedTargetPluginQueryService {
           compatibility,
         });
         const plugin = await services.plugins.getVersion(inherited.pluginVersionId);
-        if (plugin.manifest.productCategory
-          && applicationAsset.productCategory
-          && plugin.manifest.productCategory !== applicationAsset.productCategory) {
-          throw new AppError('VALIDATION_FAILED', '应用资产产品分类与继承插件不一致', {
-            code: 'PRODUCT_CATEGORY_MISMATCH',
-            productCategory: applicationAsset.productCategory,
-            declaredProductCategory: plugin.manifest.productCategory,
-            pluginVersionId: plugin.id,
-          });
-        }
         const inheritedDefaults = this.resolvePluginDeploymentDefaults(plugin, capabilityKey);
         const inheritedContract = this.contractLoader.fromPlugin(plugin, capabilityKey);
         const inheritedUsesFixedPkcs12 = hasRequiredPkcs12Output(inheritedContract);
@@ -881,7 +861,6 @@ function evaluateCompatiblePlugin(
     resourceSha256: plugin.resourceSha256,
     displayNameKey: plugin.manifest.displayNameKey,
     displayName,
-    productCategory: plugin.manifest.productCategory,
     compatible: reasons.length === 0 && compatibleLocations.length > 0,
     compatibilityStatus,
     compatibility: evaluations.find((item) => item.evaluation.compatible)?.evaluation ?? evaluations[0]?.evaluation,

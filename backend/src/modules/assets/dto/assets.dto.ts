@@ -5,7 +5,6 @@ import type {
   OsType,
   ProviderType,
 } from '../../../shared/enums/core.enums.js';
-import type { ProductCategory } from '../../../shared/enums/core.enums.js';
 import type { BindingVerifyMethod, CertificateBindingDto, CreateCertificateBindingDto, DriftState } from '../../bindings/dto/bindings.dto.js';
 import type { CertificateDistinguishedName } from '../../certificates/schema/certificates.schema.js';
 import type { RuntimeCredentialV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
@@ -198,7 +197,6 @@ export interface ServiceAssetDto {
   id: string;
   tenantId: string;
   assetKind: ServiceAssetKind;
-  productCategory?: ProductCategory;
   address: string;
   addressType: ServiceAssetAddressType;
   port: number;
@@ -273,9 +271,6 @@ export interface ServiceAssetDetailDto extends ServiceAssetDto {
 export interface CreateServiceAssetDto {
   address: string;
   assetKind?: ServiceAssetKind;
-  productCategory?: ProductCategory;
-  /** 来源插件版本；存在时分类必须由 Manifest 决定。 */
-  pluginVersionId?: string;
   addressType?: ServiceAssetAddressType;
   port: number;
   protocol: ServiceEndpointProtocol;

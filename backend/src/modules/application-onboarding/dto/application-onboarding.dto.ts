@@ -4,7 +4,6 @@ import type {
   ApplicationOnboardingRecipeV1,
 } from '../recipe/application-onboarding-recipe.dto.js';
 import type { InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
-import type { ProductCategory } from '../../../shared/enums/core.enums.js';
 
 export type OnboardingSessionState =
   | 'CREATED'
@@ -36,8 +35,6 @@ export interface OnboardingPlatformDto {
   pluginVersionId?: string;
   pluginId?: string;
   pluginVersion?: string;
-  /** 来源插件显式声明的统一产品分类。 */
-  productCategory?: ProductCategory;
   displayNameKey: string;
   /** 插件 Locale 解析后的展示名称；宿主无需把插件 key 写入自身 i18n。 */
   displayName?: string;

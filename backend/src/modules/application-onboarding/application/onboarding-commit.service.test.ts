@@ -21,7 +21,6 @@ test('受管设备接入只通过既有应用服务写入目标策略和部署�
   assert.equal(fixture.created[0]?.address, 'ikuai.jacksonz.cn');
   assert.equal(fixture.created[0]?.sniName, 'ikuai.jacksonz.cn');
   assert.equal(fixture.created[0]?.verifyUrl, 'https://ikuai.jacksonz.cn:443');
-  assert.equal(fixture.created[0]?.productCategory, 'NETWORK_GATEWAY');
   assert.deepEqual(fixture.targets, [{ applicationAssetId: 'asset-1', managedTargetId: 'target-1', metadata: { configFingerprint: 'fingerprint-1' } }]);
   assert.deepEqual(fixture.strategies, [{
     assetId: 'asset-1', actorId: 'actor-1', strategy: { type: 'MANAGED_TARGET', managedTarget: { managedTargetId: 'target-1', executionMode: 'PLUGIN' } },
@@ -146,7 +145,7 @@ function createFixture(): {
 
 function recipe(mode: 'MANAGED_TARGET' | 'DIRECT_WORKFLOW'): LoadedApplicationOnboardingRecipe {
   return {
-    pluginVersionId: 'plugin-version-1', pluginId: 'plugin.test', pluginVersion: '1.0.0', resourcePath: 'onboarding/application-asset.json', recipeHash: 'sha256:recipe', productCategory: 'NETWORK_GATEWAY',
+    pluginVersionId: 'plugin-version-1', pluginId: 'plugin.test', pluginVersion: '1.0.0', resourcePath: 'onboarding/application-asset.json', recipeHash: 'sha256:recipe',
     recipe: {
       protocol: 'gcac.application-onboarding/v1', platformKey: 'vendor.test', displayNameKey: 'plugin.test.name', supportStatus: 'SUPPORTED', deploymentMode: mode,
       ...(mode === 'MANAGED_TARGET' ? { deviceResourceType: 'device.test' } : {}),

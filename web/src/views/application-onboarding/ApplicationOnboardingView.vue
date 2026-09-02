@@ -36,10 +36,9 @@ import { localizeCertificateFormatName } from '@/utils/certificate-format-locali
 import { cloneReactiveValue } from '@/utils/clone-reactive-value'
 import type { DeviceOnboardingInitialSelection } from '@/views/devices/device-onboarding.model'
 import { createInputBindingsV1, readInputBindingsV1 } from '@/views/assets/asset-input-bindings.model'
-import { PRODUCT_CATEGORIES, type ProductCategory } from '@/views/plugins/plugin-record'
 
 interface PlatformBusinessMetadata { capabilityVersion: string; compatibleVersions: string[]; requiredInformation: string[] }
-interface Platform { platformKey: string; source: 'PLUGIN' | 'CUSTOM_MANUAL'; pluginVersionId?: string; displayNameKey: string; displayName?: string; description?: string; logoUrl?: string; logoSquareUrl?: string; productCategory?: ProductCategory; businessMetadata?: PlatformBusinessMetadata; deploymentMode?: string; deviceSelection?: 'EXISTING_OR_NEW' | 'EXISTING_ONLY' | 'NONE'; newDeviceOnboarding?: DeviceOnboardingInitialSelection; supportStatus?: string; acceptedCertificateFormats?: string[]; deploymentDefaults?: ApplicationAssetDeploymentDefaults }
+interface Platform { platformKey: string; source: 'PLUGIN' | 'CUSTOM_MANUAL'; pluginVersionId?: string; displayNameKey: string; displayName?: string; description?: string; logoUrl?: string; logoSquareUrl?: string; businessMetadata?: PlatformBusinessMetadata; deploymentMode?: string; deviceSelection?: 'EXISTING_OR_NEW' | 'EXISTING_ONLY' | 'NONE'; newDeviceOnboarding?: DeviceOnboardingInitialSelection; supportStatus?: string; acceptedCertificateFormats?: string[]; deploymentDefaults?: ApplicationAssetDeploymentDefaults }
 interface Session { id: string; platformKey: string; state: string; stateVersion: number; deploymentMode?: string; deviceId?: string | null; assetId?: string | null; targetId?: string | null; certificateId?: string | null; certificateVersionId?: string | null; targets?: Target[]; inputSnapshot?: Record<string, unknown>; lastErrorCode?: string }
 interface TargetEndpoint { host?: string; port?: number; protocol?: string }
 interface Target { managedTargetId: string; displayName: string; targetType: string; endpoint?: TargetEndpoint; configFingerprint: string; selectable: boolean; reasonCode?: string }
@@ -79,7 +78,6 @@ const router = useRouter()
 const route = useRoute()
 const platforms = ref<Platform[]>([])
 const standalonePlatformKeyword = ref('')
-const categoryFilter = ref<'all' | ProductCategory>('all')
 const selectedPlatform = ref<Platform | null>(null)
 const session = ref<Session | null>(null)
 const targets = ref<Target[]>([])
@@ -184,8 +182,6 @@ const sortedPlatforms = computed(() => [...platforms.value].sort(comparePlatform
 const filteredPlatforms = computed(() => {
   const keyword = platformSearchKeyword.value.trim().toLocaleLowerCase(locale.value)
   return sortedPlatforms.value.filter((platform) => {
-    if (categoryFilter.value !== 'all' && platform.productCategory !== categoryFilter.value) return false
-    if (!keyword) return true
     const metadata = platform.businessMetadata
     const searchableValues = [
       platformLabel(platform),
@@ -197,10 +193,6 @@ const filteredPlatforms = computed(() => {
     return searchableValues.some((value) => String(value ?? '').toLocaleLowerCase(locale.value).includes(keyword))
   })
 })
-const categoryOptions = computed(() => [
-  { value: 'all' as const, label: t('plugins.categories.all') },
-  ...PRODUCT_CATEGORIES.map((value) => ({ value, label: t(`plugins.categories.${value}`) })),
-])
 // 站点选择步骤只展示实际可用的受管目标；停用或不满足选择条件的目标不显示。
 const selectableTargets = computed(() => targets.value.filter((target) => target.selectable))
 // 证书版本列表按到期时间倒序，第一项即最新可部署版本。
@@ -1076,7 +1068,6 @@ defineExpose({ goPrevious, runFooterPrimary, cancel })
           />
           <span class="platform-card__copy">
             <strong>{{ platformLabel(platform) }}</strong>
-            <small v-if="platform.productCategory" class="platform-card__category">{{ t(`plugins.categories.${platform.productCategory}`) }}</small>
             <small v-if="platform.source === 'CUSTOM_MANUAL'">{{ t('applicationOnboarding.platforms.manualHint') }}</small>
             <span v-if="platform.businessMetadata" class="platform-card__metadata">
               <small class="platform-card__metadata-row"><span>{{ t('applicationOnboarding.platforms.capabilityVersion') }}</span><span>{{ platform.businessMetadata.capabilityVersion }}</span></small>

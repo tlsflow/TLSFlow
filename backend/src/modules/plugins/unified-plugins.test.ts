@@ -347,9 +347,11 @@ test('统一插件目录保留正交分类和能力声明', async () => {
   const service = new UnifiedPluginsApplicationService(memoryRepository(new Map()));
   const imported = await service.importVersion('tenant-1', {
     ...workflowPluginInput(),
-    manifest: { ...(workflowPluginInput().manifest as Record<string, unknown>), permissions: [] },
+    manifest: { ...(workflowPluginInput().manifest as Record<string, unknown>), permissions: [], productCategory: 'WEB_SITE' },
   });
   const [item] = await service.listCatalog('tenant-1');
+  const filtered = await service.listCatalog('tenant-1', 'zh-CN', { productCategory: 'WEB_SITE' });
+  const excluded = await service.listCatalog('tenant-1', 'zh-CN', { productCategory: 'NETWORK_GATEWAY' });
   assert.equal(imported.status, 'DISABLED');
   assert.equal(item?.runtime, 'WORKFLOW_DSL');
   assert.equal(item?.scope, 'BOTH');
@@ -358,6 +360,9 @@ test('统一插件目录保留正交分类和能力声明', async () => {
   assert.equal(item?.logoSquareUrl, `/api/v1/plugin-versions/${encodeURIComponent(imported.id)}/resources/logos/square`);
   assert.equal(item?.capabilities[0]?.key, 'certificate.deploy');
   assert.equal(item?.pluginVersionId, imported.id);
+  assert.equal(item?.productCategory, 'WEB_SITE');
+  assert.deepEqual(filtered.map((entry) => entry.pluginVersionId), [imported.id]);
+  assert.deepEqual(excluded, []);
   assert.equal(item?.packageSha256, imported.packageSha256);
   assert.equal(item?.manifestSha256, imported.manifestSha256);
   assert.deepEqual(item?.resourceSha256, imported.resourceSha256);

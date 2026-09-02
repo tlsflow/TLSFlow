@@ -54,7 +54,6 @@ export class OnboardingCommitService implements OnboardingCommitPort {
       sniName: targetInput.accessDomain,
       verifyUrl: targetInput.verifyUrl,
       displayName: String(session.inputSnapshot.displayName ?? recipe.recipe.platformKey),
-      ...(recipe.productCategory ? { productCategory: recipe.productCategory } : {}),
       discoverySource: 'MANUAL',
       ...(workflow ? {
         deploymentStrategy: {

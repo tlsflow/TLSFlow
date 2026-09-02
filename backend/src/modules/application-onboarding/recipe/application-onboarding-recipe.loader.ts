@@ -84,7 +84,6 @@ export class ApplicationOnboardingRecipeLoader {
       resourcePath,
       recipeHash,
       recipe,
-      productCategory: source.manifest.productCategory,
     };
   }
 

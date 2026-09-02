@@ -364,7 +364,6 @@ export class PgAssetsRepository implements AssetsRepository {
       id: newId('sat'),
       tenantId,
       assetKind: input.assetKind ?? 'APPLICATION',
-      productCategory: input.productCategory,
       address: input.address,
       addressType: input.addressType ?? 'UNKNOWN',
       port: input.port,
@@ -387,8 +386,8 @@ export class PgAssetsRepository implements AssetsRepository {
       updatedAt: now,
       version: 1,
     };
-    await this.db.query(`insert into pg_service_assets (id, tenant_id, address, address_type, port, protocol, platform, agent_id, sni_name, display_name, service_instance_id, service_endpoint_id, host_id, environment, discovery_source, last_discovered_at, status, tags, metadata, asset_kind, product_category, created_at, updated_at, version) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::timestamptz,$17,$18::jsonb,$19::jsonb,$20,$21,$22::timestamptz,$23::timestamptz,$24)`, [
-      asset.id, tenantId, asset.address, asset.addressType, asset.port, asset.protocol, asset.platform ?? null, asset.agentId ?? null, asset.sniName ?? null, asset.displayName ?? null, asset.serviceInstanceId ?? null, asset.serviceEndpointId ?? null, asset.hostId ?? null, asset.environment ?? null, asset.discoverySource, asset.lastDiscoveredAt ?? null, asset.status, JSON.stringify(asset.tags), JSON.stringify(asset.metadata), asset.assetKind, asset.productCategory ?? null, asset.createdAt, asset.updatedAt, asset.version,
+    await this.db.query(`insert into pg_service_assets (id, tenant_id, address, address_type, port, protocol, platform, agent_id, sni_name, display_name, service_instance_id, service_endpoint_id, host_id, environment, discovery_source, last_discovered_at, status, tags, metadata, asset_kind, created_at, updated_at, version) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::timestamptz,$17,$18::jsonb,$19::jsonb,$20,$21::timestamptz,$22::timestamptz,$23)`, [
+      asset.id, tenantId, asset.address, asset.addressType, asset.port, asset.protocol, asset.platform ?? null, asset.agentId ?? null, asset.sniName ?? null, asset.displayName ?? null, asset.serviceInstanceId ?? null, asset.serviceEndpointId ?? null, asset.hostId ?? null, asset.environment ?? null, asset.discoverySource, asset.lastDiscoveredAt ?? null, asset.status, JSON.stringify(asset.tags), JSON.stringify(asset.metadata), asset.assetKind, asset.createdAt, asset.updatedAt, asset.version,
     ]);
     if (input.targetBinding) {
       await this.createApplicationAssetTarget(tenantId, {
@@ -416,8 +415,8 @@ export class PgAssetsRepository implements AssetsRepository {
       ? withServiceAssetVerifyUrl(strategyMetadata, assetPatch.verifyUrl)
       : strategyMetadata;
     const updated = touch({ ...merged, metadata, verifyUrl: readServiceAssetVerifyUrl(metadata) });
-    await this.db.query(`update pg_service_assets set address=$2, address_type=$3, port=$4, protocol=$5, platform=$6, agent_id=$7, sni_name=$8, display_name=$9, service_instance_id=$10, service_endpoint_id=$11, host_id=$12, environment=$13, discovery_source=$14, last_discovered_at=$15::timestamptz, status=$16, tags=$17::jsonb, metadata=$18::jsonb, asset_kind=$19, product_category=$20, updated_at=$21::timestamptz, version=$22 where id=$1`, [
-      updated.id, updated.address, updated.addressType, updated.port, updated.protocol, updated.platform ?? null, updated.agentId ?? null, updated.sniName ?? null, updated.displayName ?? null, updated.serviceInstanceId ?? null, updated.serviceEndpointId ?? null, updated.hostId ?? null, updated.environment ?? null, updated.discoverySource, updated.lastDiscoveredAt ?? null, updated.status, JSON.stringify(updated.tags), JSON.stringify(updated.metadata), updated.assetKind, updated.productCategory ?? null, updated.updatedAt, updated.version,
+    await this.db.query(`update pg_service_assets set address=$2, address_type=$3, port=$4, protocol=$5, platform=$6, agent_id=$7, sni_name=$8, display_name=$9, service_instance_id=$10, service_endpoint_id=$11, host_id=$12, environment=$13, discovery_source=$14, last_discovered_at=$15::timestamptz, status=$16, tags=$17::jsonb, metadata=$18::jsonb, asset_kind=$19, updated_at=$20::timestamptz, version=$21 where id=$1`, [
+      updated.id, updated.address, updated.addressType, updated.port, updated.protocol, updated.platform ?? null, updated.agentId ?? null, updated.sniName ?? null, updated.displayName ?? null, updated.serviceInstanceId ?? null, updated.serviceEndpointId ?? null, updated.hostId ?? null, updated.environment ?? null, updated.discoverySource, updated.lastDiscoveredAt ?? null, updated.status, JSON.stringify(updated.tags), JSON.stringify(updated.metadata), updated.assetKind, updated.updatedAt, updated.version,
     ]);
     if (input.targetBinding) {
       const currentBinding = await this.getApplicationAssetTargetByApplicationAssetId(tenantId, serviceAssetId);
@@ -1388,7 +1387,6 @@ type ServiceAssetRow = {
   id: string;
   tenant_id: string;
   asset_kind: ServiceAssetDto['assetKind'];
-  product_category?: ServiceAssetDto['productCategory'] | null;
   address: string;
   address_type: ServiceAssetDto['addressType'];
   port: number;
@@ -1609,7 +1607,6 @@ function toServiceAsset(row: ServiceAssetRow): ServiceAssetDto {
     id: row.id,
     tenantId: row.tenant_id,
     assetKind: row.asset_kind ?? 'APPLICATION',
-    productCategory: row.product_category ?? undefined,
     address: row.address,
     addressType: row.address_type,
     port: row.port,
