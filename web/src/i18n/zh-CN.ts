@@ -513,6 +513,12 @@ export default {
       timeline: { created: '已提交审批', createdDescription: '任务已创建，等待审批人处理。', approved: '审批已通过', approvedDescription: '审批人已允许继续执行。', rejected: '审批已拒绝', rejectedDescription: '审批人已拒绝本次操作。', forceEnded: '任务已强制结束', forceEndedDescription: '操作员已强制结束该任务。', pending: '审批处理中', pendingDescription: '系统正在等待审批结果。' }
     },
     relatedNames: { pluginCatalog: '插件目录', deploymentPlan: '部署计划', acmeRenewal: '{certificate}（{provider}）证书续签' },
+    dedicated: {
+      description: { issue: '系统正在为该应用签发专属证书。', deploy: '系统正在将专属证书部署到该应用。' },
+      fields: { target: '目标应用', certificateAsset: '证书资产', certificateRequest: '证书申请名称', policyVersion: '策略版本' },
+      timelineTitle: '处理进度', childrenTitle: '后续步骤', emptyTimeline: '暂无进度记录', technicalDetails: '查看技术明细', failureTitle: '处理未完成',
+      events: { created: '任务已创建', claimed: '任务已接收', started: '开始处理', progress: '进度更新', retry_scheduled: '已安排重试', waiting_result: '等待签发结果', awaiting_confirmation: '等待结果确认', cancel_requested: '已请求取消', succeeded: '处理成功', failed: '处理失败', cancelled: '任务已取消' }
+    },
     acmeHistory: {
       queued: { title: '等待续签', description: '系统正在等待处理此证书续签。' },
       running: { title: '正在续签', description: '系统正在向证书机构请求续签。' },
@@ -524,6 +530,11 @@ export default {
     typeLabels: {
       CERTIFICATE_DRY_RUN: '证书Dry-run',
       CERTIFICATE_DEPLOY: '证书部署',
+      APPLICATION_CERTIFICATE_DEPLOY: '专属证书部署',
+      applicationCertificate: '专属证书',
+      applicationCertificateIssue: '专属证书签发',
+      CERTIFICATE_ISSUE: '证书签发',
+      ACME_CERTIFICATE_ISSUE: 'ACME证书签发',
       DEPLOYMENT_APPROVAL: '部署审批',
       CERTIFICATE_VERIFY: '证书验证',
       CERTIFICATE_ROLLBACK: '证书回滚',

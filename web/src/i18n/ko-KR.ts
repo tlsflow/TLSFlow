@@ -495,6 +495,12 @@ export default {
       timeline: { created: '승인 요청됨', createdDescription: '작업이 생성되었으며 승인자의 처리를 기다립니다.', approved: '승인됨', approvedDescription: '승인자가 작업을 계속하도록 허용했습니다.', rejected: '승인 거부됨', rejectedDescription: '승인자가 이 작업을 거부했습니다.', forceEnded: '작업 강제 종료됨', forceEndedDescription: '운영자가 이 작업을 강제 종료했습니다.', pending: '승인 처리 중', pendingDescription: '시스템이 승인 결과를 기다리고 있습니다.' }
     },
     relatedNames: { pluginCatalog: '플러그인 카탈로그', deploymentPlan: '배포 계획', acmeRenewal: 'ACME Provider({provider}) - {certificate} 인증서 갱신' },
+    dedicated: {
+      description: { issue: '이 애플리케이션의 전용 인증서를 발급하고 있습니다.', deploy: '전용 인증서를 이 애플리케이션에 배포하고 있습니다.' },
+      fields: { target: '대상 애플리케이션', certificateAsset: '인증서 자산', certificateRequest: '인증서 신청 이름', policyVersion: '정책 버전' },
+      timelineTitle: '처리 진행', childrenTitle: '다음 단계', emptyTimeline: '진행 기록이 없습니다', technicalDetails: '기술 세부 정보 보기', failureTitle: '처리 미완료',
+      events: { created: '작업 생성', claimed: '작업 수신', started: '처리 시작', progress: '진행률 업데이트', retry_scheduled: '재시도 예약', waiting_result: '발급 결과 대기 중', awaiting_confirmation: '결과 확인 대기 중', cancel_requested: '취소 요청', succeeded: '처리 성공', failed: '처리 실패', cancelled: '작업 취소됨' }
+    },
     acmeHistory: {
       queued: { title: '갱신 대기 중', description: '시스템이 이 인증서 갱신을 처리할 때까지 대기 중입니다.' },
       running: { title: '인증서 갱신 중', description: '시스템이 인증 기관에 갱신을 요청하고 있습니다.' },
@@ -506,6 +512,11 @@ export default {
     typeLabels: {
       CERTIFICATE_DRY_RUN: '인증서 Dry-run',
       CERTIFICATE_DEPLOY: '인증서 배포',
+      APPLICATION_CERTIFICATE_DEPLOY: '전용 인증서 배포',
+      applicationCertificate: '전용 인증서',
+      applicationCertificateIssue: '전용 인증서 발급',
+      CERTIFICATE_ISSUE: '인증서 발급',
+      ACME_CERTIFICATE_ISSUE: 'ACME 인증서 발급',
       DEPLOYMENT_APPROVAL: '배포 승인',
       CERTIFICATE_VERIFY: '인증서 검증',
       CERTIFICATE_ROLLBACK: '인증서 롤백',

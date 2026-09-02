@@ -513,6 +513,12 @@ export default {
       timeline: { created: 'Approval submitted', createdDescription: 'The task was created and is waiting for an approver.', approved: 'Approval granted', approvedDescription: 'The approver allowed the operation to continue.', rejected: 'Approval rejected', rejectedDescription: 'The approver rejected this operation.', forceEnded: 'Task force-stopped', forceEndedDescription: 'An operator force-stopped this task.', pending: 'Approval in progress', pendingDescription: 'The system is waiting for the approval result.' }
     },
     relatedNames: { pluginCatalog: 'Plugin catalog', deploymentPlan: 'Deployment plan', acmeRenewal: 'ACME Provider ({provider}) - {certificate} certificate renewal' },
+    dedicated: {
+      description: { issue: 'The dedicated certificate is being issued for this application.', deploy: 'The dedicated certificate is being deployed to this application.' },
+      fields: { target: 'Target application', certificateAsset: 'Certificate asset', certificateRequest: 'Certificate request name', policyVersion: 'Policy version' },
+      timelineTitle: 'Progress', childrenTitle: 'Next steps', emptyTimeline: 'No progress records', technicalDetails: 'View technical details', failureTitle: 'Processing incomplete',
+      events: { created: 'Task created', claimed: 'Task claimed', started: 'Processing started', progress: 'Progress updated', retry_scheduled: 'Retry scheduled', waiting_result: 'Waiting for issuance result', awaiting_confirmation: 'Waiting for result confirmation', cancel_requested: 'Cancellation requested', succeeded: 'Completed successfully', failed: 'Processing failed', cancelled: 'Task cancelled' }
+    },
     acmeHistory: {
       queued: { title: 'Waiting for renewal', description: 'The system is waiting to process this certificate renewal.' },
       running: { title: 'Renewing certificate', description: 'The system is requesting renewal from the certificate authority.' },
@@ -524,6 +530,11 @@ export default {
     typeLabels: {
       CERTIFICATE_DRY_RUN: 'Certificate dry-run',
       CERTIFICATE_DEPLOY: 'Certificate deploy',
+      APPLICATION_CERTIFICATE_DEPLOY: 'Dedicated certificate deployment',
+      applicationCertificate: 'Dedicated certificate',
+      applicationCertificateIssue: 'Dedicated certificate issuance',
+      CERTIFICATE_ISSUE: 'Certificate issuance',
+      ACME_CERTIFICATE_ISSUE: 'ACME certificate issuance',
       DEPLOYMENT_APPROVAL: 'Deployment approval',
       CERTIFICATE_VERIFY: 'Certificate verify',
       CERTIFICATE_ROLLBACK: 'Certificate rollback',

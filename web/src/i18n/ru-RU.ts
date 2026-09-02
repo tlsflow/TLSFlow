@@ -495,6 +495,12 @@ export default {
       timeline: { created: 'Согласование отправлено', createdDescription: 'Задача создана и ожидает обработки согласующим.', approved: 'Согласование выдано', approvedDescription: 'Согласующий разрешил продолжить операцию.', rejected: 'Согласование отклонено', rejectedDescription: 'Согласующий отклонил эту операцию.', forceEnded: 'Задача завершена принудительно', forceEndedDescription: 'Оператор принудительно завершил эту задачу.', pending: 'Согласование выполняется', pendingDescription: 'Система ожидает результата согласования.' }
     },
     relatedNames: { pluginCatalog: 'Каталог плагинов', deploymentPlan: 'План развёртывания', acmeRenewal: 'ACME Provider ({provider}) - продление сертификата {certificate}' },
+    dedicated: {
+      description: { issue: 'Для этого приложения выпускается выделенный сертификат.', deploy: 'Выделенный сертификат развёртывается в этом приложении.' },
+      fields: { target: 'Целевое приложение', certificateAsset: 'Актив сертификата', certificateRequest: 'Название запроса сертификата', policyVersion: 'Версия политики' },
+      timelineTitle: 'Ход обработки', childrenTitle: 'Следующие шаги', emptyTimeline: 'Нет записей о ходе обработки', technicalDetails: 'Показать технические сведения', failureTitle: 'Обработка не завершена',
+      events: { created: 'Задача создана', claimed: 'Задача принята', started: 'Обработка начата', progress: 'Прогресс обновлён', retry_scheduled: 'Повтор запланирован', waiting_result: 'Ожидание результата выпуска', awaiting_confirmation: 'Ожидание подтверждения результата', cancel_requested: 'Запрошена отмена', succeeded: 'Обработка завершена', failed: 'Ошибка обработки', cancelled: 'Задача отменена' }
+    },
     acmeHistory: {
       queued: { title: 'Ожидание продления', description: 'Система ожидает обработки этого продления сертификата.' },
       running: { title: 'Продление выполняется', description: 'Система запрашивает продление у центра сертификации.' },
@@ -506,6 +512,11 @@ export default {
     typeLabels: {
       CERTIFICATE_DRY_RUN: 'Dry-run сертификата',
       CERTIFICATE_DEPLOY: 'Развёртывание сертификата',
+      APPLICATION_CERTIFICATE_DEPLOY: 'Развёртывание выделенного сертификата',
+      applicationCertificate: 'Выделенный сертификат',
+      applicationCertificateIssue: 'Выдача выделенного сертификата',
+      CERTIFICATE_ISSUE: 'Выдача сертификата',
+      ACME_CERTIFICATE_ISSUE: 'Выдача сертификата ACME',
       DEPLOYMENT_APPROVAL: 'Согласование развёртывания',
       CERTIFICATE_VERIFY: 'Проверка сертификата',
       CERTIFICATE_ROLLBACK: 'Откат сертификата',

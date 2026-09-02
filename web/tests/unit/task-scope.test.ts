@@ -67,6 +67,15 @@ describe('任务快速区范围', () => {
 
   it('显示 ACME 续签并隐藏无关的监控和后台任务', () => {
     expect(isQuickTask(task({
+      taskType: 'CERTIFICATE_ISSUE',
+      category: 'SYSTEM',
+      payload: { applicationAssetId: 'app-1' },
+    }))).toBe(true)
+    expect(isQuickTask(task({
+      taskType: 'ACME_CERTIFICATE_ISSUE',
+      category: 'SYSTEM',
+    }))).toBe(true)
+    expect(isQuickTask(task({
       taskType: 'ACME_CERTIFICATE_RENEWAL',
       category: 'SYSTEM',
     }))).toBe(true)

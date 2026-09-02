@@ -36,6 +36,10 @@ const MONITORING_TASK_TYPES: ReadonlySet<string> = new Set([
   'MONITORING_PROBE',
 ])
 const SYSTEM_TASK_TYPES: ReadonlySet<string> = new Set([
+  'CERTIFICATE_ISSUE',
+  'ACME_CERTIFICATE_ISSUE',
+  'ACME_CERTIFICATE_RENEWAL',
+  'APPLICATION_CERTIFICATE_DEPLOY',
   'CERTIFICATE_REVOCATION',
   'CRL_PUBLISH',
   'TRUST_DISTRIBUTION',
@@ -914,12 +918,102 @@ function taskStatusLabel(task: TaskRun): string {
 }
 
 function taskTypeLabel(task: TaskRun): string {
+  if (['CERTIFICATE_ISSUE', 'ACME_CERTIFICATE_ISSUE'].includes(task.taskType) && isDedicatedCertificateTask(task)) {
+    return t('tasks.typeLabels.applicationCertificate')
+  }
+  if (task.taskType === 'APPLICATION_CERTIFICATE_DEPLOY') {
+    return t('tasks.typeLabels.applicationCertificate')
+  }
   const key = `tasks.typeLabels.${task.taskType}`
   const label = t(key)
   return label === key ? t('tasks.typeLabels.OTHER') : label
 }
 
+function dedicatedTaskActionLabel(task: TaskRun): string {
+  if (task.taskType === 'APPLICATION_CERTIFICATE_DEPLOY') return t('tasks.typeLabels.APPLICATION_CERTIFICATE_DEPLOY')
+  if (['CERTIFICATE_ISSUE', 'ACME_CERTIFICATE_ISSUE'].includes(task.taskType)) return t('tasks.typeLabels.applicationCertificateIssue')
+  return taskTypeLabel(task)
+}
+
+function isDedicatedCertificateTask(task: TaskRun | null | undefined): boolean {
+  if (!task) return false
+  if (task.taskType === 'APPLICATION_CERTIFICATE_DEPLOY') return true
+  if (!['CERTIFICATE_ISSUE', 'ACME_CERTIFICATE_ISSUE'].includes(task.taskType)) return false
+  return Boolean(
+    firstNonEmptyString(
+      stringFromRecord(task.payload, 'applicationAssetId'),
+      stringFromRecord(task.resourceSummary, 'applicationAssetId'),
+      stringFromRecord(task.payload, 'policyVersionId'),
+      stringFromRecord(task.resourceSummary, 'policyVersionId'),
+    ),
+  )
+}
+
+function dedicatedTaskDescription(task: TaskRun): string {
+  return t(task.taskType === 'APPLICATION_CERTIFICATE_DEPLOY'
+    ? 'tasks.dedicated.description.deploy'
+    : 'tasks.dedicated.description.issue')
+}
+
+function dedicatedTaskValue(task: TaskRun, keys: readonly string[]): string {
+  return firstNonEmptyString(
+    ...keys.flatMap((key) => [
+      stringFromRecord(task.resourceSummary, key),
+      stringFromRecord(task.payload, key),
+      stringFromRecord(task.progress, key),
+    ]),
+  ) ?? t('common.notAvailable')
+}
+
+function dedicatedApplicationLabel(task: TaskRun): string {
+  const displayName = firstNonEmptyString(
+    stringFromRecord(task.resourceSummary, 'applicationDisplayName'),
+    stringFromRecord(task.payload, 'applicationDisplayName'),
+    stringFromRecord(task.resourceSummary, 'applicationName'),
+    stringFromRecord(task.payload, 'applicationName'),
+  )
+  const domain = firstNonEmptyString(
+    stringFromRecord(task.resourceSummary, 'applicationDomain'),
+    stringFromRecord(task.payload, 'applicationDomain'),
+    stringFromRecord(task.resourceSummary, 'primaryDomain'),
+    stringFromRecord(task.payload, 'primaryDomain'),
+  )
+  if (displayName && domain && displayName !== domain) return `${displayName} · ${domain}`
+  if (displayName || domain) return displayName ?? domain!
+  const legacyDisplayName = firstNonEmptyString(stringFromRecord(task.resourceSummary, 'displayName'))
+  return legacyDisplayName && !/^(cert(asset|ificate)?|certreq|acp|acpv)[_-]/i.test(legacyDisplayName)
+    ? legacyDisplayName
+    : t('common.notAvailable')
+}
+
+function dedicatedRequestName(task: TaskRun): string {
+  return dedicatedTaskValue(task, ['certificateRequestName', 'certificateRequestDisplayName'])
+}
+
+function dedicatedTaskTitle(task: TaskRun): string {
+  const action = dedicatedTaskActionLabel(task)
+  const values = [dedicatedRequestName(task), dedicatedApplicationLabel(task)]
+    .filter((value) => value !== t('common.notAvailable'))
+  return values.length > 0 ? `${action} · ${values.join(' · ')}` : action
+}
+
+function dedicatedEventLabel(event: Record<string, unknown>): string {
+  const eventType = eventTypeOf(event).toLowerCase()
+  const key = `tasks.dedicated.events.${eventType}`
+  return te(key) ? t(key) : t('tasks.dedicated.timelineTitle')
+}
+
+function dedicatedEventTone(event: Record<string, unknown>): 'success' | 'warning' | 'danger' | 'info' | 'muted' {
+  const eventType = eventTypeOf(event)
+  if (eventType === 'SUCCEEDED') return 'success'
+  if (['FAILED', 'CANCELLED'].includes(eventType)) return 'danger'
+  if (eventType === 'RETRY_SCHEDULED') return 'warning'
+  if (['CLAIMED', 'STARTED', 'PROGRESS', 'WAITING_RESULT', 'CANCEL_REQUESTED'].includes(eventType)) return 'info'
+  return 'muted'
+}
+
 function taskRelatedName(task: TaskRun): string {
+  if (isDedicatedCertificateTask(task)) return dedicatedApplicationLabel(task)
   const isDeploymentTask = isDeploymentExecutionTask(task)
   if (task.taskType === 'ACME_CERTIFICATE_RENEWAL') {
     const presentation = acmeRenewalTaskPresentations.value[task.id]
@@ -943,8 +1037,10 @@ function taskRelatedName(task: TaskRun): string {
 }
 
 function taskDisplayTitle(task: TaskRun): string {
+  if (isDedicatedCertificateTask(task)) return dedicatedTaskTitle(task)
   const action = taskTypeLabel(task)
   const name = taskRelatedName(task)
+  if (isDedicatedCertificateTask(task) && name === action) return action
   return `${action} · ${name === action ? task.id : name}`
 }
 
@@ -1578,10 +1674,11 @@ function recordString(record: InternalCaRecord, key: string): string {
           <GcButton @click="closeDetail">{{ t('tasks.actions.backToList') }}</GcButton>
           <div class="task-drawer__detail-header">
             <div>
-              <p v-if="detailTask?.taskType !== 'PLUGIN_REFERENCE_REFRESH'" class="task-drawer__eyebrow">{{ detailTask?.id }}</p>
-              <p v-else class="task-drawer__eyebrow">{{ t('tasks.pluginRefresh.subtitle') }}</p>
+              <p v-if="detailTask?.taskType !== 'PLUGIN_REFERENCE_REFRESH' && !isDedicatedCertificateTask(detailTask)" class="task-drawer__eyebrow">{{ detailTask?.id }}</p>
+              <p v-else-if="detailTask?.taskType === 'PLUGIN_REFERENCE_REFRESH'" class="task-drawer__eyebrow">{{ t('tasks.pluginRefresh.subtitle') }}</p>
+              <p v-else class="task-drawer__eyebrow">{{ taskTypeLabel(detailTask!) }}</p>
               <h3>{{ detailTask ? taskDisplayTitle(detailTask) : '' }}</h3>
-              <p v-if="detailTask && detailTask.taskType !== 'PLUGIN_REFERENCE_REFRESH'" class="task-drawer__eyebrow">{{ taskTypeLabel(detailTask) }}</p>
+              <p v-if="detailTask && detailTask.taskType !== 'PLUGIN_REFERENCE_REFRESH' && !isDedicatedCertificateTask(detailTask)" class="task-drawer__eyebrow">{{ taskTypeLabel(detailTask) }}</p>
             </div>
             <GcStatusTag
               :status="detailTask?.status ?? 'UNKNOWN'"
@@ -1690,7 +1787,7 @@ function recordString(record: InternalCaRecord, key: string): string {
             </details>
           </template>
           <template v-else>
-            <dl class="task-drawer__facts">
+            <dl v-if="detailTask && !isDedicatedCertificateTask(detailTask)" class="task-drawer__facts">
               <div><dt>{{ t('tasks.fields.requestedBy') }}</dt><dd>{{ detailTask?.requestedBy || t('tasks.values.system') }}</dd></div>
               <div><dt>{{ t('tasks.fields.triggerSource') }}</dt><dd>{{ detailTask ? taskTriggerSourceLabel(detailTask) : '' }}</dd></div>
               <div><dt>{{ t('tasks.fields.createdAt') }}</dt><dd>{{ localTime(detailTask?.createdAt) }}</dd></div>
@@ -1698,6 +1795,65 @@ function recordString(record: InternalCaRecord, key: string): string {
               <div><dt>{{ t('tasks.fields.finishedAt') }}</dt><dd>{{ localTime(detailTask?.finishedAt) }}</dd></div>
               <div><dt>{{ t('tasks.fields.error') }}</dt><dd>{{ detailTask?.lastErrorMessage || t('common.notAvailable') }}</dd></div>
             </dl>
+            <section v-if="detailTask && isDedicatedCertificateTask(detailTask)" class="task-drawer__dedicated-detail">
+              <div class="task-drawer__dedicated-summary">
+                <div>
+                  <span class="task-drawer__dedicated-kicker">{{ taskTypeLabel(detailTask) }}</span>
+                  <h4>{{ taskRelatedName(detailTask) }}</h4>
+                  <p>{{ dedicatedTaskDescription(detailTask) }}</p>
+                </div>
+                <GcStatusTag :status="detailTask.status" :label="taskStatusLabel(detailTask)" :tone="taskStatusTone(detailTask)" />
+              </div>
+              <dl class="task-drawer__dedicated-facts">
+                <div><dt>{{ t('tasks.dedicated.fields.target') }}</dt><dd>{{ taskRelatedName(detailTask) }}</dd></div>
+                <div><dt>{{ t('tasks.dedicated.fields.certificateAsset') }}</dt><dd>{{ dedicatedTaskValue(detailTask, ['certificateAssetId']) }}</dd></div>
+                <div><dt>{{ t('tasks.dedicated.fields.certificateRequest') }}</dt><dd>{{ dedicatedRequestName(detailTask) }}</dd></div>
+                <div><dt>{{ t('tasks.dedicated.fields.policyVersion') }}</dt><dd>{{ dedicatedTaskValue(detailTask, ['policyVersionId', 'applicationCertificatePolicyVersionId']) }}</dd></div>
+                <div><dt>{{ t('tasks.fields.requestedBy') }}</dt><dd>{{ detailTask.requestedBy || t('tasks.values.system') }}</dd></div>
+                <div><dt>{{ t('tasks.fields.createdAt') }}</dt><dd>{{ localTime(detailTask.createdAt) }}</dd></div>
+                <div><dt>{{ t('tasks.fields.startedAt') }}</dt><dd>{{ localTime(detailTask.startedAt) }}</dd></div>
+                <div><dt>{{ t('tasks.fields.finishedAt') }}</dt><dd>{{ localTime(detailTask.finishedAt) }}</dd></div>
+              </dl>
+              <div v-if="detailTask.lastErrorMessage" class="task-drawer__dedicated-error">
+                <strong>{{ t('tasks.dedicated.failureTitle') }}</strong>
+                <p>{{ detailTask.lastErrorMessage }}</p>
+              </div>
+              <div class="task-drawer__section-heading">
+                <h4>{{ t('tasks.dedicated.timelineTitle') }}</h4>
+                <span>{{ visibleDetailEvents.length }}</span>
+              </div>
+              <ol v-if="visibleDetailEvents.length > 0" class="task-drawer__dedicated-timeline">
+                <li v-for="event in visibleDetailEvents" :key="String(event.id)" :data-tone="dedicatedEventTone(event)">
+                  <span class="task-drawer__dedicated-timeline-dot" aria-hidden="true" />
+                  <div>
+                    <strong>{{ dedicatedEventLabel(event) }}</strong>
+                    <time>{{ localTime(recordValue(event, 'createdAt')) }}</time>
+                  </div>
+                </li>
+              </ol>
+              <GcEmptyState v-else class="task-drawer__empty task-drawer__empty--section" :title="t('tasks.dedicated.emptyTimeline')" />
+              <div v-if="detail.childTasks.length > 0" class="task-drawer__dedicated-children">
+                <div class="task-drawer__section-heading">
+                  <h4>{{ t('tasks.dedicated.childrenTitle') }}</h4>
+                  <span>{{ detail.childTasks.length }}</span>
+                </div>
+                <div v-for="child in detail.childTasks" :key="child.id" class="task-drawer__dedicated-child">
+                  <div>
+                    <strong>{{ isDedicatedCertificateTask(child) ? dedicatedTaskActionLabel(child) : taskTypeLabel(child) }}</strong>
+                    <span>{{ taskRelatedName(child) }}</span>
+                  </div>
+                  <GcStatusTag :status="child.status" :label="taskStatusLabel(child)" :tone="taskStatusTone(child)" />
+                </div>
+              </div>
+              <details class="task-drawer__technical-details">
+                <summary>{{ t('tasks.dedicated.technicalDetails') }}</summary>
+                <dl class="task-drawer__facts task-drawer__facts--technical">
+                  <div><dt>{{ t('tasks.filters.taskId') }}</dt><dd>{{ detailTask.id }}</dd></div>
+                  <div><dt>{{ t('tasks.fields.triggerSource') }}</dt><dd>{{ detailTask.triggerSource }}</dd></div>
+                </dl>
+                <pre class="task-drawer__json">{{ JSON.stringify(detail.events, null, 2) || t('tasks.values.empty') }}</pre>
+              </details>
+            </section>
             <section v-if="detailTask?.taskType === 'AGENT_UPDATE'" class="task-drawer__section task-drawer__agent-update">
               <div class="task-drawer__section-heading">
                 <h4>{{ t('tasks.agentUpdate.title') }}</h4>
@@ -1753,7 +1909,7 @@ function recordString(record: InternalCaRecord, key: string): string {
                 </li>
               </ol>
             </section>
-            <section v-else-if="detailTask?.taskType !== 'AGENT_UPDATE' && detailTask?.taskType !== 'AUTOMATION_RUN'" class="task-drawer__section">
+            <section v-else-if="detailTask?.taskType !== 'AGENT_UPDATE' && detailTask?.taskType !== 'AUTOMATION_RUN' && !isDedicatedCertificateTask(detailTask)" class="task-drawer__section">
               <h4>{{ t('tasks.sections.timeline') }}</h4>
               <ol class="task-drawer__timeline">
                 <li v-for="event in visibleDetailEvents" :key="String(event.id)">
@@ -1869,7 +2025,7 @@ function recordString(record: InternalCaRecord, key: string): string {
                 </section>
               </details>
             </section>
-            <section v-if="detailTask?.taskType !== 'ACME_CERTIFICATE_RENEWAL' && detailTask?.taskType !== 'AUTOMATION_RUN'" class="task-drawer__section">
+            <section v-if="detailTask?.taskType !== 'ACME_CERTIFICATE_RENEWAL' && detailTask?.taskType !== 'AUTOMATION_RUN' && !isDedicatedCertificateTask(detailTask)" class="task-drawer__section">
               <h4>{{ t('tasks.sections.attempts') }}</h4>
               <div v-for="attempt in detail.attempts" :key="String(attempt.id)" class="task-drawer__record">
                 <strong>#{{ recordValue(attempt, 'attemptNo') }} · {{ recordValue(attempt, 'status') }}</strong>
@@ -1878,25 +2034,25 @@ function recordString(record: InternalCaRecord, key: string): string {
                 <p v-if="attempt.errorSummary">{{ attempt.errorSummary }}</p>
               </div>
             </section>
-            <section v-if="detailTask?.category !== 'MONITORING' && detailTask?.taskType !== 'AUTOMATION_RUN'" class="task-drawer__section">
+            <section v-if="detailTask?.category !== 'MONITORING' && detailTask?.taskType !== 'AUTOMATION_RUN' && !isDedicatedCertificateTask(detailTask)" class="task-drawer__section">
               <h4>{{ t('tasks.sections.logs') }}</h4>
               <details class="task-drawer__raw-logs">
                 <summary>{{ t('tasks.actions.viewRawLogs') }}</summary>
                 <pre class="task-drawer__json">{{ JSON.stringify(detail.events, null, 2) || t('tasks.values.empty') }}</pre>
               </details>
             </section>
-            <section v-if="detailTask?.taskType !== 'AUTOMATION_RUN'" class="task-drawer__section">
+            <section v-if="detailTask?.taskType !== 'AUTOMATION_RUN' && !isDedicatedCertificateTask(detailTask)" class="task-drawer__section">
               <h4>{{ t('tasks.sections.children') }}</h4>
               <GcEmptyState v-if="detail.childTasks.length === 0" class="task-drawer__empty task-drawer__empty--section" :title="t('tasks.values.empty')" />
               <div v-for="child in detail.childTasks" :key="child.id" class="task-drawer__record">
-                <strong>{{ child.taskType }}</strong><span>{{ child.id }}</span><GcStatusTag :status="child.status" :label="taskStatusLabel(child)" :tone="statusTone(child.status)" />
+                <strong>{{ taskTypeLabel(child) }}</strong><span>{{ taskRelatedName(child) }}</span><GcStatusTag :status="child.status" :label="taskStatusLabel(child)" :tone="statusTone(child.status)" />
               </div>
             </section>
-            <section v-if="detailTask?.taskType !== 'AUTOMATION_RUN'" class="task-drawer__section">
+            <section v-if="detailTask?.taskType !== 'AUTOMATION_RUN' && !isDedicatedCertificateTask(detailTask)" class="task-drawer__section">
               <h4>{{ t('tasks.sections.errors') }}</h4>
               <p>{{ detailTask?.lastErrorCode || t('tasks.values.none') }} · {{ detailTask?.lastErrorMessage || t('tasks.values.none') }}</p>
             </section>
-            <section v-if="detailTask?.taskType !== 'AUTOMATION_RUN'" class="task-drawer__section">
+            <section v-if="detailTask?.taskType !== 'AUTOMATION_RUN' && !isDedicatedCertificateTask(detailTask)" class="task-drawer__section">
               <h4>{{ t('tasks.sections.audit') }}</h4>
               <pre class="task-drawer__json">{{ JSON.stringify(detail.auditEvents, null, 2) || t('tasks.values.empty') }}</pre>
             </section>
@@ -1924,7 +2080,7 @@ function recordString(record: InternalCaRecord, key: string): string {
                 </header>
                 <GcEmptyState v-if="quickActiveTasks.length === 0" class="task-drawer__empty task-drawer__empty--section" :title="t('tasks.values.empty')" />
                 <div v-else class="task-drawer__items">
-                  <div v-for="task in quickActiveTasks" :key="task.id" class="task-drawer__item">
+                  <div v-for="task in quickActiveTasks" :key="task.id" class="task-drawer__item" :class="{ 'task-drawer__item--dedicated-certificate': isDedicatedCertificateTask(task) }">
                     <GcButton class="task-drawer__item-open" @click="openTask(task)">
                       <span class="task-drawer__item-main">
                         <span class="task-drawer__item-header">
@@ -1978,7 +2134,7 @@ function recordString(record: InternalCaRecord, key: string): string {
                 </header>
                 <GcEmptyState v-if="quickRecentCompleted.length === 0" class="task-drawer__empty task-drawer__empty--section" :title="t('tasks.values.empty')" />
                 <div v-else class="task-drawer__items">
-                  <div v-for="task in quickRecentCompleted" :key="task.id" class="task-drawer__item">
+                  <div v-for="task in quickRecentCompleted" :key="task.id" class="task-drawer__item" :class="{ 'task-drawer__item--dedicated-certificate': isDedicatedCertificateTask(task) }">
                     <GcButton class="task-drawer__item-open" @click="openTask(task)">
                       <span class="task-drawer__item-main">
                         <span class="task-drawer__item-header">
@@ -2042,7 +2198,7 @@ function recordString(record: InternalCaRecord, key: string): string {
         <div v-if="allTasksLoading && allTasks.length === 0" class="task-drawer__loading">{{ t('common.loading') }}</div>
         <GcEmptyState v-else-if="allTasks.length === 0" class="task-drawer__empty task-drawer__empty--section" :title="t('tasks.values.empty')" />
         <div v-else class="task-drawer__items">
-          <div v-for="task in allTasks" :key="task.id" class="task-drawer__item">
+          <div v-for="task in allTasks" :key="task.id" class="task-drawer__item" :class="{ 'task-drawer__item--dedicated-certificate': isDedicatedCertificateTask(task) }">
             <GcButton class="task-drawer__item-open" @click="openTask(task)">
               <span class="task-drawer__item-main">
                 <span class="task-drawer__item-header">
@@ -2416,6 +2572,11 @@ function recordString(record: InternalCaRecord, key: string): string {
   background: var(--gc-color-surface-field);
 }
 
+.task-drawer__item--dedicated-certificate {
+  border-color: var(--gc-color-info-border);
+  background: var(--gc-color-info-soft);
+}
+
 .task-drawer__item-open {
   grid-column: 1;
   display: flex;
@@ -2536,6 +2697,11 @@ function recordString(record: InternalCaRecord, key: string): string {
   font-size: var(--gc-font-size-caption);
   line-height: var(--gc-line-height-tight);
   white-space: nowrap;
+}
+
+.task-drawer__item--dedicated-certificate .task-drawer__item-type {
+  color: var(--gc-color-info);
+  background: var(--gc-color-info-bg);
 }
 
 .task-drawer__item-title {
@@ -2899,6 +3065,189 @@ function recordString(record: InternalCaRecord, key: string): string {
   font-size: var(--gc-font-size-sm);
 }
 
+.task-drawer__dedicated-detail {
+  display: grid;
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-info-border);
+  border-radius: var(--gc-radius-md);
+  background: var(--gc-color-info-soft);
+}
+
+.task-drawer__dedicated-summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+}
+
+.task-drawer__dedicated-summary > div {
+  min-width: 0;
+}
+
+.task-drawer__dedicated-kicker {
+  color: var(--gc-color-info);
+  font-size: var(--gc-font-size-xs);
+  font-weight: var(--gc-font-weight-semibold);
+}
+
+.task-drawer__dedicated-summary h4 {
+  margin: var(--gc-space-1) 0 0;
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-lg);
+  overflow-wrap: anywhere;
+}
+
+.task-drawer__dedicated-summary p,
+.task-drawer__dedicated-error p {
+  margin: var(--gc-space-1) 0 0;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+  line-height: var(--gc-line-height-relaxed);
+}
+
+.task-drawer__dedicated-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gc-space-2);
+  margin: 0;
+}
+
+.task-drawer__dedicated-facts > div {
+  min-width: 0;
+  padding: var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-info-border);
+  border-radius: var(--gc-radius-sm);
+  background: var(--gc-color-surface-panel);
+}
+
+.task-drawer__dedicated-facts dt,
+.task-drawer__dedicated-facts dd {
+  margin: 0;
+}
+
+.task-drawer__dedicated-facts dt {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
+.task-drawer__dedicated-facts dd {
+  margin-top: var(--gc-space-1);
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.task-drawer__dedicated-error {
+  padding: var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-danger-border);
+  border-radius: var(--gc-radius-sm);
+  background: var(--gc-color-danger-bg);
+}
+
+.task-drawer__dedicated-error strong {
+  color: var(--gc-color-danger);
+  font-size: var(--gc-font-size-sm);
+}
+
+.task-drawer__dedicated-error p {
+  color: var(--gc-color-text);
+}
+
+.task-drawer__dedicated-timeline {
+  position: relative;
+  display: grid;
+  gap: var(--gc-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-drawer__dedicated-timeline::before {
+  position: absolute;
+  inset-block: var(--gc-space-2);
+  inset-inline-start: calc(var(--gc-space-2) - var(--gc-space-hairline));
+  width: var(--gc-border-width-default);
+  background: var(--gc-color-info-border);
+  content: '';
+}
+
+.task-drawer__dedicated-timeline li {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--gc-space-3);
+  min-width: 0;
+  padding: var(--gc-space-2) var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-sm);
+  background: var(--gc-color-surface-panel);
+}
+
+.task-drawer__dedicated-timeline-dot {
+  z-index: 1;
+  flex: 0 0 var(--gc-space-2);
+  width: var(--gc-space-2);
+  height: var(--gc-space-2);
+  margin-top: var(--gc-space-1);
+  border-radius: var(--gc-radius-full);
+  background: var(--gc-color-muted);
+  box-shadow: 0 0 0 var(--gc-space-1) var(--gc-color-surface-panel);
+}
+
+.task-drawer__dedicated-timeline li[data-tone='success'] .task-drawer__dedicated-timeline-dot { background: var(--gc-color-success); }
+.task-drawer__dedicated-timeline li[data-tone='warning'] .task-drawer__dedicated-timeline-dot { background: var(--gc-color-warning); }
+.task-drawer__dedicated-timeline li[data-tone='danger'] .task-drawer__dedicated-timeline-dot { background: var(--gc-color-danger); }
+.task-drawer__dedicated-timeline li[data-tone='info'] .task-drawer__dedicated-timeline-dot { background: var(--gc-color-info); }
+
+.task-drawer__dedicated-timeline li > div {
+  display: grid;
+  min-width: 0;
+  gap: var(--gc-space-tight);
+}
+
+.task-drawer__dedicated-timeline strong {
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-sm);
+}
+
+.task-drawer__dedicated-timeline time {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
+.task-drawer__dedicated-children {
+  display: grid;
+  gap: var(--gc-space-2);
+}
+
+.task-drawer__dedicated-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-sm);
+  background: var(--gc-color-surface-panel);
+}
+
+.task-drawer__dedicated-child > div {
+  display: grid;
+  gap: var(--gc-space-tight);
+  min-width: 0;
+}
+
+.task-drawer__dedicated-child strong,
+.task-drawer__dedicated-child span {
+  overflow-wrap: anywhere;
+}
+
+.task-drawer__dedicated-child span {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
 .task-drawer__section {
   display: grid;
   gap: var(--gc-space-2);
@@ -3221,6 +3570,14 @@ function recordString(record: InternalCaRecord, key: string): string {
   }
 
   .task-drawer__agent-update-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .task-drawer__dedicated-summary {
+    flex-direction: column;
+  }
+
+  .task-drawer__dedicated-facts {
     grid-template-columns: minmax(0, 1fr);
   }
 

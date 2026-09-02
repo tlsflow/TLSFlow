@@ -494,6 +494,12 @@ export default {
       timeline: { created: "已提交審批", createdDescription: "任務已建立，等待審批人處理。", approved: "審批已核准", approvedDescription: "審批人已允許繼續執行。", rejected: "審批已拒絕", rejectedDescription: "審批人已拒絕本次操作。", forceEnded: "任務已強制結束", forceEndedDescription: "操作員已強制結束此任務。", pending: "審批處理中", pendingDescription: "系統正在等待審批結果。" }
     },
     relatedNames: { pluginCatalog: "外掛目錄", deploymentPlan: "部署計畫", acmeRenewal: "ACME Provider（{provider}）— {certificate} 憑證續期" },
+    dedicated: {
+      description: { issue: "正在為此應用程式簽發專屬憑證。", deploy: "正在將專屬憑證部署至此應用程式。" },
+      fields: { target: "目標應用程式", certificateAsset: "憑證資產", certificateRequest: "憑證申請名稱", policyVersion: "原則版本" },
+      timelineTitle: "處理進度", childrenTitle: "後續步驟", emptyTimeline: "暫無進度記錄", technicalDetails: "檢視技術詳細資料", failureTitle: "處理未完成",
+      events: { created: "工作已建立", claimed: "工作已接收", started: "開始處理", progress: "進度已更新", retry_scheduled: "已安排重試", waiting_result: "等待簽發結果", awaiting_confirmation: "等待結果確認", cancel_requested: "已要求取消", succeeded: "處理成功", failed: "處理失敗", cancelled: "工作已取消" }
+    },
     acmeHistory: {
       queued: { title: "等待續期", description: "系統正在等待處理此憑證續期。" },
       running: { title: "正在續期", description: "系統正在向憑證機構請求續期。" },
@@ -505,6 +511,11 @@ export default {
     typeLabels: {
       CERTIFICATE_DRY_RUN: "證書Dry-run",
       CERTIFICATE_DEPLOY: "證書部署",
+      APPLICATION_CERTIFICATE_DEPLOY: "專屬證書部署",
+      applicationCertificate: "專屬證書",
+      applicationCertificateIssue: "專屬證書簽發",
+      CERTIFICATE_ISSUE: "證書簽發",
+      ACME_CERTIFICATE_ISSUE: "ACME證書簽發",
       DEPLOYMENT_APPROVAL: "部署審批",
       CERTIFICATE_VERIFY: "證書驗證",
       CERTIFICATE_ROLLBACK: "證書回滾",

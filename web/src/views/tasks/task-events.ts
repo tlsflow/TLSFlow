@@ -60,6 +60,8 @@ const DEPLOYMENT_EXECUTION_TASK_TYPES = new Set([
   'CERTIFICATE_ROLLBACK',
 ])
 const VISIBLE_SYSTEM_TASK_TYPES = new Set([
+  'CERTIFICATE_ISSUE',
+  'ACME_CERTIFICATE_ISSUE',
   'ACME_CERTIFICATE_RENEWAL',
 ])
 const realtimeListeners = new Set<(message: TaskRealtimeMessage) => void>()

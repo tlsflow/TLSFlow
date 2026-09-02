@@ -495,6 +495,12 @@ export default {
       timeline: { created: 'Aprovação enviada', createdDescription: 'A tarefa foi criada e aguarda o aprovador.', approved: 'Aprovação concedida', approvedDescription: 'O aprovador permitiu a continuidade da operação.', rejected: 'Aprovação rejeitada', rejectedDescription: 'O aprovador rejeitou esta operação.', forceEnded: 'Tarefa encerrada à força', forceEndedDescription: 'Um operador encerrou esta tarefa à força.', pending: 'Aprovação em andamento', pendingDescription: 'O sistema aguarda o resultado da aprovação.' }
     },
     relatedNames: { pluginCatalog: 'Catálogo de plugins', deploymentPlan: 'Plano de implantação', acmeRenewal: 'Provedor ACME ({provider}) - renovação do certificado {certificate}' },
+    dedicated: {
+      description: { issue: 'O certificado dedicado está sendo emitido para este aplicativo.', deploy: 'O certificado dedicado está sendo implantado neste aplicativo.' },
+      fields: { target: 'Aplicativo de destino', certificateAsset: 'Ativo do certificado', certificateRequest: 'Nome da solicitação de certificado', policyVersion: 'Versão da política' },
+      timelineTitle: 'Andamento', childrenTitle: 'Próximas etapas', emptyTimeline: 'Nenhum registro de andamento', technicalDetails: 'Ver detalhes técnicos', failureTitle: 'Processamento incompleto',
+      events: { created: 'Tarefa criada', claimed: 'Tarefa recebida', started: 'Processamento iniciado', progress: 'Andamento atualizado', retry_scheduled: 'Nova tentativa agendada', waiting_result: 'Aguardando resultado da emissão', awaiting_confirmation: 'Aguardando confirmação do resultado', cancel_requested: 'Cancelamento solicitado', succeeded: 'Processamento concluído', failed: 'Falha no processamento', cancelled: 'Tarefa cancelada' }
+    },
     acmeHistory: {
       queued: { title: 'Aguardando renovação', description: 'O sistema está aguardando para processar esta renovação de certificado.' },
       running: { title: 'Renovando certificado', description: 'O sistema está solicitando a renovação à autoridade certificadora.' },
@@ -506,6 +512,11 @@ export default {
     typeLabels: {
       CERTIFICATE_DRY_RUN: 'Dry-run do certificado',
       CERTIFICATE_DEPLOY: 'Implantação do certificado',
+      APPLICATION_CERTIFICATE_DEPLOY: 'Implantação de certificado dedicado',
+      applicationCertificate: 'Certificado dedicado',
+      applicationCertificateIssue: 'Emissão de certificado dedicado',
+      CERTIFICATE_ISSUE: 'Emissão de certificado',
+      ACME_CERTIFICATE_ISSUE: 'Emissão de certificado ACME',
       DEPLOYMENT_APPROVAL: 'Aprovação da implantação',
       CERTIFICATE_VERIFY: 'Verificação do certificado',
       CERTIFICATE_ROLLBACK: 'Rollback do certificado',

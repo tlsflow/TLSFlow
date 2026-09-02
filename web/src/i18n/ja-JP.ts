@@ -495,6 +495,12 @@ export default {
       timeline: { created: '承認を申請', createdDescription: 'タスクが作成され、承認者の処理を待っています。', approved: '承認済み', approvedDescription: '承認者が操作の続行を許可しました。', rejected: '承認を拒否', rejectedDescription: '承認者がこの操作を拒否しました。', forceEnded: 'タスクを強制終了', forceEndedDescription: 'オペレーターがこのタスクを強制終了しました。', pending: '承認処理中', pendingDescription: 'システムが承認結果を待っています。' }
     },
     relatedNames: { pluginCatalog: 'プラグインカタログ', deploymentPlan: '配備計画', acmeRenewal: 'ACME Provider（{provider}）- {certificate} 証明書更新' },
+    dedicated: {
+      description: { issue: 'このアプリケーションの専用証明書を発行しています。', deploy: '専用証明書をこのアプリケーションに配備しています。' },
+      fields: { target: '対象アプリケーション', certificateAsset: '証明書アセット', certificateRequest: '証明書申請名', policyVersion: 'ポリシーバージョン' },
+      timelineTitle: '処理状況', childrenTitle: '次のステップ', emptyTimeline: '処理履歴はありません', technicalDetails: '技術詳細を表示', failureTitle: '処理未完了',
+      events: { created: 'タスクを作成', claimed: 'タスクを取得', started: '処理を開始', progress: '進捗を更新', retry_scheduled: '再試行を予約', waiting_result: '発行結果を待機中', awaiting_confirmation: '結果確認を待機中', cancel_requested: 'キャンセルを要求', succeeded: '処理成功', failed: '処理失敗', cancelled: 'タスクをキャンセル' }
+    },
     acmeHistory: {
       queued: { title: '更新待ち', description: 'システムはこの証明書更新の処理を待機しています。' },
       running: { title: '更新中', description: 'システムは認証局に更新を要求しています。' },
@@ -506,6 +512,11 @@ export default {
     typeLabels: {
       CERTIFICATE_DRY_RUN: '証明書Dry-run',
       CERTIFICATE_DEPLOY: '証明書配備',
+      APPLICATION_CERTIFICATE_DEPLOY: '専用証明書の配備',
+      applicationCertificate: '専用証明書',
+      applicationCertificateIssue: '専用証明書の発行',
+      CERTIFICATE_ISSUE: '証明書発行',
+      ACME_CERTIFICATE_ISSUE: 'ACME証明書発行',
       DEPLOYMENT_APPROVAL: '配備承認',
       CERTIFICATE_VERIFY: '証明書検証',
       CERTIFICATE_ROLLBACK: '証明書ロールバック',
