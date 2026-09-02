@@ -11,6 +11,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/hex"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"math/big"
@@ -365,6 +366,13 @@ func resolveLinuxKeyStorePassword(input map[string]any) (string, error) {
 	if err != nil {
 		return "", errors.New("Tomcat 配置不可读，无法取得 KeyStore 密码")
 	}
+	// server.xml 可能同时配置多个 HTTPS Connector。必须先按目标 KeyStore
+	// 路径定位所属 Connector，不能把其他站点的第一个密码误当成当前密码。
+	if targetPath := v2StringValue(input, "path"); targetPath != "" {
+		if password := linuxTomcatKeyStorePasswordForPath(configPath, content, targetPath); password != "" {
+			return password, nil
+		}
+	}
 	passwords := webKeystorePasswords(string(content))
 	if len(passwords) == 0 {
 		return "", errors.New("Tomcat 配置未声明 KeyStore 密码")
@@ -372,21 +380,52 @@ func resolveLinuxKeyStorePassword(input map[string]any) (string, error) {
 	return passwords[0], nil
 }
 
-// validateLinuxCurrentKeyStore 确认目标 Tomcat 当前 KeyStore 与本次使用的密码、Alias
-// 一致。只有现有容器也能用同一密码打开，后续替换才不会把应用配置留在旧密码上。
-func validateLinuxCurrentKeyStore(path, keystoreType, password, alias string) error {
+func linuxTomcatKeyStorePasswordForPath(configPath string, content []byte, targetPath string) string {
+	target := filepath.Clean(targetPath)
+	// 相对路径可能以 catalina.base 或 server.xml 所在目录为基准；两者都尝试，
+	// 但仍只接受最终解析后与目标路径完全相同的 Connector。
+	roots := []string{filepath.Dir(filepath.Dir(configPath)), filepath.Dir(configPath)}
+	for _, root := range roots {
+		_, sites, _ := parseLinuxTomcatServerXML(configPath, root, content)
+		for _, site := range sites {
+			metadata, _ := site["metadata"].(map[string]any)
+			listeners, _ := metadata["listeners"].([]map[string]any)
+			for _, listener := range listeners {
+				keystorePath := v2StringValue(listener, "keystorePath")
+				if keystorePath == "" || filepath.Clean(keystorePath) != target {
+					continue
+				}
+				passwords, _ := listener["keystorePasswords"].([]string)
+				if len(passwords) > 0 {
+					return passwords[0]
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// validateLinuxCurrentKeyStore 确认目标 Tomcat 当前 KeyStore 能用本次密码打开。
+// 当前容器的 Alias 可能来自历史部署，目标 Alias 只约束待写入制品，不能让
+// 历史 Alias 变化误报为密码或格式错误；解析器仍会拒绝多私钥或证书不匹配的容器。
+func validateLinuxCurrentKeyStore(path, keystoreType, password, _ string) error {
 	current, err := os.ReadFile(path)
 	if err != nil {
 		return errors.New("目标 Tomcat 当前 KeyStore 不可读，无法确认密码")
 	}
+	if strings.EqualFold(strings.TrimSpace(keystoreType), "PKCS12") {
+		if block, _ := pem.Decode(current); block != nil {
+			return fmt.Errorf("目标 Tomcat 当前 KeyStore 密码或格式校验失败：目标路径 %s 的文件是 PEM（类型 %s），不是 PKCS12 二进制", filepath.Clean(path), block.Type)
+		}
+	}
 	switch strings.ToUpper(strings.TrimSpace(keystoreType)) {
 	case "JKS":
-		if _, err := parseLinuxJKSKeyStore(current, password, alias); err != nil {
-			return errors.New("目标 Tomcat 当前 KeyStore 密码或格式校验失败")
+		if _, parseErr := parseLinuxJKSKeyStore(current, password, ""); parseErr != nil {
+			return fmt.Errorf("目标 Tomcat 当前 KeyStore 密码或格式校验失败：%w", parseErr)
 		}
 	case "PKCS12":
-		if _, err := parseLinuxPKCS12KeyStore(current, password, alias); err != nil {
-			return errors.New("目标 Tomcat 当前 KeyStore 密码或格式校验失败")
+		if _, parseErr := parseLinuxPKCS12KeyStore(current, password, ""); parseErr != nil {
+			return fmt.Errorf("目标 Tomcat 当前 KeyStore 密码或格式校验失败：%w", parseErr)
 		}
 	default:
 		return errors.New("目标 Tomcat 当前 KeyStore 类型不受支持")
@@ -468,7 +507,10 @@ func parseLinuxJKSKeyStore(content []byte, password, alias string) (linuxKeyStor
 func parseLinuxPKCS12KeyStore(content []byte, password, alias string) (linuxKeyStoreMaterialDetails, error) {
 	privateKey, leaf, chain, err := pkcs12.DecodeChain(content, password)
 	if err != nil || leaf == nil {
-		return linuxKeyStoreMaterialDetails{}, errors.New("PKCS12 解析失败：密码错误或文件损坏")
+		if err == nil {
+			err = errors.New("证书缺失")
+		}
+		return linuxKeyStoreMaterialDetails{}, fmt.Errorf("PKCS12 解析失败：密码错误或文件损坏（%w）", err)
 	}
 	privatePublicKey, err := marshalLinuxPrivatePublicKey(privateKey)
 	if err != nil {
@@ -491,13 +533,15 @@ func parseLinuxPKCS12KeyStore(content []byte, password, alias string) (linuxKeyS
 			}
 		}
 		if len(friendlyNames) > 0 {
-			if alias == "" && len(friendlyNames) == 1 {
+			if alias == "" {
 				alias = friendlyNames[0]
-			}
-			for _, name := range friendlyNames {
-				if strings.EqualFold(name, alias) {
-					aliasVerified = true
-					break
+				aliasVerified = true
+			} else {
+				for _, name := range friendlyNames {
+					if strings.EqualFold(name, alias) {
+						aliasVerified = true
+						break
+					}
 				}
 			}
 			if !aliasVerified {

@@ -601,6 +601,28 @@ test('Tomcat 多 listener 中会选择已上报证书路径，而不是注释示
   assert.equal(projected.certificateBindings[0]?.metadata?.keystorePath, '/etc/gcac-test/certs/test.p12');
 });
 
+test('Tomcat 同时上报 PEM 证书路径时仍保持 KeyStore 作为部署目标', async () => {
+  const fixture = createFixture();
+  await fixture.service.project(agent(), snapshot([{
+    capabilityKey: 'web.inventory', confidence: 0.95, value: {
+      configFiles: [{ path: '/var/lib/tomcat9/conf/server.xml', content: '<Connector port="8445" scheme="https" />' }],
+      sites: [{
+        name: 'tomcat.example.test', frameworkType: 'app.tomcat', serverNames: ['tomcat.example.test'], port: 8445, protocol: 'HTTPS',
+        metadata: { listeners: [{
+          port: 8445, protocol: 'HTTPS', sourceConfigPath: '/var/lib/tomcat9/conf/server.xml',
+          certificatePath: '/etc/gcac-test/certs/test.crt', keystorePath: '/etc/gcac-test/certs/test.p12', keystoreType: 'PKCS12',
+        }] },
+      }],
+      certificateFiles: [{ path: '/etc/gcac-test/certs/test.crt', sha256Fingerprint: 'd'.repeat(64), subject: 'CN=tomcat.example.test', issuer: 'CN=GCAC Test CA', notBefore: '2026-08-01T00:00:00Z', notAfter: '2027-08-01T00:00:00Z' }],
+    },
+  }]));
+
+  const projected = fixture.projected() as { managedTargets: Array<{ metadata?: { certificateLocation?: Record<string, unknown> } }> };
+  assert.equal(projected.managedTargets[0]?.metadata?.certificateLocation?.storageKind, 'KEYSTORE');
+  assert.equal(projected.managedTargets[0]?.metadata?.certificateLocation?.keystorePath, '/etc/gcac-test/certs/test.p12');
+  assert.equal(projected.managedTargets[0]?.metadata?.certificateLocation?.certificatePath, undefined);
+});
+
 test('权威 web.inventory 投影成功后只淘汰旧 Agent Web 插件资产', async () => {
   const fixture = createFixture();
   await fixture.service.project(agent(), snapshot([{

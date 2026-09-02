@@ -1507,7 +1507,13 @@ func executeFileReplace(ctx context.Context, operation agentPlanAction) error {
 	if err != nil || path == "" || !filepath.IsAbs(path) {
 		return errors.New("file.atomic_replace requires an absolute path and base64 content")
 	}
-	if v2StringValue(operation.Input, "storageKind") == "KEYSTORE" {
+	storageKind := strings.ToUpper(strings.TrimSpace(v2StringValue(operation.Input, "storageKind")))
+	// 旧计划可能没有 storageKind。对明确的 KeyStore 扩展名拒绝无类型直写，
+	// 防止历史 PEM 产物绕过 KEYSTORE 解析门禁覆盖 .p12/.jks 文件。
+	if storageKind == "" && isLinuxKeyStorePath(path) {
+		return errors.New("file.atomic_replace KeyStore 路径必须声明 storageKind=KEYSTORE")
+	}
+	if storageKind == "KEYSTORE" {
 		content, err = prepareLinuxKeyStoreContent(operation.Input, content)
 		if err != nil {
 			return err
@@ -1517,6 +1523,15 @@ func executeFileReplace(ctx context.Context, operation agentPlanAction) error {
 		return err
 	}
 	return agentContextError(ctx)
+}
+
+func isLinuxKeyStorePath(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".p12", ".pfx", ".jks", ".keystore":
+		return true
+	default:
+		return false
+	}
 }
 
 // atomicReplaceFile 在临时文件换入目标前保留原目标的属主和权限。

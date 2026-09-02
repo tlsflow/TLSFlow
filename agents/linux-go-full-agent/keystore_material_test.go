@@ -131,6 +131,83 @@ func TestLinuxCertificateMaterialReadsTomcatPasswordFromConfigPath(t *testing.T)
 	}
 }
 
+func TestLinuxCertificateMaterialMatchesTomcatPasswordByKeyStorePath(t *testing.T) {
+	leaf, privateKey := newLinuxKeyStoreTestCertificate(t, "tomcat.example.test")
+	current := newLinuxTestPKCS12(t, privateKey, leaf, "server", "target-password")
+	artifactLeaf, artifactKey := newLinuxKeyStoreTestCertificate(t, "tomcat-new.example.test")
+	artifact := newLinuxTestPKCS12(t, artifactKey, artifactLeaf, "server", "artifact-password")
+	targetPath := filepath.Join(t.TempDir(), "target.p12")
+	if err := os.WriteFile(targetPath, current, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(t.TempDir(), "server.xml")
+	config := `<Server><Service>` +
+		`<Connector port="8443" SSLEnabled="true" keystoreFile="/etc/gcac-test/certs/other.p12" keystorePass="other-password"/>` +
+		`<Connector port="8445" SSLEnabled="true" keystoreFile="` + targetPath + `" keystorePass="target-password"/>` +
+		`</Service></Server>`
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	input := map[string]any{
+		"path": targetPath, "contentBase64": base64.StdEncoding.EncodeToString(artifact),
+		"storageKind": "KEYSTORE", "keystoreType": "PKCS12", "keyAlias": "server",
+		"configPath": configPath, "sourceKeyStorePassword": "artifact-password",
+		"verifyCurrentKeyStorePassword": true,
+	}
+	if _, err := executeCertificateMaterialValidate(context.Background(), agentPlanAction{
+		OperationID: "validate", OperationType: "certificate.material.validate", Stage: "prepare", Input: input,
+	}); err != nil {
+		t.Fatalf("多个 Connector 时必须按目标 KeyStore 路径读取密码: %v", err)
+	}
+}
+
+func TestLinuxCurrentKeyStoreIgnoresHistoricalAlias(t *testing.T) {
+	leaf, privateKey := newLinuxKeyStoreTestCertificate(t, "tomcat.example.test")
+	current := newLinuxTestPKCS12WithOpenSSL(t, privateKey, leaf, "server", "changeit")
+	targetPath := filepath.Join(t.TempDir(), "target.p12")
+	if err := os.WriteFile(targetPath, current, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateLinuxCurrentKeyStore(targetPath, "PKCS12", "changeit", "1"); err != nil {
+		t.Fatalf("当前 KeyStore 的历史 Alias 不应阻断密码校验: %v", err)
+	}
+}
+
+func TestLinuxCurrentPKCS12ReportsPemContent(t *testing.T) {
+	leaf, _ := newLinuxKeyStoreTestCertificate(t, "tomcat.example.test")
+	targetPath := filepath.Join(t.TempDir(), "target.p12")
+	if err := os.WriteFile(targetPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := validateLinuxCurrentKeyStore(targetPath, "PKCS12", "changeit", "server")
+	if err == nil || !strings.Contains(err.Error(), "文件是 PEM（类型 CERTIFICATE）") {
+		t.Fatalf("PEM 覆盖的 P12 必须给出明确格式原因: %v", err)
+	}
+}
+
+func TestLinuxAtomicReplaceRejectsUntypedPemForKeyStorePath(t *testing.T) {
+	leaf, privateKey := newLinuxKeyStoreTestCertificate(t, "tomcat.example.test")
+	current := newLinuxTestPKCS12(t, privateKey, leaf, "server", "changeit")
+	targetPath := filepath.Join(t.TempDir(), "tomcat.p12")
+	if err := os.WriteFile(targetPath, current, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pemContent := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw})
+	err := executeFileReplace(context.Background(), agentPlanAction{
+		OperationID: "replace", OperationType: "filesystem.atomic_replace",
+		Input: map[string]any{
+			"path": targetPath, "contentBase64": base64.StdEncoding.EncodeToString(pemContent),
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "storageKind=KEYSTORE") {
+		t.Fatalf("未声明 KeyStore 类型时不得把 PEM 写入 .p12: %v", err)
+	}
+	restored, readErr := os.ReadFile(targetPath)
+	if readErr != nil || !bytes.Equal(restored, current) {
+		t.Fatalf("拒绝错误材料后目标文件不得改变: readErr=%v", readErr)
+	}
+}
+
 func TestLinuxPKCS12RepackagesSourcePasswordWithTomcatAlias(t *testing.T) {
 	leaf, privateKey := newLinuxKeyStoreTestCertificate(t, "tomcat.example.test")
 	source := newLinuxTestPKCS12(t, privateKey, leaf, "server", "artifact-password")
@@ -258,10 +335,10 @@ func TestLinuxTomcatKeyStoreReplacementRollbackAndReceipt(t *testing.T) {
 	}
 	fixture.Plan.Operations = []agentPlanAction{
 		{OperationID: "backup-tomcat", OperationType: "filesystem.backup", Stage: "execute", Input: map[string]any{
-			"path": target, "ledgerRef": "execution-recovery-ledger",
+			"path": target, "ledgerRef": "execution-recovery-ledger", "storageKind": "KEYSTORE",
 		}, IdempotencyKey: "backup-tomcat", TimeoutSeconds: 30},
 		{OperationID: "replace-tomcat", OperationType: "filesystem.atomic_replace", Stage: "execute", Input: map[string]any{
-			"path": target, "contentBase64": base64.StdEncoding.EncodeToString(newStore),
+			"path": target, "contentBase64": base64.StdEncoding.EncodeToString(newStore), "storageKind": "KEYSTORE", "keystoreType": "JKS", "keystorePassword": "changeit", "keyAlias": "server",
 		}, DependsOn: []string{"backup-tomcat"}, IdempotencyKey: "replace-tomcat", TimeoutSeconds: 30},
 	}
 	digest, err := computeAgentPlanDigest(fixture.Plan)

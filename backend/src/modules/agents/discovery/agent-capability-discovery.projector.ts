@@ -504,14 +504,16 @@ function certificateForListener(
   index: Map<string, StandardDeviceDiscoveryV2['certificates'][number]>,
   listener: Record<string, unknown>,
 ): StandardDeviceDiscoveryV2['certificates'][number] | undefined {
-  const certificatePath = stringValue(listener.certificatePath);
-  if (certificatePath) {
-    const certificate = certificateReferenceFromConfig(index, certificatePath, stringValue(listener.sourceConfigPath));
-    if (certificate) return certificate;
-  }
+  // Tomcat KeyStore 监听可能同时带有 Agent 解析出的证书路径；KeyStore
+  // 才是可部署事实，优先按它关联证书，避免 PEM 元数据污染目标路径。
   const keystorePath = stringValue(listener.keystorePath);
   if (keystorePath) {
     const certificate = certificateReferenceFromConfig(index, keystorePath, stringValue(listener.sourceConfigPath));
+    if (certificate) return certificate;
+  }
+  const certificatePath = stringValue(listener.certificatePath);
+  if (certificatePath) {
+    const certificate = certificateReferenceFromConfig(index, certificatePath, stringValue(listener.sourceConfigPath));
     if (certificate) return certificate;
   }
   const thumbprint = stringValue(listener.certificateThumbprint);
@@ -571,7 +573,7 @@ function buildDeploymentTarget(
     };
   }
   if (rawKeystorePath) {
-    const keystorePath = deployablePath(actualPath, rawKeystorePath, sourceConfigPath);
+    const keystorePath = deployableKeystorePath(actualPath, rawKeystorePath, sourceConfigPath);
     if (!keystorePath || /^windows-tls:\/\//i.test(keystorePath)) return undefined;
     return {
       storageKind: 'KEYSTORE',
@@ -598,6 +600,20 @@ function deployablePath(actualPath: string | undefined, configuredPath: string, 
   const normalized = unquoteConfigPath(configuredPath);
   if (isAbsoluteConfigPath(normalized)) return normalized;
   return sourceConfigPath ? joinConfigPath(pathDir(normalizePath(sourceConfigPath)), normalized) : normalized;
+}
+
+function deployableKeystorePath(actualPath: string | undefined, configuredPath: string, sourceConfigPath?: string): string | undefined {
+  const configured = normalizePath(unquoteConfigPath(configuredPath));
+  if (!configured) return undefined;
+  if (isAbsoluteConfigPath(configured)) return configured;
+  // 只有 Agent 实际读取的文件与配置中的相对路径相符时，才使用该实际路径。
+  // 同一监听上的 PEM 证书可能是另一份元数据，不能据此改写 KeyStore 目标。
+  if (actualPath) {
+    const actual = normalizePath(actualPath);
+    const suffix = `/${configured}`;
+    if (actual === configured || actual.endsWith(suffix)) return actual;
+  }
+  return sourceConfigPath ? joinConfigPath(pathDir(normalizePath(sourceConfigPath)), configured) : configured;
 }
 
 function deployableSiblingPath(certificatePath: string, configuredCertificatePath: string, siblingPath: string, sourceConfigPath?: string): string | undefined {
