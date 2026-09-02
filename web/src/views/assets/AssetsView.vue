@@ -212,7 +212,7 @@ const config = computed<BusinessPageConfig>(() => ({
       width: '10%',
     },
     { key: 'managementAddress', title: t('assets.inventory.columns.managementAddress'), candidates: ['managementAddress'], width: '12%' },
-    { key: 'status', title: t('assets.inventory.columns.status'), candidates: ['livenessStatus', 'health', 'sourceStatus'], kind: 'status', width: '8%' },
+    { key: 'status', title: t('assets.inventory.columns.status'), candidates: ['health', 'sourceStatus'], kind: 'status', width: '8%' },
     { key: 'deviceVersion', title: t('assets.inventory.columns.version'), candidates: ['softwareVersion'], width: '12%', truncate: true },
     { key: 'controlVersion', title: t('assets.inventory.columns.controlVersion'), candidates: ['controlVersion'], width: '10%' },
     { key: 'siteCount', title: t('assets.inventory.columns.sites'), candidates: ['siteCount', 'applicationAssetCount'], kind: 'count', width: '5%' },
