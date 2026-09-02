@@ -23,7 +23,7 @@ import { compareSemanticVersions, UnifiedPluginsApplicationService } from './uni
 import type { CreateWorkflowExecutionBindingInput, WorkflowExecutionBinding } from '../../workflow-templates/dto/workflow-execution-bindings.dto.js';
 import { WorkflowExecutionBindingsRepository } from '../../workflow-templates/repository/workflow-execution-bindings.repository.js';
 import { WorkflowExecutionBindingsService } from '../../workflow-templates/application/workflow-execution-bindings.service.js';
-import { buildPluginCertificateArtifactBindings } from '../artifacts/plugin-certificate-artifact-binding.js';
+import { buildPluginCertificateArtifactBindings, mergePluginCertificateArtifactBindings } from '../artifacts/plugin-certificate-artifact-binding.js';
 import { deploymentAssetContextBuilder } from '../../deployment-inputs/application/deployment-asset-context.builder.js';
 import { DeploymentInputBindingSaveService } from '../../deployment-inputs/application/deployment-input-binding-save.service.js';
 import { DeploymentInputContractLoader } from '../../deployment-inputs/application/deployment-input-contract-loader.js';
@@ -319,11 +319,9 @@ export class ManagedTargetPluginQueryService {
       const fixedArtifactFormat = hasRequiredPkcs12Output(contract);
       const artifacts = fixedArtifactFormat && certificateFormatId
         ? buildPluginCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId)
-        : Object.keys(preparedInput.inputBindings.artifacts).length > 0
-        ? preparedInput.inputBindings.artifacts
         : certificateFormatId
-          ? buildPluginCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId)
-          : {};
+          ? mergePluginCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId, preparedInput.inputBindings.artifacts)
+          : preparedInput.inputBindings.artifacts;
       const candidates = await services.bindings.listAssignmentCandidates(input.tenantId, capabilityKey, {
         ...managedTargetOwnerRefs(context),
         managedTargetId: context.managedTarget.id,
@@ -524,11 +522,9 @@ export class ManagedTargetPluginQueryService {
     }
     const artifacts = fixedArtifactFormat && preparedCertificateFormatId
       ? buildPluginCertificateArtifactBindings(plugin, capabilityKey, preparedCertificateFormatId)
-      : Object.keys(preparedInput.inputBindings.artifacts).length > 0
-      ? preparedInput.inputBindings.artifacts
       : preparedCertificateFormatId
-        ? buildPluginCertificateArtifactBindings(plugin, capabilityKey, preparedCertificateFormatId)
-        : {};
+        ? mergePluginCertificateArtifactBindings(plugin, capabilityKey, preparedCertificateFormatId, preparedInput.inputBindings.artifacts)
+        : preparedInput.inputBindings.artifacts;
     const candidates = await services.bindings.listAssignmentCandidates(input.tenantId, capabilityKey, {
       ...managedTargetOwnerRefs(context),
       managedTargetId: context.managedTarget.id,

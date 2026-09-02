@@ -23,6 +23,39 @@ export function buildPluginCertificateArtifactBindings(
   return bindings;
 }
 
+/**
+ * 将应用资产提交的证书绑定与 Contract 推导出的宿主标准映射合并。
+ *
+ * 应用资产层是整槽覆盖，只有证书格式而没有 outputBindings 时不能遮住
+ * 必填产物输出；宿主应补齐缺失映射，同时保留用户明确配置的输出键。
+ */
+export function mergePluginCertificateArtifactBindings(
+  plugin: UnifiedPluginVersionRecord,
+  capabilityKey: string,
+  certificateFormatId: string,
+  submitted: Record<string, DeploymentArtifactBindingV1>,
+): Record<string, DeploymentArtifactBindingV1> {
+  const defaults = buildPluginCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId);
+  const merged = structuredClone(submitted);
+  for (const [artifactName, defaultBinding] of Object.entries(defaults)) {
+    const current = submitted[artifactName];
+    if (!current) {
+      merged[artifactName] = defaultBinding;
+      continue;
+    }
+    const outputBindings = { ...defaultBinding.outputBindings };
+    for (const [outputName, outputKey] of Object.entries(current.outputBindings ?? {})) {
+      if (typeof outputKey === 'string' && outputKey.trim()) outputBindings[outputName] = outputKey;
+    }
+    merged[artifactName] = {
+      ...structuredClone(current),
+      certificateFormatId,
+      outputBindings,
+    };
+  }
+  return merged;
+}
+
 function buildBinding(
   artifactName: string,
   definition: DeploymentArtifactSlotV1,

@@ -213,12 +213,37 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
   assert.equal(draftProjection.requiredVariables.find((item) => item.slot === 'allowInsecureTls')?.value, undefined);
   assert.equal(draftProjection.saveable, false);
 
+  const partialArtifactProjection = await service.projectApplicationAssetPluginInputs({
+    tenantId,
+    managedTargetId: target.id,
+    pluginVersionId: imported.id,
+    certificateFormatId: 'format-existing',
+    applicationAsset: {
+      id: 'draft',
+      address: 'vpn-test.example.com',
+      port: 443,
+      protocol: 'HTTPS',
+      displayName: 'VPN Test',
+    },
+    inputBindings: {
+      apiVersion: 'gcac.input-bindings/v1',
+      variables: { virtualServer: 'vpn-test' },
+      connections: {},
+      credentials: {},
+      artifacts: { certificate: { certificateFormatId: 'format-existing', outputBindings: {} } },
+    },
+  });
+  assert.deepEqual(partialArtifactProjection.artifacts[0]?.binding, {
+    certificateFormatId: 'format-existing',
+    outputBindings: { leafPem: 'leafPem', privateKeyPem: 'privateKeyPem' },
+  });
+
   const saved = await service.saveApplicationAssetTarget({
     tenantId,
     applicationAssetId: applicationAsset.id,
     value: {
       managedTargetId: target.id,
-      pluginOverride: { pluginVersionId: imported.id, inputBindings: { apiVersion: 'gcac.input-bindings/v1', variables: { virtualServer: 'https', allowInsecureTls: false }, credentials: {}, artifacts: {}, connections: {} } },
+      pluginOverride: { pluginVersionId: imported.id, inputBindings: { apiVersion: 'gcac.input-bindings/v1', variables: { virtualServer: 'https', allowInsecureTls: false }, credentials: {}, artifacts: { certificate: { certificateFormatId: 'format-existing', outputBindings: {} } }, connections: {} } },
     },
   });
   assert.equal(saved.target.managedTargetId, target.id);
@@ -230,6 +255,10 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
   const savedBinding = await new PluginBindingsApplicationService(new PluginBindingsRepository(db))
     .getTenantBinding(tenantId, saved.effectiveCapability!.binding.pluginBindingId);
   assert.equal(savedBinding.inputBindings.variables.allowInsecureTls, false);
+  assert.deepEqual(savedBinding.inputBindings.artifacts.certificate, {
+    certificateFormatId: 'format-existing',
+    outputBindings: { leafPem: 'leafPem', privateKeyPem: 'privateKeyPem' },
+  });
   assert.equal((await assets.getServiceAsset(tenantId, applicationAsset.id))?.deploymentStrategy?.managedTarget?.certificateFormatId, 'format-existing');
 
   const effective = await service.getEffectiveCapability({ tenantId, managedTargetId: target.id, applicationAssetId: applicationAsset.id, capabilityKey: 'certificate.deploy' });

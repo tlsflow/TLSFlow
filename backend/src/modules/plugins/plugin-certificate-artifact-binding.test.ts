@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildPluginCertificateArtifactBindings } from './artifacts/plugin-certificate-artifact-binding.js';
+import { buildPluginCertificateArtifactBindings, mergePluginCertificateArtifactBindings } from './artifacts/plugin-certificate-artifact-binding.js';
 import type { UnifiedPluginVersionRecord } from './dto/unified-plugins.dto.js';
 
 test('根据 Workflow artifactContract 生成 Citrix 证书产物绑定', () => {
@@ -88,6 +88,43 @@ test('PFX Artifact Contract 通过标准角色映射包和密码输出', () => {
     certificate: {
       certificateFormatId: 'certfmt-pfx',
       outputBindings: { bundle: 'pfxBase64', password: 'pfxPassword' },
+    },
+  });
+});
+
+test('应用资产证书绑定缺少输出时由宿主补齐标准映射', () => {
+  const plugin = {
+    id: 'plugin-version-partial',
+    runtime: 'WORKFLOW_DSL',
+    manifest: {
+      resources: { workflows: { 'certificate.deploy': 'workflows/deploy.json' } },
+    },
+    resources: {
+      'workflows/deploy.json': JSON.stringify({
+        inputContract: {
+          apiVersion: 'gcac.deployment-input/v1',
+          variables: {}, connections: {}, credentials: {},
+          artifacts: {
+            certificate: {
+              kind: 'certificate', required: true, configurationMode: 'required', lifecycle: 'pre_execution',
+              artifactContract: { outputs: {
+                leafPem: { role: 'public_certificate', required: true },
+                privateKeyPem: { role: 'private_key', required: true },
+                orderedChainPem: { role: 'certificate_chain', required: false },
+              } },
+            },
+          },
+        },
+      }),
+    },
+  } as unknown as UnifiedPluginVersionRecord;
+
+  assert.deepEqual(mergePluginCertificateArtifactBindings(plugin, 'certificate.deploy', 'format-pem', {
+    certificate: { certificateFormatId: 'stale-format', outputBindings: { leafPem: 'customLeaf' } },
+  }), {
+    certificate: {
+      certificateFormatId: 'format-pem',
+      outputBindings: { leafPem: 'customLeaf', privateKeyPem: 'privateKeyPem', orderedChainPem: 'orderedChainPem' },
     },
   });
 });
