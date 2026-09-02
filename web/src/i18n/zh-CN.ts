@@ -687,6 +687,7 @@ export default {
     certificateFormatsShort: '交付格式',
     certificateFormatsDesc: '为已保存证书定义 PFX、CER、CRT、PEM 等格式规则',
     assetCenter: '资产中心',
+    assetsShort: '资产',
     assetCenterDesc: '统一管理应用资产、设备资产和云服务资产',
     assetManagement: '应用管理',
     assets: '应用',

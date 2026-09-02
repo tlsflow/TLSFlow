@@ -669,6 +669,7 @@ export default {
     certificateFormatsShort: '제공 형식',
     certificateFormatsDesc: '저장된 인증서에 대해 PFX, CER, CRT, PEM 포맷 규칙을 정의한다',
     assetCenter: 'Asset inventory',
+    assetsShort: '자산',
     assetCenterDesc: 'Manage application, device, and cloud service assets',
     assetManagement: '애플리케이션 관리',
     assets: '애플리케이션',

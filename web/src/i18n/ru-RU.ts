@@ -669,6 +669,7 @@ export default {
     certificateFormatsShort: 'Форматы доставки',
     certificateFormatsDesc: 'Правила форматов PFX, CER, CRT, PEM и других для сохраненных сертификатов',
     assetCenter: 'Asset inventory',
+    assetsShort: 'Активы',
     assetCenterDesc: 'Manage application, device, and cloud service assets',
     assetManagement: 'Управление приложениями',
     assets: 'Приложения',

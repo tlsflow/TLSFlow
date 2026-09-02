@@ -669,6 +669,7 @@ export default {
     certificateFormatsShort: '納品形式',
     certificateFormatsDesc: '保存済み証明書に対して PFX、CER、CRT、PEM などの形式ルールを定義',
     assetCenter: 'Asset inventory',
+    assetsShort: 'アセット',
     assetCenterDesc: 'Manage application, device, and cloud service assets',
     assetManagement: 'アプリケーション管理',
     assets: 'アプリケーション',
