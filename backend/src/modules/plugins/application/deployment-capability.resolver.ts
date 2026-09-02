@@ -57,7 +57,10 @@ export class DeploymentCapabilityResolver {
         continue;
       }
       const pluginId = assignment.pluginId ?? binding.pluginId;
-      const plugin = pluginId && this.plugins.getCurrentEnabledVersion
+      // 应用资产层是用户明确选择的固定版本；设备、目标等继承层才跟随插件当前启用版本，
+      // 并由部署输入投影负责把历史 Binding 转换到当前契约。
+      const followsCurrentVersion = assignment.ownerType !== 'APPLICATION_ASSET' && assignment.ownerType !== 'SERVICE_ASSET';
+      const plugin = followsCurrentVersion && pluginId && this.plugins.getCurrentEnabledVersion
         ? await this.plugins.getCurrentEnabledVersion(input.tenantId, pluginId)
         : await this.plugins.getVersion(assignment.pluginVersionId);
       const capability = plugin.manifest.capabilities.find((item) => item.key === input.capabilityKey);

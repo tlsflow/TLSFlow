@@ -172,6 +172,59 @@ test('当前应用资产版本仍继承旧设备版本的连接和凭据层', as
   assert.equal(result.resolvedInput.credentials.credential?.credentialId, 'credential_device');
 });
 
+test('当前插件版本重放时允许设备级旧 Binding 作为继承层迁移', async () => {
+  const service = new DeploymentPlansApplicationService({
+    assets: {
+      getServiceAsset: async () => ({
+        id: 'application_asset_layered', tenantId: 'tenant_1', address: 'lb-test01.example.com', port: 443,
+        protocol: 'HTTPS', displayName: 'LB Test', status: 'ACTIVE',
+      }),
+    } as never,
+    managedTargetContextResolver: {
+      resolve: async () => ({
+        host: { id: 'host_layered', tenantId: 'tenant_1', hostname: 'lb-host', primaryIp: '10.255.0.49' },
+        managedTarget: { id: 'target_layered', tenantId: 'tenant_1', targetType: 'tls.binding', targetKey: 'lb-test01', metadata: {} },
+        availableExecutionLocations: ['CONTROL_PLANE'], frameworkType: 'lb.test',
+      }),
+    } as never,
+    pluginBindings: {
+      listAssignmentCandidates: async () => [assignment('DEVICE', 'host_layered', deviceBindingId, 'DEVICE_DEFAULT', legacyPluginVersionId)],
+      getTenantBinding: async () => binding(deviceBindingId, {
+        variables: { resourceName: 'lb-test01' }, connections: { management: { host: '10.255.0.49' } }, credentials: {}, artifacts: {},
+      }, 3, legacyPluginVersionId),
+    } as never,
+    unifiedPlugins: {
+      getVersion: async () => ({
+        id: pluginVersionId,
+        runtime: 'WORKFLOW_DSL',
+        manifest: { resources: { workflows: { 'certificate.deploy': 'workflows/deploy.json' } } },
+        resources: { 'workflows/deploy.json': JSON.stringify({ inputContract: inputContract() }) },
+      }),
+    } as never,
+  });
+
+  const replay = service as unknown as {
+    resolveTargetDeploymentInput(
+      phase: 'preflight', tenantId: string, target: Record<string, unknown>, artifact: Record<string, unknown>,
+    ): Promise<{ resolvedInput: { variables: Record<string, unknown>; executable: boolean } }>;
+  };
+  const result = await replay.resolveTargetDeploymentInput('preflight', 'tenant_1', {
+    applicationAssetId: 'application_asset_layered', managedTargetId: 'target_layered',
+    strategyPayload: {
+      pluginRuntimeCapability: {
+        pluginVersionId, pluginBindingId: deviceBindingId, pluginBindingVersion: 3,
+        capabilityKey: 'certificate.deploy', assignmentOwnerType: 'DEVICE',
+      },
+    },
+  }, {
+    certificateVersionId: 'certificate_version_layered', certificateFormatId: 'certificate_format_layered',
+    format: 'PEM', containsPrivateKey: false, files: [], warnings: [], workflowCertificateMaterials: {},
+  });
+
+  assert.equal(result.resolvedInput.executable, true);
+  assert.equal(result.resolvedInput.variables.resourceName, 'lb-test01');
+});
+
 function binding(id: string, input: Omit<InputBindingsV1, 'apiVersion'>, version: number, bindingPluginVersionId = pluginVersionId) {
   return {
     id,

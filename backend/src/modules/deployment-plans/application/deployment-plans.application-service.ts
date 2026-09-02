@@ -1344,15 +1344,6 @@ export class DeploymentPlansApplicationService {
         ownerType,
       });
     }
-    const binding = await this.pluginBindings.getTenantBinding(tenantId, pluginBindingId);
-    if (binding.pluginVersionId !== pluginVersionId) {
-      throw new AppError('VALIDATION_FAILED', '部署目标插件版本与 Binding 不一致', {
-        code: 'DEPLOYMENT_INPUT_VERSION_MISMATCH',
-        pluginBindingId,
-        pluginVersionId,
-        bindingPluginVersionId: binding.pluginVersionId,
-      });
-    }
     const applicationAssetId = target.applicationAssetId ?? target.serviceAssetId;
     const applicationAsset = applicationAssetId ? await this.assets.getServiceAsset(tenantId, applicationAssetId) : undefined;
     if (!applicationAsset) throw new AppError('RESOURCE_NOT_FOUND', '统一部署输入缺少 ApplicationAsset', { applicationAssetId });
@@ -1381,6 +1372,16 @@ export class DeploymentPlansApplicationService {
       const candidate = await this.pluginBindings.getTenantBinding(tenantId, assignment.pluginBindingId);
       if (candidate.status !== 'ACTIVE' || (candidate.pluginId && assignment.pluginId && candidate.pluginId !== assignment.pluginId)) continue;
       if (assignment.ownerType === 'APPLICATION_ASSET' && assignment.pluginId && assignment.pluginId !== plugin.pluginId) continue;
+      // 应用资产层是显式版本边界，不能把旧 Binding 当成当前版本使用；设备和受管目标层
+      // 则允许按当前插件契约投影，保持历史 Binding 不变。
+      if (assignment.ownerType === 'APPLICATION_ASSET' && candidate.pluginVersionId !== pluginVersionId) {
+        throw new AppError('VALIDATION_FAILED', '部署目标插件版本与 Binding 不一致', {
+          code: 'DEPLOYMENT_INPUT_VERSION_MISMATCH',
+          pluginBindingId,
+          pluginVersionId,
+          bindingPluginVersionId: candidate.pluginVersionId,
+        });
+      }
       const inputBindings = assignment.ownerType !== 'APPLICATION_ASSET' && assignment.pluginId && assignment.pluginId !== plugin.pluginId
         ? migrateInputBindingsToContract(contract, candidate.inputBindings)
         : candidate.inputBindings;
