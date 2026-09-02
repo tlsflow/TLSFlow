@@ -120,6 +120,8 @@
   --gc-control-height-comfortable: 44px;
   --gc-control-height-lg: 48px;
   --gc-size-card-min: 180px;
+  --gc-size-plugin-search: 195px;
+  --gc-size-plugin-status-filter: 145px;
   --gc-size-certificate-card-min: 285px;
   --gc-size-card-compact: 90px;
   --gc-size-asset-card-fact-height: 45px;

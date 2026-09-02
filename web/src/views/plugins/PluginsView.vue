@@ -20,7 +20,7 @@ import { translateDynamic } from '@/i18n/translate'
 import { PRODUCT_CATEGORIES, toCatalogPluginRecord, type PluginRecord, type ProductCategory } from './plugin-record'
 
 type SourceFilter = 'all' | PluginSource
-type ValidityFilter = 'all' | 'valid' | 'invalid'
+type ValidityFilter = 'all' | 'valid' | 'invalid' | 'enabled' | 'disabled'
 type PluginSource = 'builtin' | 'user'
 
 interface PluginChip {
@@ -60,15 +60,17 @@ const previewForm = computed(() => Object.values(pluginForms.value).find(isPlugi
 const previewPresentation = computed(() => findDevicePresentation(pluginPresentations.value))
 
 const sourceOptions = computed(() => [
-  { value: 'all' as const, label: t('plugins.filters.allSources') },
-  { value: 'builtin' as const, label: t('plugins.sources.builtin') },
-  { value: 'user' as const, label: t('plugins.sources.user') },
+  { value: 'all' as const, label: t('plugins.filters.sourceAll') },
+  { value: 'builtin' as const, label: t('plugins.filters.sourceBuiltin') },
+  { value: 'user' as const, label: t('plugins.filters.sourceUser') },
 ])
 
 const validityOptions = computed(() => [
   { value: 'all' as const, label: t('plugins.filters.allStatuses') },
   { value: 'valid' as const, label: t('plugins.statuses.valid') },
   { value: 'invalid' as const, label: t('plugins.statuses.invalid') },
+  { value: 'enabled' as const, label: t('plugins.statuses.enabled') },
+  { value: 'disabled' as const, label: t('plugins.statuses.disabled') },
 ])
 
 const categoryOptions = computed(() => [
@@ -82,6 +84,8 @@ const filteredPlugins = computed(() => {
     if (sourceFilter.value !== 'all' && plugin.source !== sourceFilter.value) return false
     if (validityFilter.value === 'valid' && !plugin.valid) return false
     if (validityFilter.value === 'invalid' && plugin.valid) return false
+    if (validityFilter.value === 'enabled' && plugin.status.toLowerCase() !== 'enabled') return false
+    if (validityFilter.value === 'disabled' && plugin.status.toLowerCase() === 'enabled') return false
     if (categoryFilter.value !== 'all' && plugin.productCategory !== categoryFilter.value) return false
     if (!normalizedKeyword) return true
     const searchable = [
@@ -518,15 +522,6 @@ function pluginStatusClass(plugin: PluginRecord): string {
     </dl>
 
     <section class="market-toolbar" :aria-label="t('plugins.aria.filters')">
-      <label class="market-search">
-        <span class="market-field-label">
-          {{ t('plugins.filters.searchLabel') }}
-        </span>
-        <span class="market-search__control">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
-          <input v-model="keyword" type="search" :placeholder="t('plugins.filters.searchPlaceholder')">
-        </span>
-      </label>
       <div class="market-filter-group">
         <button
           v-for="option in sourceOptions"
@@ -551,8 +546,13 @@ function pluginStatusClass(plugin: PluginRecord): string {
           {{ option.label }}
         </button>
       </div>
-      <label class="market-status-filter">
-        <span class="market-field-label">{{ t('plugins.filters.statusLabel') }}</span>
+      <label class="market-search" :aria-label="t('plugins.filters.searchLabel')">
+        <span class="market-search__control">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
+          <input v-model="keyword" type="search" :placeholder="t('plugins.filters.searchPlaceholder')">
+        </span>
+      </label>
+      <label class="market-status-filter" :aria-label="t('plugins.filters.statusLabel')">
         <select v-model="validityFilter" class="market-select">
           <option v-for="option in validityOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
         </select>
@@ -580,10 +580,8 @@ function pluginStatusClass(plugin: PluginRecord): string {
             size="market"
           />
           <div class="plugin-card__badges">
+            <span v-if="plugin.productCategory" class="plugin-category">{{ t(`plugins.categories.${plugin.productCategory}`) }}</span>
             <span class="plugin-source" :class="`plugin-source--${plugin.source}`">{{ t(`plugins.sources.${plugin.source}`) }}</span>
-            <span class="plugin-state" :class="pluginStatusClass(plugin)">
-              {{ pluginStatusLabel(plugin) }}
-            </span>
           </div>
         </header>
 
@@ -592,7 +590,6 @@ function pluginStatusClass(plugin: PluginRecord): string {
             <h3>{{ pluginTitle(plugin) }}</h3>
             <span class="plugin-version">{{ pluginVersion(plugin) }}</span>
           </div>
-          <span v-if="plugin.productCategory" class="plugin-category">{{ t(`plugins.categories.${plugin.productCategory}`) }}</span>
           <p>{{ pluginDescription(plugin) }}</p>
           <div v-if="compactPluginChips(plugin).length" class="plugin-card__chips">
             <span
@@ -904,7 +901,7 @@ function pluginStatusClass(plugin: PluginRecord): string {
 }
 
 .market-refresh {
-  margin-left: auto;
+  margin-left: 0;
   min-height: var(--gc-control-height-sm);
   padding-block: 0;
 }
@@ -922,8 +919,10 @@ function pluginStatusClass(plugin: PluginRecord): string {
 .market-search {
   display: flex;
   align-items: center;
-  flex: 1 1 calc(var(--gc-size-card-min) + var(--gc-space-10));
-  min-width: min(100%, var(--gc-size-card-min));
+  flex: 0 0 var(--gc-size-plugin-search);
+  width: var(--gc-size-plugin-search);
+  min-width: var(--gc-size-plugin-search);
+  margin-left: auto;
   gap: var(--gc-space-2);
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-xs);
@@ -993,7 +992,7 @@ function pluginStatusClass(plugin: PluginRecord): string {
 }
 
 .market-search input {
-  width: 100%;
+  width: var(--gc-size-plugin-search);
   padding-inline-start: calc(var(--gc-space-8) + var(--gc-space-1));
 }
 
@@ -1007,8 +1006,9 @@ function pluginStatusClass(plugin: PluginRecord): string {
 .market-status-filter {
   display: flex;
   align-items: center;
-  flex: 0 1 calc(var(--gc-size-card-min) - var(--gc-space-2));
-  min-width: calc(var(--gc-size-card-min) - var(--gc-space-2));
+  flex: 0 0 var(--gc-size-plugin-status-filter);
+  width: var(--gc-size-plugin-status-filter);
+  min-width: var(--gc-size-plugin-status-filter);
   gap: var(--gc-space-2);
 }
 
@@ -1113,6 +1113,7 @@ function pluginStatusClass(plugin: PluginRecord): string {
 
 .plugin-card__badges {
   display: flex;
+  margin-left: auto;
   gap: var(--gc-space-1);
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -1154,13 +1155,13 @@ function pluginStatusClass(plugin: PluginRecord): string {
 }
 
 .plugin-state--available {
-  color: var(--gc-color-info);
-  background: var(--gc-color-info-bg);
+  color: var(--gc-color-success);
+  background: var(--gc-color-success-bg);
 }
 
 .plugin-state--disabled {
-  color: var(--gc-color-muted);
-  background: var(--gc-color-muted-bg);
+  color: var(--gc-color-danger);
+  background: var(--gc-color-danger-bg);
 }
 
 .plugin-state--invalid {
@@ -1420,6 +1421,21 @@ function pluginStatusClass(plugin: PluginRecord): string {
   .market-status-filter,
   .market-refresh {
     width: 100%;
+  }
+
+  .market-search {
+    flex: 1 1 100%;
+    min-width: 0;
+    margin-left: 0;
+  }
+
+  .market-search input {
+    width: 100%;
+  }
+
+  .market-status-filter {
+    flex: 1 1 100%;
+    min-width: 0;
   }
 
   .market-filter {
