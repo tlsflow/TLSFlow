@@ -81,7 +81,29 @@ export function isSuppressedAudit(input: {
   const eventType = typeof input.eventType === 'string' ? input.eventType : '';
   return eventType === AUDIT_EVENT_TYPES.SECRET_USED
     || isSuppressedPermissionDeniedAudit(input)
+    || isSuppressedProviderReconciliationAudit(input)
     ;
+}
+
+/** Provider 自动补偿的元数据同步不进入长期审计；插件版本和状态变化必须保留。 */
+export function isSuppressedProviderReconciliationAudit(input: {
+  eventType?: unknown;
+  detail?: unknown;
+}): boolean {
+  const eventType = typeof input.eventType === 'string' ? input.eventType : '';
+  const detail = input.detail;
+  if (!isProviderReconciliationEvent(eventType) || readDetailString(detail, 'source') !== 'reconciliation') return false;
+  if (eventType === 'internal_ca.provider.created') return true;
+  const changedFields = readDetailStringArray(detail, 'changedFields');
+  if (eventType === 'internal_ca.provider.updated') {
+    return !changedFields.some((field) => field === 'status'
+      || field === 'endpoint'
+      || field === 'credentialSecretRef'
+      || field.endsWith('pluginVersionId'));
+  }
+  return !changedFields.some((field) => field === 'endpoint'
+    || field === 'credentialSecretRef'
+    || field.endsWith('pluginVersionId'));
 }
 
 /** 默认拒绝表示没有命中任何允许策略，通常是列表探测产生的重复噪声。 */
@@ -116,6 +138,18 @@ function readDetailString(detail: unknown, key: string): string | undefined {
   if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return undefined;
   const value = (detail as Record<string, unknown>)[key];
   return typeof value === 'string' ? value : undefined;
+}
+
+function readDetailStringArray(detail: unknown, key: string): string[] {
+  if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return [];
+  const value = (detail as Record<string, unknown>)[key];
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function isProviderReconciliationEvent(eventType: string): boolean {
+  return eventType === 'internal_ca.provider.created'
+    || eventType === 'internal_ca.provider.updated'
+    || eventType === 'internal_ca.provider_action_binding.updated';
 }
 
 export const HIGH_RISK_AUDIT_EVENTS = new Set<string>([

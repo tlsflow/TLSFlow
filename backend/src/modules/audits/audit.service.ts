@@ -225,6 +225,25 @@ function appendSuppressedAuditCondition(conditions: string[]): void {
       payload->>'eventType' = 'permission.denied'
       and payload->'detail'->>'reason' in ('no allow policy', 'no object grant')
     )
+    or (
+      payload->>'eventType' = 'internal_ca.provider.created'
+      and payload->'detail'->>'source' = 'reconciliation'
+    )
+    or (
+      payload->>'eventType' in ('internal_ca.provider.updated', 'internal_ca.provider_action_binding.updated')
+      and payload->'detail'->>'source' = 'reconciliation'
+      and not exists (
+        select 1
+          from jsonb_array_elements_text(
+            case when jsonb_typeof(payload->'detail'->'changedFields') = 'array'
+              then payload->'detail'->'changedFields'
+              else '[]'::jsonb
+            end
+          ) as changed(field)
+         where changed.field in ('status', 'endpoint', 'credentialSecretRef')
+            or changed.field like '%pluginVersionId'
+      )
+    )
   )`);
 }
 

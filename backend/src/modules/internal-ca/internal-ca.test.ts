@@ -37,7 +37,7 @@ async function createFixture() {
     audit: security.audit,
     approvals: security.approvals,
   });
-  return { db, service };
+  return { db, service, audit: security.audit };
 }
 
 test('缺少 CA 风险确认密钥时拒绝执行拓扑预览', async () => {
@@ -609,6 +609,63 @@ test('Microsoft AD CS Provider 支持更新并可删除登记而不破坏关联 
     assert.equal(savedProvider?.status, 'disabled');
     assert.equal(savedProvider?.configuration.registrationStatus, 'deleted');
     assert.equal(savedAuthority?.status, 'retired');
+  } finally {
+    await db.close();
+  }
+});
+
+test('Provider 审计只记录真实变更并对前后快照脱敏', async () => {
+  const { db, service, audit } = await createFixture();
+  const tenantId = 'tenant-provider-audit-policy';
+  try {
+    const provider = await service.createProvider(tenantId, {
+      name: '审计 Provider',
+      type: 'plugin',
+      deploymentMode: 'external',
+      runtimePlatform: 'windows',
+      availabilityMode: 'single',
+      endpoint: 'https://ca.example.test/api',
+      credentialSecretRef: 'secret-ref-provider',
+      configuration: {
+        providerKind: 'microsoft_adcs',
+        token: 'initial-token-value',
+        nested: { password: 'initial-password' },
+      },
+    }, 'operator');
+
+    const providerLogs = () => audit.query().then((logs) => logs.filter((log) => log.resourceId === provider.id));
+    const createdLogs = await providerLogs();
+    const created = createdLogs.find((log) => log.eventType === 'internal_ca.provider.created');
+    assert.ok(created);
+    assert.ok(Array.isArray((created?.detail as any)?.changedFields));
+    assert.equal((created?.detail as any)?.before, null);
+    assert.equal(JSON.stringify(created?.detail).includes('initial-token-value'), false);
+    assert.equal(JSON.stringify(created?.detail).includes('initial-password'), false);
+
+    const countBeforeNoop = createdLogs.length;
+    await service.updateProvider(tenantId, provider.id, {
+      name: provider.name,
+      endpoint: provider.endpoint,
+      credentialSecretRef: 'secret-ref-provider',
+      configuration: { token: 'initial-token-value' },
+    }, 'operator');
+    assert.equal((await providerLogs()).length, countBeforeNoop);
+
+    await service.updateProvider(tenantId, provider.id, {
+      endpoint: 'https://ca.example.test/v2',
+      credentialSecretRef: 'secret-ref-rotated',
+      configuration: { token: 'rotated-token-value' },
+    }, 'operator');
+    const updated = (await providerLogs()).find((log) => log.eventType === 'internal_ca.provider.updated');
+    assert.ok(updated);
+    const updatedDetail = updated?.detail as any;
+    assert.ok(updatedDetail.changedFields.includes('endpoint'));
+    assert.ok(updatedDetail.changedFields.includes('credentialSecretRef'));
+    assert.ok(updatedDetail.changedFields.includes('configuration.token'));
+    assert.equal(JSON.stringify(updatedDetail).includes('rotated-token-value'), false);
+    assert.equal(JSON.stringify(updatedDetail).includes('initial-password'), false);
+    assert.equal(updatedDetail.before.credentialSecretRef, '[REDACTED]');
+    assert.equal(updatedDetail.after.credentialSecretRef, '[REDACTED]');
   } finally {
     await db.close();
   }

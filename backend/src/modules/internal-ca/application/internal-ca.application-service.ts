@@ -3,7 +3,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import { structuredLogger } from '../../../common/logging/structured-logger.js';
 import type { DatabasePort } from '../../../database/database-port.js';
 import { newId } from '../../../shared/id.js';
-import type { RequestContext, SecuritySubject } from '../../../shared/security-types.js';
+import type { ActorType, RequestContext, SecuritySubject } from '../../../shared/security-types.js';
 import type { AuditService } from '../../audits/audit.service.js';
 import type { ApprovalService } from '../../approvals/approval.service.js';
 import type { CertificatesApplicationService } from '../../certificates/application/certificates.application-service.js';
@@ -101,6 +101,14 @@ export interface UpdateCaProviderInput {
   credentialSecretRef?: string;
   configuration?: Record<string, unknown>;
   status?: CaProviderEntity['status'];
+}
+
+interface ProviderUpdateOptions {
+  source?: 'manual' | 'reconciliation';
+}
+
+interface ProviderCreateOptions {
+  source?: 'manual' | 'reconciliation';
 }
 
 export interface CreateProviderActionBindingInput {
@@ -766,6 +774,10 @@ export class InternalCaApplicationService {
     await this.audit('internal_ca.acme_provider.initialized', actorId, 'ca_provider.create', 'ca_provider', provider.id, 'high', undefined, {
       preset: 'letsencrypt',
       isBuiltIn: true,
+      source: 'initialization',
+      changedFields: providerCreatedFields(provider),
+      before: null,
+      after: providerAuditSnapshot(provider),
     });
     return provider;
   }
@@ -820,19 +832,26 @@ export class InternalCaApplicationService {
     if (current.type !== 'acme') throw new AppError('CA_TOPOLOGY_INVALID', '当前 Provider 不是 ACME Provider', { providerId });
     const configuration = normalizeAcmeProviderConfiguration(input, current.configuration);
     const profile = getAcmeProviderProfile(configuration.profileKey);
-    await this.repository.saveProvider({
+    const updated: CaProviderEntity = {
       ...current,
       name: requiredText(input.displayName ?? input.name ?? current.name ?? profile?.displayName ?? '自定义 ACME CA', 'displayName'),
       endpoint: configuration.directoryUrl,
       configuration: { ...configuration },
       updatedAt: new Date().toISOString(),
-    });
+    };
+    const changedFields = providerChangedFields(current, updated);
+    if (changedFields.length === 0) return sanitizeProvider(current);
+    await this.repository.saveProvider(updated);
     if (configuration.isDefault === true) await this.setDefaultAcmeProvider(tenantId, providerId);
     await this.audit('internal_ca.acme_provider.updated', actorId, 'ca_provider.update', 'ca_provider', providerId, 'high', context, {
       preset: configuration.preset,
       isDefault: configuration.isDefault,
+      source: 'manual',
+      changedFields,
+      before: providerAuditSnapshot(current),
+      after: providerAuditSnapshot(updated),
     });
-    return sanitizeProvider(await this.requireProvider(tenantId, providerId));
+    return sanitizeProvider(updated);
   }
 
   /**
@@ -881,6 +900,7 @@ export class InternalCaApplicationService {
     input: CreateCaProviderInput,
     actorId: string,
     context?: RequestContext,
+    options: ProviderCreateOptions = {},
   ): Promise<Omit<CaProviderEntity, 'credentialSecretRef'>> {
     if (!caProviderTypes.includes(input.type)) throw new AppError('VALIDATION_FAILED', 'CA Provider 类型无效');
     const now = new Date().toISOString();
@@ -903,11 +923,23 @@ export class InternalCaApplicationService {
     assertProviderCombination(provider);
     await this.repository.saveProvider(provider);
     await this.saveDeclaredCapabilities(provider);
-    await this.audit('internal_ca.provider.created', actorId, 'ca_provider.create', 'ca_provider', provider.id, 'high', context, {
+    const auditDetail = {
       type: provider.type,
       deploymentMode: provider.deploymentMode,
       runtimePlatform: provider.runtimePlatform,
-    });
+      source: options.source === 'reconciliation' ? 'reconciliation' : 'manual',
+      changedFields: providerCreatedFields(provider),
+      before: null,
+      after: providerAuditSnapshot(provider),
+    };
+    if (options.source === 'reconciliation') {
+      structuredLogger.info('AD CS Provider reconciliation created provider outside long-term audit', {
+        providerId: provider.id,
+        changedFields: auditDetail.changedFields,
+      }, { module: 'internal-ca', tenantId, resourceType: 'ca_provider', resourceId: provider.id });
+    } else {
+      await this.audit('internal_ca.provider.created', actorId, 'ca_provider.create', 'ca_provider', provider.id, 'high', context, auditDetail);
+    }
     return sanitizeProvider(provider);
   }
 
@@ -917,6 +949,7 @@ export class InternalCaApplicationService {
     input: UpdateCaProviderInput,
     actorId: string,
     context?: RequestContext,
+    options: ProviderUpdateOptions = {},
   ): Promise<Omit<CaProviderEntity, 'credentialSecretRef'>> {
     const current = await this.requireProvider(tenantId, providerId);
     const updated: CaProviderEntity = {
@@ -934,12 +967,40 @@ export class InternalCaApplicationService {
       updatedAt: new Date().toISOString(),
     };
     assertProviderCombination(updated);
+    const changedFields = providerChangedFields(current, updated);
+    if (changedFields.length === 0) {
+      if (options.source === 'reconciliation') {
+        structuredLogger.info('AD CS Provider reconciliation skipped unchanged update', {
+          providerId,
+          actorId,
+        }, { module: 'internal-ca', tenantId, resourceType: 'ca_provider', resourceId: providerId });
+      }
+      return sanitizeProvider(current);
+    }
     await this.repository.saveProvider(updated);
-    await this.audit('internal_ca.provider.updated', actorId, 'ca_provider.update', 'ca_provider', providerId, 'high', context, {
+    const isReconciliation = options.source === 'reconciliation';
+    const requiresLongTermAudit = !isReconciliation
+      || changedFields.some((field) => field === 'status'
+        || field === 'endpoint'
+        || field === 'credentialSecretRef'
+        || field.endsWith('pluginVersionId'));
+    const auditDetail = {
       type: updated.type,
       deploymentMode: updated.deploymentMode,
       runtimePlatform: updated.runtimePlatform,
-    });
+      source: isReconciliation ? 'reconciliation' : 'manual',
+      changedFields,
+      before: providerAuditSnapshot(current),
+      after: providerAuditSnapshot(updated),
+    };
+    if (requiresLongTermAudit) {
+      await this.audit('internal_ca.provider.updated', actorId, 'ca_provider.update', 'ca_provider', providerId, 'high', context, auditDetail);
+    } else {
+      structuredLogger.info('AD CS Provider reconciliation applied non-audit metadata update', {
+        providerId,
+        changedFields,
+      }, { module: 'internal-ca', tenantId, resourceType: 'ca_provider', resourceId: providerId });
+    }
     return sanitizeProvider(updated);
   }
 
@@ -959,16 +1020,29 @@ export class InternalCaApplicationService {
         if (authority.providerId !== provider.id || authority.status === 'retired') continue;
         await this.repository.saveAuthority({ ...authority, status: 'retired', updatedAt: now });
       }
+      const after = {
+        ...provider,
+        status: 'disabled' as const,
+        configuration: { ...provider.configuration, registrationStatus: 'deleted', deletedAt: now },
+        updatedAt: now,
+      };
       await this.audit('internal_ca.provider.deleted', actorId, 'ca_provider.delete', 'ca_provider', provider.id, 'high', context, {
         type: provider.type,
         registrationStatus: 'deleted',
         softDeleted: true,
+        changedFields: providerChangedFields(provider, after),
+        before: providerAuditSnapshot(provider),
+        after: providerAuditSnapshot(after),
       });
       return { id: provider.id, deleted: true };
     }
     const deleted = await this.repository.deleteUnboundProvider(tenantId, provider.id);
     if (!deleted) throw new AppError('RESOURCE_VERSION_CONFLICT', 'CA Provider 已被证书机构使用，不能删除');
-    await this.audit('internal_ca.provider.deleted', actorId, 'ca_provider.delete', 'ca_provider', provider.id, 'high', context, {});
+    await this.audit('internal_ca.provider.deleted', actorId, 'ca_provider.delete', 'ca_provider', provider.id, 'high', context, {
+      changedFields: ['deleted'],
+      before: providerAuditSnapshot(provider),
+      after: null,
+    });
     return { id: provider.id, deleted: true };
   }
 
@@ -1122,7 +1196,7 @@ export class InternalCaApplicationService {
         name: renameLegacyName ? input.name : existing.name,
         configuration,
         status: 'active',
-      }, 'system');
+      }, 'system', undefined, { source: 'reconciliation' });
     } else {
       try {
         provider = await this.createProvider(input.tenantId, {
@@ -1132,7 +1206,7 @@ export class InternalCaApplicationService {
           runtimePlatform: 'windows',
           availabilityMode: 'single',
           configuration,
-        }, 'system');
+        }, 'system', undefined, { source: 'reconciliation' });
       } catch (error) {
         // 多个 Agent 注册请求并发时，另一个请求可能刚插入同名 Provider。
         // 重新读取并复用它，保持补偿登记幂等。
@@ -1144,7 +1218,7 @@ export class InternalCaApplicationService {
         if (!existing) throw error;
         const targetOwner = refreshedProviders.find((candidate) => candidate.name.trim().toLowerCase() === normalizedName);
         const stableName = targetOwner && targetOwner.id !== existing.id ? existing.name : input.name;
-        provider = await this.updateProvider(input.tenantId, existing.id, { name: stableName, configuration, status: 'active' }, 'system');
+        provider = await this.updateProvider(input.tenantId, existing.id, { name: stableName, configuration, status: 'active' }, 'system', undefined, { source: 'reconciliation' });
       }
     }
     const bindings = await this.listProviderActionBindings(input.tenantId, provider.id);
@@ -1168,6 +1242,19 @@ export class InternalCaApplicationService {
           capabilityEvidence,
           updatedAt: new Date().toISOString(),
         });
+        if (activeBinding.pluginVersionId !== input.pluginVersionId) {
+          await this.audit('internal_ca.provider_action_binding.updated', 'system', 'ca_provider.manage', 'ca_provider_action_binding', activeBinding.id, 'high', undefined, {
+            source: 'reconciliation',
+            changedFields: ['pluginVersionId'],
+            before: { pluginVersionId: activeBinding.pluginVersionId },
+            after: { pluginVersionId: input.pluginVersionId },
+          });
+        } else {
+          structuredLogger.info('AD CS Provider action binding reconciliation updated metadata', {
+            providerId: provider.id,
+            bindingId: activeBinding.id,
+          }, { module: 'internal-ca', tenantId: input.tenantId, resourceType: 'ca_provider_action_binding', resourceId: activeBinding.id });
+        }
       }
     } else {
       await this.createProviderActionBinding(input.tenantId, {
@@ -1197,6 +1284,12 @@ export class InternalCaApplicationService {
         ...binding,
         status: 'disabled',
         updatedAt: new Date().toISOString(),
+      });
+      await this.audit('internal_ca.provider_action_binding.disabled', 'system', 'ca_provider.manage', 'ca_provider_action_binding', binding.id, 'high', undefined, {
+        source: 'reconciliation',
+        changedFields: ['status'],
+        before: { status: binding.status },
+        after: { status: 'disabled' },
       });
     }
   }
@@ -3256,8 +3349,72 @@ export class InternalCaApplicationService {
   }
 
   private async audit(eventType: string, actorId: string, action: string, resourceType: string, resourceId: string, riskLevel: 'high' | 'critical', context: RequestContext | undefined, detail: Record<string, unknown>): Promise<void> {
-    await this.dependencies.audit?.write({ eventType, actorType: 'user', actorId, action, resourceType, resourceId, result: 'success', riskLevel, context, failClosed: true, detail });
+    const actorType: ActorType = actorId === 'system' ? 'system' : 'user';
+    await this.dependencies.audit?.write({ eventType, actorType, actorId, action, resourceType, resourceId, result: 'success', riskLevel, context, failClosed: true, detail });
   }
+}
+
+function providerChangedFields(before: CaProviderEntity, after: CaProviderEntity): string[] {
+  const fields = ['name', 'type', 'deploymentMode', 'runtimePlatform', 'availabilityMode', 'endpoint', 'status'] as const;
+  const changed = fields.filter((field) => stableJson(before[field]) !== stableJson(after[field])).map(String);
+  const configurationKeys = new Set([...Object.keys(before.configuration ?? {}), ...Object.keys(after.configuration ?? {})]);
+  for (const key of configurationKeys) {
+    if (stableJson(before.configuration?.[key]) !== stableJson(after.configuration?.[key])) changed.push(`configuration.${key}`);
+  }
+  if (stableJson(before.credentialSecretRef) !== stableJson(after.credentialSecretRef)) changed.push('credentialSecretRef');
+  return changed.sort();
+}
+
+function providerCreatedFields(provider: CaProviderEntity): string[] {
+  return [
+    'name',
+    'type',
+    'deploymentMode',
+    'runtimePlatform',
+    'availabilityMode',
+    ...(provider.endpoint ? ['endpoint'] : []),
+    ...(provider.credentialSecretRef ? ['credentialSecretRef'] : []),
+    'status',
+    ...Object.keys(provider.configuration ?? {}).sort().map((key) => `configuration.${key}`),
+  ];
+}
+
+function providerAuditSnapshot(provider: CaProviderEntity): Record<string, unknown> {
+  return {
+    id: provider.id,
+    name: provider.name,
+    type: provider.type,
+    deploymentMode: provider.deploymentMode,
+    runtimePlatform: provider.runtimePlatform,
+    availabilityMode: provider.availabilityMode,
+    endpoint: redactProviderString(provider.endpoint),
+    credentialSecretRef: provider.credentialSecretRef ? '[REDACTED]' : undefined,
+    status: provider.status,
+    configuration: redactProviderValue(provider.configuration),
+  };
+}
+
+function redactProviderValue(value: unknown, key?: string): unknown {
+  if (key && /secret|password|token|private.?key|api.?key|authorization|cookie|credential/i.test(key)) return '[REDACTED]';
+  if (typeof value === 'string') return redactProviderString(value);
+  if (Array.isArray(value)) return value.map((item) => redactProviderValue(item));
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([entryKey, entryValue]) => [entryKey, redactProviderValue(entryValue, entryKey)]));
+}
+
+function redactProviderString(value: string | undefined): string | undefined {
+  if (!value) return value;
+  return value
+    .replace(/Bearer\s+[^\s]+/gi, 'Bearer [REDACTED]')
+    .replace(/(password|passwd|token|secret|api[-_]?key)=([^&\s]+)/gi, '$1=[REDACTED]');
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right)).map(([key, entryValue]) => `${JSON.stringify(key)}:${stableJson(entryValue)}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'undefined';
 }
 
 function readAgentInstallEvidence(detail?: Record<string, unknown>): {

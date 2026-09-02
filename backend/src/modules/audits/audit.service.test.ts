@@ -218,4 +218,34 @@ describe('AuditService 审计权限过滤', () => {
       await db.close();
     }
   });
+
+  it('Provider 自动补偿只隐藏元数据同步，保留状态和插件版本变更', async () => {
+    const db = new PgliteDatabase();
+    try {
+      const logs = new PgDocumentRepository<AuditLogEntity>(db, 'security.audit_logs');
+      const audit = new AuditService(logs, undefined, undefined, db);
+      const base = {
+        actorType: 'system' as const,
+        actorId: 'system_reconciliation',
+        action: 'ca_provider.update',
+        resourceType: 'ca_provider',
+        resourceId: 'provider_reconciliation_test',
+        result: 'success' as const,
+        riskLevel: 'high' as const,
+        context: { tenantId: 'tenant_reconciliation_test' },
+        detail: { source: 'reconciliation', changedFields: ['configuration.agentId'] },
+      };
+      await audit.write({ ...base, eventType: 'internal_ca.provider.updated' });
+      await audit.write({ ...base, eventType: 'internal_ca.provider.updated', detail: { source: 'reconciliation', changedFields: ['configuration.pluginVersionId'] } });
+      await audit.write({ ...base, eventType: 'internal_ca.provider.updated', detail: { source: 'reconciliation', changedFields: ['status'] } });
+      await audit.write({ ...base, eventType: 'internal_ca.provider.updated', detail: { source: 'reconciliation', changedFields: ['endpoint'] } });
+      await audit.write({ ...base, eventType: 'internal_ca.provider.updated', detail: { source: 'reconciliation', changedFields: ['credentialSecretRef'] } });
+
+      const visible = await audit.query({ tenantId: 'tenant_reconciliation_test' });
+      assert.equal(visible.length, 4);
+      assert.equal(visible.every((item) => (item.detail as any)?.changedFields?.[0] !== 'configuration.agentId'), true);
+    } finally {
+      await db.close();
+    }
+  });
 });
