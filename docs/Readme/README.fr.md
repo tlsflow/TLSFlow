@@ -188,7 +188,7 @@ docker run -d \
   -e GCAC_PUBLIC_BASE_URL=http://your-host:8085 \
   -e GCAC_SECRET_KEK=your-random-kek \
   -v tlsflow-small-data:/app/data \
-  tlsflow/gcac-small:latest
+  tlsflow/tlsflow-small:latest
 ```
 
 **Important** :

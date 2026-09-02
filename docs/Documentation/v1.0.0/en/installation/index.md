@@ -23,7 +23,7 @@ This documentation covers Docker deployment methods for TLSFlow v1.0.0. The stan
 | Method | Use Case | Service Components | Data Storage |
 | --- | --- | --- | --- |
 | Standard Deployment | Production environments, multiple tenants, and continuous background tasks; Browser Runtime enabled on demand | `db`, `backend`, `web` (optional `browser-runtime`) | `docker/data/postgres/`, `docker/data/workflows/`, `docker/data/runtime/` |
-| Small Single-Container | Under 50 application assets, home NAS, or environments where Compose is unavailable | `gcac-small` | `data/pglite/`, `data/workflows/`, `data/runtime/`, `data/tls-inspector/`, `data/plugins/` |
+| Small Single-Container | Under 50 application assets, home NAS, or environments where Compose is unavailable | `tlsflow-small` | `data/pglite/`, `data/workflows/`, `data/runtime/`, `data/tls-inspector/`, `data/plugins/` |
 
 Follow the [Quick Start](./quick-start.md) to prepare images, directories, and secrets, then choose either [Standard Deployment](./standard-deployment.md) or [Single-node Deployment](./single-node-deployment.md). The two architectures cannot run simultaneously. For all variable meanings and requirements, see [Deployment Parameters](./deployment-parameters.md). After containers start, follow [First Login](./first-login.md) instructions.
 

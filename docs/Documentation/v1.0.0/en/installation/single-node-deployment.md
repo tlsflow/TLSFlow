@@ -35,7 +35,7 @@ Small edition packages all services in a single container, using built-in PGlite
 The following command only requires two deployment parameters to fill in: public address and KEK. Container name, port, and Docker named volume are fixed runtime configurations, not additional business parameters; `--label` is only for marking image architecture and can be omitted. Docker automatically pulls the image; execute the command below as a single line:
 
 ```bash
-docker run -d --name tlsflow-small --restart unless-stopped -p 8085:3003 -e GCAC_PUBLIC_BASE_URL=http://your-tlsflow-host:8085 -e GCAC_SECRET_KEK=your-random-kek -v tlsflow-small-data:/app/data tlsflow/gcac-small:latest
+docker run -d --name tlsflow-small --restart unless-stopped -p 8085:3003 -e GCAC_PUBLIC_BASE_URL=http://your-tlsflow-host:8085 -e GCAC_SECRET_KEK=your-random-kek -v tlsflow-small-data:/app/data tlsflow/tlsflow-small:latest
 ```
 
 This quick installation uses a single Docker named volume to automatically save PGlite, workflow, runtime, TLS Inspector, and plugin data under `/app/data`, without requiring manual creation of host directories. The `-v` option is not a hard requirement for container startup, but production environments must retain it; otherwise, data, Token keys, and runtime security materials will be lost after container deletion or rebuild. When you need to directly manage files or backups in NAS shared directories, use the "Host Directory Binding" scenario command below.
@@ -84,7 +84,7 @@ DATA_ROOT=/volume1/docker/tlsflow/data && mkdir -p "$DATA_ROOT/pglite" "$DATA_RO
 ```
 
 ```bash
-docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.deployment.architecture=small -p 8085:3003 -e GCAC_PUBLIC_BASE_URL=http://your-tlsflow-host:8085 -e GCAC_SECRET_KEK=your-random-kek -v "$DATA_ROOT:/app/data" tlsflow/gcac-small:latest
+docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.deployment.architecture=small -p 8085:3003 -e GCAC_PUBLIC_BASE_URL=http://your-tlsflow-host:8085 -e GCAC_SECRET_KEK=your-random-kek -v "$DATA_ROOT:/app/data" tlsflow/tlsflow-small:latest
 ```
 
 ### Custom Host Port
@@ -92,7 +92,7 @@ docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.dep
 Host's `8103` maps to container's fixed `3003`, and the public address must also use the new port:
 
 ```bash
-docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.deployment.architecture=small -p 8103:3003 -e GCAC_PUBLIC_BASE_URL=http://your-tlsflow-host:8103 -e GCAC_SECRET_KEK=your-random-kek -v tlsflow-small-data:/app/data tlsflow/gcac-small:latest
+docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.deployment.architecture=small -p 8103:3003 -e GCAC_PUBLIC_BASE_URL=http://your-tlsflow-host:8103 -e GCAC_SECRET_KEK=your-random-kek -v tlsflow-small-data:/app/data tlsflow/tlsflow-small:latest
 ```
 
 ### Manually Fixed Token Key
@@ -100,7 +100,7 @@ docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.dep
 Suitable for environments requiring centralized management of login token keys by password management systems. This value must remain unchanged long-term:
 
 ```bash
-docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.deployment.architecture=small -p 8085:3003 -e GCAC_PUBLIC_BASE_URL=https://tlsflow.example.com -e GCAC_SECRET_KEK=your-random-kek -e GCAC_TOKEN_SECRET=your-random-token-secret -v tlsflow-small-data:/app/data tlsflow/gcac-small:latest
+docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.deployment.architecture=small -p 8085:3003 -e GCAC_PUBLIC_BASE_URL=https://tlsflow.example.com -e GCAC_SECRET_KEK=your-random-kek -e GCAC_TOKEN_SECRET=your-random-token-secret -v tlsflow-small-data:/app/data tlsflow/tlsflow-small:latest
 ```
 
 ### HTTPS Reverse Proxy and Separate Agent Address
@@ -108,7 +108,7 @@ docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.dep
 When console is accessed via HTTPS reverse proxy and Agent download address uses a separate domain:
 
 ```bash
-docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.deployment.architecture=small -p 8085:3003 -e GCAC_PUBLIC_BASE_URL=https://tlsflow.example.com -e GCAC_AGENT_INSTALL_PUBLIC_BASE_URL=https://agent.example.com -e GCAC_AGENT_RELEASE_BASE_URL=https://agent.example.com -e GCAC_SECRET_KEK=your-random-kek -v tlsflow-small-data:/app/data tlsflow/gcac-small:latest
+docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.deployment.architecture=small -p 8085:3003 -e GCAC_PUBLIC_BASE_URL=https://tlsflow.example.com -e GCAC_AGENT_INSTALL_PUBLIC_BASE_URL=https://agent.example.com -e GCAC_AGENT_RELEASE_BASE_URL=https://agent.example.com -e GCAC_SECRET_KEK=your-random-kek -v tlsflow-small-data:/app/data tlsflow/tlsflow-small:latest
 ```
 
 ### Temporary Evaluation Environment
@@ -116,13 +116,13 @@ docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.dep
 Evaluation environments still recommend mounting data directory; use separate container name and port to avoid conflicts with production instances. Do not reuse example keys below in production environments:
 
 ```bash
-docker run -d --name tlsflow-small-demo --restart unless-stopped --label com.gcac.deployment.architecture=small -p 18085:3003 -e GCAC_PUBLIC_BASE_URL=http://192.168.1.20:18085 -e GCAC_SECRET_KEK=demo-random-kek -v tlsflow-small-demo-data:/app/data tlsflow/gcac-small:latest
+docker run -d --name tlsflow-small-demo --restart unless-stopped --label com.gcac.deployment.architecture=small -p 18085:3003 -e GCAC_PUBLIC_BASE_URL=http://192.168.1.20:18085 -e GCAC_SECRET_KEK=demo-random-kek -v tlsflow-small-demo-data:/app/data tlsflow/tlsflow-small:latest
 ```
 
 For only verifying if page can open and not needing to retain data, you can omit label and mount:
 
 ```bash
-docker run -d --name tlsflow-small-ephemeral -p 18086:3003 -e GCAC_PUBLIC_BASE_URL=http://192.168.1.20:18086 -e GCAC_SECRET_KEK=demo-random-kek tlsflow/gcac-small:latest
+docker run -d --name tlsflow-small-ephemeral -p 18086:3003 -e GCAC_PUBLIC_BASE_URL=http://192.168.1.20:18086 -e GCAC_SECRET_KEK=demo-random-kek tlsflow/tlsflow-small:latest
 ```
 
 This mode is only suitable for temporary testing; after container deletion, PGlite, Token keys, and runtime security materials will all be lost.

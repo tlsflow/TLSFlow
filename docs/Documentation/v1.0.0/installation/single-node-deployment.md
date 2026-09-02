@@ -40,7 +40,7 @@ Unraid 等内置 Docker 管理器的环境。
 一行执行即可：
 
 ```bash
-docker run -d --name tlsflow-small --restart unless-stopped -p 8085:3003 -e GCAC_PUBLIC_BASE_URL=http://your-tlsflow-host:8085 -e GCAC_SECRET_KEK=your-random-kek -v tlsflow-small-data:/app/data tlsflow/gcac-small:latest
+docker run -d --name tlsflow-small --restart unless-stopped -p 8085:3003 -e GCAC_PUBLIC_BASE_URL=http://your-tlsflow-host:8085 -e GCAC_SECRET_KEK=your-random-kek -v tlsflow-small-data:/app/data tlsflow/tlsflow-small:latest
 ```
 
 该快速安装使用一个 Docker 命名卷自动保存 `/app/data` 下的 PGlite、工作流、运行时、TLS Inspector
@@ -105,7 +105,7 @@ DATA_ROOT=/volume1/docker/tlsflow/data && mkdir -p "$DATA_ROOT/pglite" "$DATA_RO
 ```
 
 ```bash
-docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.deployment.architecture=small -p 8085:3003 -e GCAC_PUBLIC_BASE_URL=http://your-tlsflow-host:8085 -e GCAC_SECRET_KEK=your-random-kek -v "$DATA_ROOT:/app/data" tlsflow/gcac-small:latest
+docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.deployment.architecture=small -p 8085:3003 -e GCAC_PUBLIC_BASE_URL=http://your-tlsflow-host:8085 -e GCAC_SECRET_KEK=your-random-kek -v "$DATA_ROOT:/app/data" tlsflow/tlsflow-small:latest
 ```
 
 ### 自定义宿主机端口
@@ -113,7 +113,7 @@ docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.dep
 宿主机的 `8103` 映射到容器固定的 `3003`，公开地址也必须使用新端口：
 
 ```bash
-docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.deployment.architecture=small -p 8103:3003 -e GCAC_PUBLIC_BASE_URL=http://your-tlsflow-host:8103 -e GCAC_SECRET_KEK=your-random-kek -v tlsflow-small-data:/app/data tlsflow/gcac-small:latest
+docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.deployment.architecture=small -p 8103:3003 -e GCAC_PUBLIC_BASE_URL=http://your-tlsflow-host:8103 -e GCAC_SECRET_KEK=your-random-kek -v tlsflow-small-data:/app/data tlsflow/tlsflow-small:latest
 ```
 
 ### 手动固定 Token 密钥
@@ -121,7 +121,7 @@ docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.dep
 适合需要由密码管理系统统一托管登录令牌密钥的环境。该值必须长期保持不变：
 
 ```bash
-docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.deployment.architecture=small -p 8085:3003 -e GCAC_PUBLIC_BASE_URL=https://tlsflow.example.com -e GCAC_SECRET_KEK=your-random-kek -e GCAC_TOKEN_SECRET=your-random-token-secret -v tlsflow-small-data:/app/data tlsflow/gcac-small:latest
+docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.deployment.architecture=small -p 8085:3003 -e GCAC_PUBLIC_BASE_URL=https://tlsflow.example.com -e GCAC_SECRET_KEK=your-random-kek -e GCAC_TOKEN_SECRET=your-random-token-secret -v tlsflow-small-data:/app/data tlsflow/tlsflow-small:latest
 ```
 
 ### HTTPS 反向代理和独立 Agent 地址
@@ -129,7 +129,7 @@ docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.dep
 当控制台通过 HTTPS 反向代理访问，且 Agent 下载地址使用独立域名时：
 
 ```bash
-docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.deployment.architecture=small -p 8085:3003 -e GCAC_PUBLIC_BASE_URL=https://tlsflow.example.com -e GCAC_AGENT_INSTALL_PUBLIC_BASE_URL=https://agent.example.com -e GCAC_AGENT_RELEASE_BASE_URL=https://agent.example.com -e GCAC_SECRET_KEK=your-random-kek -v tlsflow-small-data:/app/data tlsflow/gcac-small:latest
+docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.deployment.architecture=small -p 8085:3003 -e GCAC_PUBLIC_BASE_URL=https://tlsflow.example.com -e GCAC_AGENT_INSTALL_PUBLIC_BASE_URL=https://agent.example.com -e GCAC_AGENT_RELEASE_BASE_URL=https://agent.example.com -e GCAC_SECRET_KEK=your-random-kek -v tlsflow-small-data:/app/data tlsflow/tlsflow-small:latest
 ```
 
 ### 临时评估环境
@@ -138,13 +138,13 @@ docker run -d --name tlsflow-small --restart unless-stopped --label com.gcac.dep
 示例密钥：
 
 ```bash
-docker run -d --name tlsflow-small-demo --restart unless-stopped --label com.gcac.deployment.architecture=small -p 18085:3003 -e GCAC_PUBLIC_BASE_URL=http://192.168.1.20:18085 -e GCAC_SECRET_KEK=demo-random-kek -v tlsflow-small-demo-data:/app/data tlsflow/gcac-small:latest
+docker run -d --name tlsflow-small-demo --restart unless-stopped --label com.gcac.deployment.architecture=small -p 18085:3003 -e GCAC_PUBLIC_BASE_URL=http://192.168.1.20:18085 -e GCAC_SECRET_KEK=demo-random-kek -v tlsflow-small-demo-data:/app/data tlsflow/tlsflow-small:latest
 ```
 
 只验证页面能否打开、且不需要保留数据时，可以省略标签和挂载：
 
 ```bash
-docker run -d --name tlsflow-small-ephemeral -p 18086:3003 -e GCAC_PUBLIC_BASE_URL=http://192.168.1.20:18086 -e GCAC_SECRET_KEK=demo-random-kek tlsflow/gcac-small:latest
+docker run -d --name tlsflow-small-ephemeral -p 18086:3003 -e GCAC_PUBLIC_BASE_URL=http://192.168.1.20:18086 -e GCAC_SECRET_KEK=demo-random-kek tlsflow/tlsflow-small:latest
 ```
 
 该模式仅适合临时测试；容器删除后 PGlite、Token 密钥和运行时安全材料都会随之丢失。
