@@ -1,5 +1,7 @@
 import { defineConfig } from "vitepress";
 
+const base = process.env.DOCS_BASE ?? "/";
+
 const zhSidebar = [
   {
     text: "一、安装部署",
@@ -127,7 +129,7 @@ export default defineConfig({
   title: "TLSFlow 官方文档",
   description: "TLSFlow 证书生命周期管理平台官方文档",
   lang: "zh-CN",
-  base: "/docs/",
+  base,
   srcDir: ".",
   cleanUrls: true,
   lastUpdated: true,
