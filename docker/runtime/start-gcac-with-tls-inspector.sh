@@ -5,6 +5,16 @@ NODE_BINARY=${NODE_BINARY:-node}
 TLS_INSPECTOR_ENTRY=/opt/gcac/tls-inspector/src/index.js
 GCAC_TOKEN_SECRET_FILE=${GCAC_TOKEN_SECRET_FILE:-/app/data/runtime/token-secret}
 
+resolve_pglite_data_dir() {
+  # 兼容旧版将 PGlite 单独挂载到 /var/lib/gcac/pglite 的部署。
+  if [ "${GCAC_PGLITE_DATA_DIR:-}" = /app/data/pglite ] \
+    && [ -d /var/lib/gcac/pglite ] \
+    && [ -n "$(find /var/lib/gcac/pglite -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ] \
+    && [ -z "$(find /app/data/pglite -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
+    export GCAC_PGLITE_DATA_DIR=/var/lib/gcac/pglite
+  fi
+}
+
 ensure_token_secret() {
   if [ -n "${GCAC_TOKEN_SECRET:-}" ]; then
     export GCAC_TOKEN_SECRET
@@ -32,6 +42,7 @@ if [ "${GCAC_DEPLOYMENT_ARCHITECTURE:-standard}" = small ]; then
   # Small deployments require only the KEK and public URL; the entrypoint generates and persists the remaining secrets.
   : "${GCAC_SECRET_KEK:?GCAC_SECRET_KEK is required}"
   : "${GCAC_PUBLIC_BASE_URL:?GCAC_PUBLIC_BASE_URL is required}"
+  resolve_pglite_data_dir
   ensure_token_secret
 fi
 
