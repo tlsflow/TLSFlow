@@ -18,7 +18,6 @@ import {
   GcDataTable,
   GcEmptyState,
   GcModal,
-  GcPageHeader,
   GcPageToolbar,
   GcPermissionButton,
 } from '@/design-system/components'
@@ -756,11 +755,6 @@ function toErrorMessage(cause: unknown, fallback: string) {
 
 <template>
   <section class="gc-page artifact-page">
-    <GcPageHeader
-      :title="t('bindings.list.title')"
-      :description="t('bindings.list.descriptionWithCount', { count: rows.length })"
-    />
-
     <GcPageToolbar class="artifact-page__hero-actions">
       <template #actions>
         <button class="gc-button" type="button" :aria-expanded="filtersVisible" @click="toggleFilters">{{ t('bindings.actions.toggleFilters') }}</button>

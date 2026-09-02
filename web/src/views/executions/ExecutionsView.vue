@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
-import { GcEmptyState, GcExecutionDetailModal, GcPageHeader, GcPageToolbar, GcStatusTag } from '@/design-system/components'
+import { GcEmptyState, GcExecutionDetailModal, GcPageToolbar, GcStatusTag } from '@/design-system/components'
 import { listApplications } from '@/api/modules/assets.api'
 import type { ApiRecord } from '@/api/modules/common'
 import { listDeploymentPlans } from '@/api/modules/deployments.api'
@@ -341,7 +341,6 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
 
 <template>
   <section class="gc-page execution-page">
-    <GcPageHeader :title="t('executions.title')" :description="t('executions.description')" />
     <GcPageToolbar>
       <template #actions>
         <button class="gc-button" type="button" :disabled="loading" @click="loadExecutions">
