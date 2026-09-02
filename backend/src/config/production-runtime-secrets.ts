@@ -48,6 +48,7 @@ const generatedEnvironmentKeys = [
   'GCAC_AGENT_LOCAL_POLICY_ROOT_PUBLIC_KEY_PEM',
   'GCAC_AGENT_LOCAL_POLICY_ROOT_FINGERPRINT_SHA256',
   'GCAC_AGENT_LOCAL_POLICY_BUNDLE_JSON',
+  'GCAC_CA_CONFIRMATION_SECRET',
 ] as const;
 
 type GeneratedEnvironmentKey = typeof generatedEnvironmentKeys[number];
@@ -86,9 +87,15 @@ export function ensureProductionRuntimeSecurityEnvironment(
   environment.GCAC_POLICY_AUTHORITY_SIGNING_KEYS_FILE = signingKeysFile;
   const encryptionSecret = requiredEncryptionSecret(environment);
   const configured = readConfiguredEnvironment(environment);
-  const generated = existsSync(secretsFile)
-    ? decryptRuntimeSecrets(secretsFile, encryptionSecret)
-    : configured ?? generateRuntimeEnvironment();
+  let needsRewrite = false;
+  let generated: RuntimeEnvironment;
+  if (existsSync(secretsFile)) {
+    const restored = decryptRuntimeSecrets(secretsFile, encryptionSecret);
+    generated = restored.environment;
+    needsRewrite = restored.needsRewrite;
+  } else {
+    generated = configured ?? generateRuntimeEnvironment();
+  }
 
   for (const key of generatedEnvironmentKeys) {
     const current = environment[key]?.trim();
@@ -112,9 +119,9 @@ export function ensureProductionRuntimeSecurityEnvironment(
   // 私钥只落在独立文件中，宿主进程环境不保留 JSON 副本。
   delete environment.GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON;
 
-  if (!existsSync(secretsFile)) {
+  if (!existsSync(secretsFile) || needsRewrite) {
     encryptRuntimeSecrets(secretsFile, encryptionSecret, generated);
-    process.stdout.write(`已生成并加密保存生产运行时安全材料：${secretsFile}\n`);
+    process.stdout.write(`${needsRewrite ? '已升级并重新加密' : '已生成并加密保存'}生产运行时安全材料：${secretsFile}\n`);
   }
 }
 
@@ -139,18 +146,19 @@ function requiredEncryptionSecret(environment: NodeJS.ProcessEnv): string {
 }
 
 function readConfiguredEnvironment(environment: NodeJS.ProcessEnv): RuntimeEnvironment | undefined {
-  const publicAndBundleKeys = generatedEnvironmentKeys.filter((key) => key !== 'GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON');
-  const present = publicAndBundleKeys.filter((key) => Boolean(environment[key]?.trim()));
+  const requiredKeys = generatedEnvironmentKeys.filter((key) => key !== 'GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON' && key !== 'GCAC_CA_CONFIRMATION_SECRET');
+  const present = requiredKeys.filter((key) => Boolean(environment[key]?.trim()));
   if (present.length === 0) return undefined;
-  if (present.length !== publicAndBundleKeys.length) {
-    const missing = publicAndBundleKeys.filter((key) => !environment[key]?.trim());
+  if (present.length !== requiredKeys.length) {
+    const missing = requiredKeys.filter((key) => !environment[key]?.trim());
     throw new Error(`生产安全材料配置不完整，缺少：${missing.join(', ')}`);
   }
   const signingKeysJson = environment.GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON?.trim()
     || readSigningKeysFile(environment.GCAC_POLICY_AUTHORITY_SIGNING_KEYS_FILE!);
   return {
-    ...Object.fromEntries(publicAndBundleKeys.map((key) => [key, environment[key]!])),
+    ...Object.fromEntries(requiredKeys.map((key) => [key, environment[key]!])),
     GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON: signingKeysJson,
+    GCAC_CA_CONFIRMATION_SECRET: environment.GCAC_CA_CONFIRMATION_SECRET?.trim() || generateCaConfirmationSecret(),
   } as RuntimeEnvironment;
 }
 
@@ -263,6 +271,7 @@ function generateRuntimeEnvironment(): RuntimeEnvironment {
       ...localPolicyBundleUnsigned,
       signature: signPolicyPayload(localPolicyBundleUnsigned, agentLocalRoot.privateKey),
     }),
+    GCAC_CA_CONFIRMATION_SECRET: generateCaConfirmationSecret(),
   };
 }
 
@@ -285,7 +294,7 @@ function encryptRuntimeSecrets(filePath: string, encryptionSecret: string, envir
   writePrivateJson(filePath, envelope);
 }
 
-function decryptRuntimeSecrets(filePath: string, encryptionSecret: string): RuntimeEnvironment {
+function decryptRuntimeSecrets(filePath: string, encryptionSecret: string): { environment: RuntimeEnvironment; needsRewrite: boolean } {
   let envelope: EncryptedRuntimeSecretsV1;
   try {
     envelope = JSON.parse(readFileSync(filePath, 'utf8')) as EncryptedRuntimeSecretsV1;
@@ -300,12 +309,17 @@ function decryptRuntimeSecrets(filePath: string, encryptionSecret: string): Runt
     decipher.setAuthTag(authTag);
     const payload = JSON.parse(Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8')) as RuntimeSecretsPayloadV1;
     if (payload.version !== runtimeSecretsVersion) throw new Error('载荷版本不匹配');
+    const needsRewrite = !payload.environment.GCAC_CA_CONFIRMATION_SECRET?.trim();
     const configured = readConfiguredEnvironment(payload.environment);
     if (!configured) throw new Error('载荷不包含完整安全材料');
-    return configured;
+    return { environment: configured, needsRewrite };
   } catch (error) {
     throw new Error(`生产运行时安全材料无法解密：${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+function generateCaConfirmationSecret(): string {
+  return randomBytes(32).toString('base64url');
 }
 
 function deriveKey(secret: string, salt: Buffer): Buffer {
