@@ -2337,6 +2337,26 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/applications/deployment-detail:
+    get:
+      operationId: "getApplicationDeploymentDetail"
+      summary: "查询 Application 部署轻量详情"
+      tags:
+        - "Assets"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/applications/detail:
     get:
       operationId: "getApplicationDetail"

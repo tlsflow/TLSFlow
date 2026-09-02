@@ -61,6 +61,7 @@ export class AssetsController {
     router.post('/api/v1/assets/actions', '执行统一资产动作', tags, (request) => this.executeUnifiedAssetAction(request));
     router.get('/api/v1/applications', '查询应用列表', tags, (request) => this.listServiceAssets(request, 'APPLICATION'));
     router.get('/api/v1/applications/edit-detail', '查询 Application 编辑详情', tags, (request) => this.getApplicationEditDetail(request));
+    router.get('/api/v1/applications/deployment-detail', '查询 Application 部署轻量详情', tags, (request) => this.getApplicationDeploymentDetail(request));
     router.get('/api/v1/applications/detail', '查询 Application 详情', tags, (request) => this.getApplicationDetail(request));
     router.get('/api/v1/applications/:applicationAssetId/linkage-status', '查询插件 Agent 联动状态', tags, (request) => this.getLinkageStatus(request));
     router.post('/api/v1/applications/:applicationAssetId/rescan', '重扫应用关联资产', tags, (request) => this.rescanApplicationAsset(request));
@@ -584,6 +585,16 @@ export class AssetsController {
         ? this.executionCompatibility.getForApplication(tenantId(request), applicationId).then((executionCompatibility) => ({ ...detail, executionCompatibility }))
         : detail;
     });
+  }
+
+  private async getApplicationDeploymentDetail(request: HttpRequest) {
+    const applicationId = String(request.query.applicationId ?? request.query.id ?? '').trim();
+    if (!applicationId) throw new AppError('VALIDATION_FAILED', 'applicationId 不能为空', { field: 'applicationId' });
+    const subject = this.subjectFromRequest(request);
+    await this.assertCan(subject, 'application.read', 'service_asset', request, applicationId);
+    const detail = await this.service.getServiceAssetDeploymentDetail(tenantId(request), applicationId);
+    if (!detail) throw new AppError('RESOURCE_NOT_FOUND', 'Application 不存在', { applicationId });
+    return detail;
   }
 
   private async getApplicationEditDetail(request: HttpRequest) {
@@ -1307,6 +1318,7 @@ export function getAssetsRouteContracts(): RouteContract[] {
     },
     { method: 'GET', path: '/api/v1/applications', operationId: 'listApplications', summary: '查询 Application 列表', tags, responseSchema: pageSchema() },
     { method: 'GET', path: '/api/v1/applications/edit-detail', operationId: 'getApplicationEditDetail', summary: '查询 Application 编辑详情', tags, responseSchema: objectSchema() },
+    { method: 'GET', path: '/api/v1/applications/deployment-detail', operationId: 'getApplicationDeploymentDetail', summary: '查询 Application 部署轻量详情', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/applications/detail', operationId: 'getApplicationDetail', summary: '查询 Application 详情', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/applications/:applicationAssetId/linkage-status', operationId: 'getApplicationAssetLinkageStatus', summary: '查询插件 Agent 联动状态', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/applications/:applicationAssetId/rescan', operationId: 'rescanApplicationAsset', summary: '重扫应用关联资产', tags, responseSchema: objectSchema() },

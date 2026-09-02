@@ -332,6 +332,11 @@ export class AssetsApplicationService {
     return this.repository.getServiceAssetEditDetail(tenantId, serviceAssetId);
   }
 
+  /** 部署弹窗只需要资产、目标和证书绑定上下文，禁止复用重型详情投影。 */
+  async getServiceAssetDeploymentDetail(tenantId: string, serviceAssetId: string) {
+    return this.repository.getServiceAssetDeploymentDetail(tenantId, serviceAssetId);
+  }
+
   async getServiceAssetDetail(tenantId: string, serviceAssetId: string) {
     const detail = await this.repository.getServiceAssetDetail(tenantId, serviceAssetId);
     if (!detail) return detail;

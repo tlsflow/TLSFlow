@@ -68,6 +68,7 @@ export interface AssetsRepository {
   listServiceAssets(tenantId: string, query: PageQuery): Promise<PageResult<ServiceAssetDto>>;
   getServiceAsset(tenantId: string, serviceAssetId: string): Promise<ServiceAssetDto | undefined>;
   getServiceAssetEditDetail(tenantId: string, serviceAssetId: string): Promise<ServiceAssetDetailDto | undefined>;
+  getServiceAssetDeploymentDetail(tenantId: string, serviceAssetId: string): Promise<ServiceAssetDetailDto | undefined>;
   getServiceAssetDetail(tenantId: string, serviceAssetId: string): Promise<ServiceAssetDetailDto | undefined>;
   getServiceAssetIncludingDeleted(tenantId: string, serviceAssetId: string): Promise<ServiceAssetDto | undefined>;
   findServiceAssetByIdentity(tenantId: string, input: { address: string; port: number; protocol: string }): Promise<ServiceAssetDto | undefined>;
@@ -519,6 +520,18 @@ export class PgAssetsRepository implements AssetsRepository {
         managedTarget,
         certificateBindings: [],
       },
+    };
+  }
+
+  async getServiceAssetDeploymentDetail(tenantId: string, serviceAssetId: string): Promise<ServiceAssetDetailDto | undefined> {
+    const asset = await this.getServiceAssetEditDetail(tenantId, serviceAssetId);
+    if (!asset) return undefined;
+    const targetBindingDetail = await this.getApplicationAssetTargetDetailByApplicationAssetId(tenantId, serviceAssetId);
+    return {
+      ...asset,
+      targetBindingDetail: targetBindingDetail
+        ? { ...(asset.targetBindingDetail ?? {}), ...targetBindingDetail }
+        : asset.targetBindingDetail,
     };
   }
 
@@ -1044,20 +1057,21 @@ export class PgAssetsRepository implements AssetsRepository {
   }
 
   async listManagedTargetSnapshots(tenantId: string, query: PageQuery): Promise<PageResult<ManagedTargetSnapshotDto>> {
-    if (canUseSqlPage(query, [])) {
+    if (canUseSqlPage(query, ['applicationAssetId'])) {
+      const applicationAssetId = query.filter.applicationAssetId ?? null;
       const countResult = await this.db.query<{ count: string }>(
-        `select count(*)::text as count from pg_managed_target_snapshots where tenant_id = $1`,
-        [tenantId],
+        `select count(*)::text as count from pg_managed_target_snapshots where tenant_id = $1 and ($2::text is null or application_asset_id = $2)`,
+        [tenantId, applicationAssetId],
       );
       const sortColumn = managedTargetSnapshotSortColumn(query.sort?.field);
       const direction = query.sort?.direction === 'asc' ? 'asc' : 'desc';
       const offset = Math.max(0, (query.page - 1) * query.pageSize);
       const rows = (await this.db.query<ManagedTargetSnapshotRow>(
         `select * from pg_managed_target_snapshots
-          where tenant_id = $1
+          where tenant_id = $1 and ($4::text is null or application_asset_id = $4)
           order by ${sortColumn} ${direction}, id desc
           limit $2 offset $3`,
-        [tenantId, query.pageSize, offset],
+        [tenantId, query.pageSize, offset, applicationAssetId],
       )).rows.map(toManagedTargetSnapshot);
       return { items: rows, page: query.page, pageSize: query.pageSize, total: Number(countResult.rows[0]?.count ?? 0) };
     }

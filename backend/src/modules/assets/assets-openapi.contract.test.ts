@@ -29,7 +29,10 @@ test('SiteAsset OpenAPI 请求合同声明 configPath 且不承载密码', () =>
 test('Application 编辑使用独立轻量详情路由', () => {
   const routes = getAssetsRouteContracts();
   const editDetail = routes.find((route) => route.operationId === 'getApplicationEditDetail');
+  const deploymentDetail = routes.find((route) => route.operationId === 'getApplicationDeploymentDetail');
   assert.equal(editDetail?.method, 'GET');
   assert.equal(editDetail?.path, '/api/v1/applications/edit-detail');
+  assert.equal(deploymentDetail?.method, 'GET');
+  assert.equal(deploymentDetail?.path, '/api/v1/applications/deployment-detail');
   assert.equal(routes.some((route) => route.operationId === 'getApplicationDetail'), true);
 });

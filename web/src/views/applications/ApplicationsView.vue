@@ -3,7 +3,7 @@ import { computed, nextTick, reactive, ref, watch, type Directive } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
-import { createServiceAsset, deleteServiceAsset, enqueueApplicationCertificateDeployment, getApplicationEditDetail, getApplicationDetail, getApplicationAssetLinkageStatus, getApplicationCertificateSupplyPolicy, getManagedTargetEffectiveCapability, listApplications, listAssets, listManagedTargets, listManagedTargetCompatiblePlugins, listManagedTargetSnapshots, listFrameworkInstances, listSiteAssets, previewApplicationCertificateSupplyPolicy, repairApplicationAssetLinkage, saveApplicationAssetManagedTarget, saveApplicationAssetStandaloneWorkflow, saveApplicationCertificateSupplyPolicy, updateServiceAsset } from '@/api/modules/assets.api'
+import { createServiceAsset, deleteServiceAsset, enqueueApplicationCertificateDeployment, getApplicationEditDetail, getApplicationDetail, getApplicationDeploymentDetail, getApplicationAssetLinkageStatus, getApplicationCertificateSupplyPolicy, getManagedTargetEffectiveCapability, listApplications, listAssets, listManagedTargets, listManagedTargetCompatiblePlugins, listManagedTargetSnapshots, listFrameworkInstances, listSiteAssets, previewApplicationCertificateSupplyPolicy, repairApplicationAssetLinkage, saveApplicationAssetManagedTarget, saveApplicationAssetStandaloneWorkflow, saveApplicationCertificateSupplyPolicy, updateServiceAsset } from '@/api/modules/assets.api'
 import { rollbackExecution } from '@/api/modules/executions.api'
 import { listGateways } from '@/api/modules/gateways.api'
 import { getWorkflowExecutionBinding, listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
@@ -1156,7 +1156,10 @@ async function openDetailModal(row: ViewRow) {
 }
 
 async function openDeploymentDialog(row?: ViewRow) {
-  if (row) await loadApplicationAssetContext(row)
+  if (row) {
+    selectedServiceAsset.value = row
+    selectedAssetDetail.value = null
+  }
   const applicationAssetId = selectedApplicationAssetId.value
   if (!applicationAssetId) return
   deploymentDialogOpen.value = true
@@ -1190,7 +1193,22 @@ async function loadDeploymentDialogOptions() {
   deploymentErrorIssues.value = []
   try {
     const applicationAssetId = selectedApplicationAssetId.value
-    const supplyPolicy = await getApplicationCertificateSupplyPolicy(applicationAssetId)
+    const initialCertificateAssetId = deploymentCertificateAssetId.value
+    const listedVersionsPromise = initialCertificateAssetId
+      ? fetchAllRecords((page, pageSize) => listCertificateVersions({
+          page,
+          pageSize,
+          sort: 'createdAt:desc',
+          filters: { certificateAssetId: initialCertificateAssetId },
+        }))
+      : Promise.resolve<ApiRecord[]>([])
+    // 详情和供应策略互不依赖，必须并行启动；两者都不再经过完整详情/linkage 链路。
+    const [detailResult, supplyPolicy, initialListedVersions] = await Promise.all([
+      getApplicationDeploymentDetail(applicationAssetId),
+      getApplicationCertificateSupplyPolicy(applicationAssetId),
+      listedVersionsPromise,
+    ])
+    selectedAssetDetail.value = detailResult.data ?? null
     deploymentCertificateSupplyData.value = (supplyPolicy.data ?? {}) as CertificateSupplyData
     deploymentCertificateSupplyResolved.value = true
     const currentVersion = deploymentCertificateSupplyData.value.currentVersion ?? {}
@@ -1206,9 +1224,9 @@ async function loadDeploymentDialogOptions() {
       certificateAssetId = deploymentCertificateAssetId.value
     }
     const supplyMode = String(currentVersion.supplyMode ?? '').toLowerCase()
-    let listedVersions: ApiRecord[] = []
+    let listedVersions: ApiRecord[] = initialListedVersions
     let versionListError: unknown = null
-    if (certificateAssetId) {
+    if (certificateAssetId && certificateAssetId !== initialCertificateAssetId) {
       try {
         listedVersions = await fetchAllRecords((page, pageSize) => listCertificateVersions({
           page,

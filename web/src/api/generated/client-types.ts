@@ -116,6 +116,7 @@ export const apiContractMetadata: ApiContractMetadata = {
     "/api/v1/applications/:applicationAssetId/linkage-status",
     "/api/v1/applications/:applicationAssetId/rescan",
     "/api/v1/applications/delete",
+    "/api/v1/applications/deployment-detail",
     "/api/v1/applications/detail",
     "/api/v1/applications/edit-detail",
     "/api/v1/approvals",

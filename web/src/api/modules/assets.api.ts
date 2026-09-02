@@ -56,6 +56,11 @@ export function getApplicationDetail(applicationId: string): Promise<ApiRecordRe
   return apiClient.get<ApiRecord>(`${toClientPath(`${APPLICATIONS_PATH}/detail`)}?applicationId=${encodeURIComponent(applicationId)}`)
 }
 
+/** 部署弹窗专用轻量详情；不读取快照、证书投影或执行兼容性。 */
+export function getApplicationDeploymentDetail(applicationAssetId: string): Promise<ApiRecordResult> {
+  return apiClient.get<ApiRecord>(`${toClientPath(`${APPLICATIONS_PATH}/deployment-detail`)}?applicationId=${encodeURIComponent(applicationAssetId)}`)
+}
+
 /** 编辑首屏专用轻量详情，不包含证书投影、联动诊断和执行兼容性。 */
 export function getApplicationEditDetail(applicationId: string): Promise<ApiRecordResult> {
   return apiClient.get<ApiRecord>(`${toClientPath(`${APPLICATIONS_PATH}/edit-detail`)}?applicationId=${encodeURIComponent(applicationId)}`)
