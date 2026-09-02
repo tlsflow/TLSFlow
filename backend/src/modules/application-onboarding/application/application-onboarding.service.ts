@@ -67,6 +67,8 @@ export class ApplicationOnboardingService {
     const byPlatform = new Map<string, OnboardingPlatformDto>();
     for (const version of versions) {
       if (version.status !== 'ENABLED' || !version.manifest.resources.onboarding) continue;
+      // CA/签发插件没有应用资产实体，不进入应用接入向导的平台选择。
+      if (version.manifest.productCategory === 'CA_ISSUANCE') continue;
       try {
         for (const bundle of this.loadVersion(version)) {
           const current = byPlatform.get(bundle.recipe.platformKey);
@@ -77,6 +79,7 @@ export class ApplicationOnboardingService {
             byPlatform.set(bundle.recipe.platformKey, {
               platformKey: bundle.recipe.platformKey,
               source: 'PLUGIN',
+              ...(version.manifest.productCategory ? { productCategory: version.manifest.productCategory } : {}),
               pluginVersionId: bundle.pluginVersionId,
               pluginId: bundle.pluginId,
               pluginVersion: bundle.pluginVersion,

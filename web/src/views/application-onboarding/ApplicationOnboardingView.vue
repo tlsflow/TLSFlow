@@ -38,7 +38,8 @@ import type { DeviceOnboardingInitialSelection } from '@/views/devices/device-on
 import { createInputBindingsV1, readInputBindingsV1 } from '@/views/assets/asset-input-bindings.model'
 
 interface PlatformBusinessMetadata { capabilityVersion: string; compatibleVersions: string[]; requiredInformation: string[] }
-interface Platform { platformKey: string; source: 'PLUGIN' | 'CUSTOM_MANUAL'; pluginVersionId?: string; displayNameKey: string; displayName?: string; description?: string; logoUrl?: string; logoSquareUrl?: string; businessMetadata?: PlatformBusinessMetadata; deploymentMode?: string; deviceSelection?: 'EXISTING_OR_NEW' | 'EXISTING_ONLY' | 'NONE'; newDeviceOnboarding?: DeviceOnboardingInitialSelection; supportStatus?: string; acceptedCertificateFormats?: string[]; deploymentDefaults?: ApplicationAssetDeploymentDefaults }
+type ProductCategory = 'WEB_SITE' | 'APPLICATION_MIDDLEWARE' | 'NETWORK_GATEWAY' | 'CLOUD_PLATFORM'
+interface Platform { platformKey: string; source: 'PLUGIN' | 'CUSTOM_MANUAL'; productCategory?: ProductCategory; pluginVersionId?: string; displayNameKey: string; displayName?: string; description?: string; logoUrl?: string; logoSquareUrl?: string; businessMetadata?: PlatformBusinessMetadata; deploymentMode?: string; deviceSelection?: 'EXISTING_OR_NEW' | 'EXISTING_ONLY' | 'NONE'; newDeviceOnboarding?: DeviceOnboardingInitialSelection; supportStatus?: string; acceptedCertificateFormats?: string[]; deploymentDefaults?: ApplicationAssetDeploymentDefaults }
 interface Session { id: string; platformKey: string; state: string; stateVersion: number; deploymentMode?: string; deviceId?: string | null; assetId?: string | null; targetId?: string | null; certificateId?: string | null; certificateVersionId?: string | null; targets?: Target[]; inputSnapshot?: Record<string, unknown>; lastErrorCode?: string }
 interface TargetEndpoint { host?: string; port?: number; protocol?: string }
 interface Target { managedTargetId: string; displayName: string; targetType: string; endpoint?: TargetEndpoint; configFingerprint: string; selectable: boolean; reasonCode?: string }
@@ -173,6 +174,14 @@ const platformSearchKeyword = computed({
     standalonePlatformKeyword.value = value
   },
 })
+const platformCategory = ref<'all' | ProductCategory>('all')
+const platformCategoryOptions: ReadonlyArray<{ value: 'all' | ProductCategory; labelKey: string }> = [
+  { value: 'all', labelKey: 'plugins.categories.all' },
+  { value: 'WEB_SITE', labelKey: 'plugins.categories.WEB_SITE' },
+  { value: 'APPLICATION_MIDDLEWARE', labelKey: 'plugins.categories.APPLICATION_MIDDLEWARE' },
+  { value: 'NETWORK_GATEWAY', labelKey: 'plugins.categories.NETWORK_GATEWAY' },
+  { value: 'CLOUD_PLATFORM', labelKey: 'plugins.categories.CLOUD_PLATFORM' },
+]
 const stepLabels = computed(() => [
   t('applicationOnboarding.steps.platform'), t('applicationOnboarding.steps.device'), t('applicationOnboarding.steps.target'), t('applicationOnboarding.steps.certificate'), t('applicationOnboarding.steps.complete')
 ])
@@ -181,8 +190,9 @@ const hasPlatformKeyword = computed(() => platformSearchKeyword.value.trim().len
 const sortedPlatforms = computed(() => [...platforms.value].sort(comparePlatformsByName))
 const filteredPlatforms = computed(() => {
   const keyword = platformSearchKeyword.value.trim().toLocaleLowerCase(locale.value)
-  if (!keyword) return sortedPlatforms.value
   return sortedPlatforms.value.filter((platform) => {
+    // 自定义手动创建不是插件分类，只在“全部”视图保留。
+    if (platformCategory.value !== 'all' && (platform.source === 'CUSTOM_MANUAL' || platform.productCategory !== platformCategory.value)) return false
     const metadata = platform.businessMetadata
     const searchableValues = [
       platformLabel(platform),
@@ -191,7 +201,7 @@ const filteredPlatforms = computed(() => {
       ...(metadata?.compatibleVersions ?? []),
       ...(metadata?.requiredInformation ?? []),
     ]
-    return searchableValues.some((value) => String(value ?? '').toLocaleLowerCase(locale.value).includes(keyword))
+    return !keyword || searchableValues.some((value) => String(value ?? '').toLocaleLowerCase(locale.value).includes(keyword))
   })
 })
 // 站点选择步骤只展示实际可用的受管目标；停用或不满足选择条件的目标不显示。
@@ -1025,6 +1035,20 @@ defineExpose({ goPrevious, runFooterPrimary, cancel })
           >
         </label>
       </div>
+      <div class="platform-category-tabs" role="tablist" :aria-label="t('plugins.categories.label')">
+        <button
+          v-for="option in platformCategoryOptions"
+          :key="option.value"
+          class="platform-category-tab"
+          :class="{ 'platform-category-tab--active': platformCategory === option.value }"
+          type="button"
+          role="tab"
+          :aria-selected="platformCategory === option.value"
+          @click="platformCategory = option.value"
+        >
+          {{ t(option.labelKey) }}
+        </button>
+      </div>
       <div class="platform-grid">
         <div
           v-if="loading && platforms.length === 0"
@@ -1054,7 +1078,10 @@ defineExpose({ goPrevious, runFooterPrimary, cancel })
             size="onboarding"
           />
           <span class="platform-card__copy">
-            <strong>{{ platformLabel(platform) }}</strong>
+            <span class="platform-card__title-row">
+              <strong>{{ platformLabel(platform) }}</strong>
+              <small v-if="platform.productCategory" class="platform-card__category">{{ t(`plugins.categories.${platform.productCategory}`) }}</small>
+            </span>
             <small v-if="platform.source === 'CUSTOM_MANUAL'">{{ t('applicationOnboarding.platforms.manualHint') }}</small>
             <span v-if="platform.businessMetadata" class="platform-card__metadata">
               <small class="platform-card__metadata-row"><span>{{ t('applicationOnboarding.platforms.capabilityVersion') }}</span><span>{{ platform.businessMetadata.capabilityVersion }}</span></small>
@@ -1254,6 +1281,10 @@ h1, h2, p { margin: 0; }
 .platform-plugin-link:focus-visible { outline: none; border-radius: var(--gc-radius-control); box-shadow: var(--gc-shadow-focus); }
 .platform-plugin-link svg { inline-size: var(--gc-size-icon-sm); block-size: var(--gc-size-icon-sm); fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: var(--gc-border-width-thick); }
 .platform-selection__sr-only { position: absolute; inline-size: var(--gc-space-hairline); block-size: var(--gc-space-hairline); padding: 0; margin: calc(var(--gc-space-hairline) * -1); overflow: hidden; white-space: nowrap; clip-path: inset(50%); border: 0; }
+.platform-category-tabs { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); padding-block-end: var(--gc-space-1); overflow-x: auto; }
+.platform-category-tab { min-block-size: var(--gc-control-height-sm); padding: 0 var(--gc-space-4); color: var(--gc-color-text-muted); cursor: pointer; background: var(--gc-color-surface); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-control); font-size: var(--gc-font-size-sm); font-weight: var(--gc-font-weight-semibold); white-space: nowrap; }
+.platform-category-tab:hover { color: var(--gc-color-primary); border-color: var(--gc-color-primary-border); }
+.platform-category-tab--active { color: var(--gc-color-primary); background: var(--gc-color-primary-soft); border-color: var(--gc-color-primary-border-strong); }
 .platform-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: var(--gc-size-application-onboarding-card); align-content: start; min-block-size: 0; max-block-size: min(54vh, calc(100vh - (var(--gc-space-10) * 5))); gap: var(--gc-space-3); padding-inline-end: var(--gc-space-2); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .onboarding-platform-loading { display: flex; align-items: center; justify-content: center; min-block-size: var(--gc-size-card-min); gap: var(--gc-space-2); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); font-weight: var(--gc-font-weight-semibold); }
 .onboarding-platform-loading__spinner { inline-size: var(--gc-space-5); aspect-ratio: 1; border: var(--gc-border-width-thick) solid var(--gc-color-primary-border); border-top-color: var(--gc-color-primary); border-radius: var(--gc-radius-full); animation: application-onboarding-platform-spin 700ms linear infinite; }
@@ -1264,7 +1295,9 @@ h1, h2, p { margin: 0; }
 .platform-card:disabled { cursor: not-allowed; opacity: var(--gc-opacity-disabled); }
 .platform-card--review { background: var(--gc-color-surface); }
 .platform-card__copy { display: grid; min-inline-size: 0; gap: var(--gc-space-compact); }
+.platform-card__title-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--gc-space-2); min-inline-size: 0; }
 .platform-card__copy strong { color: var(--gc-color-text-strong); font-size: var(--gc-font-size-label); line-height: var(--gc-line-height-tight); overflow-wrap: anywhere; }
+.platform-card__category { display: inline-flex; align-items: center; min-block-size: var(--gc-space-5); padding-inline: var(--gc-space-2); color: var(--gc-color-primary); background: var(--gc-color-primary-soft); border: var(--gc-border-width) solid var(--gc-color-primary-border); border-radius: var(--gc-radius-sm); font-size: var(--gc-font-size-xs); line-height: var(--gc-line-height-tight); white-space: nowrap; }
 .platform-card__copy small { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-caption); line-height: var(--gc-line-height-tight); overflow-wrap: anywhere; }
 .platform-card__metadata { display: grid; gap: var(--gc-space-compact); }
 .platform-card__metadata-row { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: baseline; column-gap: var(--gc-space-compact); }

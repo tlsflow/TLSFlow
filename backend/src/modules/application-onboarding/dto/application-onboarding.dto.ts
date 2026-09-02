@@ -4,6 +4,7 @@ import type {
   ApplicationOnboardingRecipeV1,
 } from '../recipe/application-onboarding-recipe.dto.js';
 import type { InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
+import type { ProductCategory } from '../../../shared/enums/core.enums.js';
 
 export type OnboardingSessionState =
   | 'CREATED'
@@ -32,6 +33,8 @@ export interface OnboardingPlatformBusinessMetadataDto {
 export interface OnboardingPlatformDto {
   platformKey: string;
   source: 'PLUGIN' | 'CUSTOM_MANUAL';
+  /** 直接取自插件 Manifest，用于平台选择页分类展示；不写入应用资产。 */
+  productCategory?: ProductCategory;
   pluginVersionId?: string;
   pluginId?: string;
   pluginVersion?: string;

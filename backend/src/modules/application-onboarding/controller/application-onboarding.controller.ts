@@ -196,8 +196,15 @@ function stateVersionBody(request: HttpRequest): { expectedStateVersion: number;
 
 export function getApplicationOnboardingRouteContracts(): RouteContract[] {
   const schema = { type: 'object', additionalProperties: true } as const;
+  const platformSchema = {
+    type: 'object',
+    additionalProperties: true,
+    properties: {
+      productCategory: { type: 'string', enum: ['WEB_SITE', 'APPLICATION_MIDDLEWARE', 'NETWORK_GATEWAY', 'CLOUD_PLATFORM', 'CA_ISSUANCE'] },
+    },
+  } as const;
   return [
-    { method: 'GET', path: '/api/v1/application-onboarding/platforms', operationId: 'listApplicationOnboardingPlatforms', summary: '查询应用接入平台', tags, responseSchema: { type: 'array', items: schema } },
+    { method: 'GET', path: '/api/v1/application-onboarding/platforms', operationId: 'listApplicationOnboardingPlatforms', summary: '查询应用接入平台', tags, responseSchema: { type: 'array', items: platformSchema } },
     { method: 'POST', path: '/api/v1/application-onboarding/sessions', operationId: 'createApplicationOnboardingSession', summary: '创建应用接入会话', tags, responseSchema: schema },
     { method: 'GET', path: '/api/v1/application-onboarding/sessions/:id', operationId: 'getApplicationOnboardingSession', summary: '查询应用接入会话', tags, responseSchema: schema },
     { method: 'GET', path: '/api/v1/application-onboarding/sessions/:id/devices', operationId: 'listApplicationOnboardingDevices', summary: '查询可选择接入设备', tags, responseSchema: { type: 'object', additionalProperties: true } },

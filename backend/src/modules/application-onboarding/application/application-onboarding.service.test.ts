@@ -6,6 +6,7 @@ import type { UnifiedPluginsApplicationService } from '../../plugins/application
 import type { LoadedApplicationOnboardingRecipe } from '../recipe/index.js';
 import type { ApplicationOnboardingSessionDto, OnboardingTargetOptionDto } from '../dto/application-onboarding.dto.js';
 import { ApplicationOnboardingService, type OnboardingExecutionPort } from './application-onboarding.service.js';
+import type { ProductCategory } from '../../../shared/enums/core.enums.js';
 
 test('已有设备必须提供设备 ID 并经过可注入校验端口', async () => {
   const calls: string[] = [];
@@ -80,10 +81,17 @@ test('过期会话只进入一次失败终态，重复查询不得继续递增�
 test('平台目录解析插件 Locale，不把插件翻译 key 交给前端显示', async () => {
   const { service } = fixture({ execution: {} });
   const platform = (await service.listPlatforms('tenant-1', 'zh-CN')).find((item) => item.platformKey === 'vendor.test-platform');
+  assert.equal(platform?.productCategory, 'WEB_SITE');
   assert.equal(platform?.displayName, '测试平台');
   assert.equal(platform?.logoUrl, '/api/v1/plugin-versions/plugin-version-1/resources/logos/horizontal');
   assert.equal(platform?.logoSquareUrl, '/api/v1/plugin-versions/plugin-version-1/resources/logos/square');
   assert.deepEqual(platform?.acceptedCertificateFormats, ['PEM']);
+});
+
+test('应用接入平台目录跳过 CA/签发分类', async () => {
+  const { service } = fixture({ execution: {}, productCategory: 'CA_ISSUANCE' });
+  const platforms = await service.listPlatforms('tenant-1');
+  assert.deepEqual(platforms.map((item) => item.platformKey), ['CUSTOM_MANUAL']);
 });
 
 test('证书选项只通过宿主端口提供，并携带插件声明的证书格式', async () => {
@@ -414,12 +422,12 @@ test('连接测试失败时不得调用站点发现，会话进入失败终态�
   assert.deepEqual(calls, ['validate', 'test'], '连接测试失败后不得调用站点发现');
 });
 
-function fixture(options: { recipe?: LoadedApplicationOnboardingRecipe; execution: OnboardingExecutionPort }): {
+function fixture(options: { recipe?: LoadedApplicationOnboardingRecipe; execution: OnboardingExecutionPort; productCategory?: ProductCategory }): {
   service: ApplicationOnboardingService;
   repository: MemoryRepository;
 } {
   const selectedRecipe = options.recipe ?? recipe('MANAGED_TARGET');
-  const pluginVersion = pluginVersionRecord(selectedRecipe);
+  const pluginVersion = pluginVersionRecord(selectedRecipe, '2026-08-14T00:00:00.000Z', options.productCategory ?? 'WEB_SITE');
   const repository = new MemoryRepository();
   const plugins = {
     listAccessibleVersions: async () => [pluginVersion],
@@ -435,6 +443,7 @@ function fixture(options: { recipe?: LoadedApplicationOnboardingRecipe; executio
 function pluginVersionRecord(
   selectedRecipe: LoadedApplicationOnboardingRecipe,
   updatedAt = '2026-08-14T00:00:00.000Z',
+  productCategory: ProductCategory = 'WEB_SITE',
 ): UnifiedPluginVersionRecord {
   const metadataMessages = Object.fromEntries([
     ...(selectedRecipe.recipe.platformMetadata?.compatibilityKeys ?? []).map((key) => [key, '测试平台 1.0']),
@@ -446,6 +455,7 @@ function pluginVersionRecord(
     version: selectedRecipe.pluginVersion,
     status: 'ENABLED',
     manifest: {
+      productCategory,
       defaultLocale: 'zh-CN',
       resources: {
         logos: { horizontal: 'logos/logo.svg', square: 'logos/logo-square.svg' },

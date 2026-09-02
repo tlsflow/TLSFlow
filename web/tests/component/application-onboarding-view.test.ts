@@ -142,6 +142,24 @@ describe('ApplicationOnboardingView', () => {
     expect(wrapper.findAll('.platform-card').map((card) => card.find('strong').text())).toEqual(['Custom manual setup', 'Citrix ADC', 'IIS'])
   })
 
+  it('平台选择按插件产品分类筛选，并隐藏 CA 与签发分类入口', async () => {
+    onboardingMocks.listOnboardingPlatforms.mockResolvedValue(response({
+      items: [
+        { platformKey: 'web.iis', source: 'PLUGIN', productCategory: 'WEB_SITE', displayName: 'IIS', displayNameKey: 'applicationOnboarding.platforms.iis', supportStatus: 'SUPPORTED' },
+        { platformKey: 'app.tomcat', source: 'PLUGIN', productCategory: 'APPLICATION_MIDDLEWARE', displayName: 'Tomcat', displayNameKey: 'applicationOnboarding.platforms.tomcat', supportStatus: 'SUPPORTED' },
+        { platformKey: 'custom.manual', source: 'CUSTOM_MANUAL', displayName: 'Custom manual setup', displayNameKey: 'applicationOnboarding.platforms.customManual', supportStatus: 'SUPPORTED' },
+      ],
+    }))
+
+    const wrapper = mount(ApplicationOnboardingView, { global: { plugins: [i18n] } })
+    await flushPromises()
+
+    expect(wrapper.findAll('.platform-category-tab').map((tab) => tab.text())).toEqual(['全部', 'Web 站点', '应用中间件', '网络与设备', '云平台'])
+    expect(wrapper.find('.platform-card__category').text()).toBe('Web 站点')
+    await wrapper.findAll('.platform-category-tab')[2].trigger('click')
+    expect(wrapper.findAll('.platform-card').map((card) => card.find('strong').text())).toEqual(['Tomcat'])
+  })
+
   it('搜索平台时按平台名称过滤，并可从底部入口打开插件中心', async () => {
     onboardingMocks.listOnboardingPlatforms.mockResolvedValue(response({
       items: [
