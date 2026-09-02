@@ -1889,7 +1889,8 @@ export default {
     },
     page: {
       description: 'Управление Gateway agent региональной маршрутизации.',
-      title: 'Шлюзы'
+      title: 'Шлюзы',
+      testingNotice: 'Функции шлюза проходят тестирование'
     },
     platforms: {
       linuxSystemd: {

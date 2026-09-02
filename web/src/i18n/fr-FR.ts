@@ -1911,7 +1911,8 @@ export default {
     },
     page: {
       description: 'Manage regional routing Gateway agents.',
-      title: 'Gateways'
+      title: 'Gateways',
+      testingNotice: 'Les fonctions de passerelle sont en cours de test'
     },
     platforms: {
       linuxSystemd: {

@@ -1889,7 +1889,8 @@ export default {
     },
     page: {
       description: 'Gerencie Gateway agents de roteamento regional.',
-      title: 'Gateways'
+      title: 'Gateways',
+      testingNotice: 'Os recursos do gateway estão em teste'
     },
     platforms: {
       linuxSystemd: {

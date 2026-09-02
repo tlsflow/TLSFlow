@@ -355,7 +355,8 @@ defineExpose({
         <div class="business-page__toolbar">
           <div class="business-page__toolbar-title">
             <strong>{{ resourceListLabel }}</strong>
-            <span v-if="!config.showTotalInPagination">{{ t('businessPage.total', { count: state.total.value }) }}</span>
+            <span v-if="config.resourceListNote" class="business-page__toolbar-note">{{ config.resourceListNote }}</span>
+            <span v-else-if="!config.showTotalInPagination">{{ t('businessPage.total', { count: state.total.value }) }}</span>
           </div>
           <GcPageToolbar class="business-page__toolbar-actions">
             <template #actions>
@@ -630,6 +631,7 @@ defineExpose({
 .business-page__toolbar-title { display: grid; gap: var(--gc-space-1); }
 .business-page__toolbar-title strong { font-size: var(--gc-font-size-sm); letter-spacing: 0; }
 .business-page__toolbar-title span { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); font-weight: 650; }
+.business-page__toolbar-title span.business-page__toolbar-note { color: var(--gc-color-danger); }
 .business-page__toolbar-actions { min-width: 0; }
 .business-page__toolbar-actions :deep(.gc-button),
 .business-page__toolbar-actions :deep(.gc-permission-button),

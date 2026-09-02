@@ -1914,7 +1914,8 @@ export default {
     },
     page: {
       description: "管理區域路由 Gateway Agent。",
-      title: "閘道"
+      title: "閘道",
+      testingNotice: "閘道功能正在測試"
     },
     platforms: {
       linuxSystemd: {

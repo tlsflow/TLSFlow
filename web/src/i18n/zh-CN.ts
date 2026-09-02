@@ -2019,7 +2019,8 @@ export default {
     },
     page: {
       description: '管理区域路由 Gateway Agent。',
-      title: '网关'
+      title: '网关',
+      testingNotice: '网关功能正在测试'
     },
     platforms: {
       linuxSystemd: {

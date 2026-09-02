@@ -1889,7 +1889,8 @@ export default {
     },
     page: {
       description: '관리 지역은 Gateway agent로 라우팅한다.',
-      title: '게이트웨이'
+      title: '게이트웨이',
+      testingNotice: '게이트웨이 기능을 테스트 중입니다'
     },
     platforms: {
       linuxSystemd: {

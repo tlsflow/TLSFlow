@@ -1997,7 +1997,8 @@ export default {
     },
     page: {
         description: 'Manage regional routing gateway agents.',
-      title: 'Gateways'
+      title: 'Gateways',
+      testingNotice: 'Gateway features are being tested'
     },
     platforms: {
       linuxSystemd: {

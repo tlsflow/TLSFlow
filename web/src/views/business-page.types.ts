@@ -88,6 +88,8 @@ export interface BusinessPageConfig {
   readonly resourceName: string
   /** 可选的列表标题；未提供时沿用“{resource} list”。 */
   readonly resourceListLabel?: string
+  /** 可选的列表标题提示文案。 */
+  readonly resourceListNote?: string
   readonly defaultStatus: string
   readonly defaultRisk: RiskCode
   readonly columns: readonly BusinessPageColumn[]

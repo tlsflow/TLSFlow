@@ -1915,7 +1915,8 @@ export default {
     },
     page: {
       description: '管理ゾーン路由 Gateway agent。',
-      title: 'ゲートウェイ'
+      title: 'ゲートウェイ',
+      testingNotice: 'ゲートウェイ機能はテスト中です'
     },
     platforms: {
       linuxSystemd: {

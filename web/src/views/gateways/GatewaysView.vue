@@ -254,6 +254,7 @@ const config = computed<BusinessPageConfig>(() => ({
   primaryAction: openGatewayInstallModal,
   moduleName: 'gateways',
   resourceName: t('gateways.resourceName'),
+  resourceListNote: t('gateways.page.testingNotice'),
   defaultStatus: 'ONLINE',
   defaultRisk: 'MEDIUM',
   columns: [
