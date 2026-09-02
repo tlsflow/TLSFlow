@@ -70,6 +70,7 @@ describe('应用资产卡片契约', () => {
 
   it('资产部署入口不复用手工草稿，并按资产打开部署上下文', () => {
     expect(source).toContain('reuseDraft: false')
+    expect(source).toContain("String(item.status ?? '').toUpperCase() === 'DRAFT'")
     expect(source).toContain('async function loadApplicationAssetContext(row: ViewRow)')
     expect(source).toContain('openDeploymentDialog(userAssetRow(asset))')
   })

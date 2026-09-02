@@ -1321,7 +1321,8 @@ async function runCertificateDeployment(
   const existingPlans = await listDeploymentPlansByApplicationAsset(applicationAssetId)
   const existingPlan = (existingPlans.data?.items ?? []).find((item: ApiRecord) =>
     firstAssetText(item, ['certificateVersionId']) === certificateVersionId
-    && !['CANCELLED', 'DELETED'].includes(String(item.status ?? '').toUpperCase()),
+    // 只有草稿仍处于可提交阶段；已就绪、执行中或已结束的历史计划必须新建周期。
+    && String(item.status ?? '').toUpperCase() === 'DRAFT',
   )
   const created = existingPlan ? { data: existingPlan } : await createDeploymentPlanFromApplicationAsset({
     applicationAssetId,
