@@ -211,18 +211,45 @@ test('Agent 注册更新时间不能冒充最后心跳', () => {
 });
 
 test('插件设备只有过期历史发现记录时不再伪装为健康', () => {
+  // 发现结果的过期窗口是 DEVICE_DISCOVERY_STALE_SECONDS（默认 24 小时），
+  // 不是 TCP 探测用的 DEVICE_HEALTH_STALE_SECONDS（默认 60 秒）。
+  // 发现只能手动触发，复用 60 秒会让所有网络设备立刻变未知。
   const result = mapNetworkDeviceHealth(
     'ACTIVE',
     undefined,
     'FULL',
-    '2026-07-25T07:50:00.000Z',
+    '2026-07-24T07:50:00.000Z',
     new Date('2026-07-25T08:00:00.000Z'),
   );
 
   assert.equal(result, 'UNKNOWN');
 });
 
-test('插件设备管理端口在线时健康状态不再停留在未知', () => {
+test('插件设备发现记录在过期窗口内时判定为健康', () => {
+  const result = mapNetworkDeviceHealth(
+    'DISCOVERED',
+    undefined,
+    'FULL',
+    '2026-07-25T07:50:00.000Z',
+    new Date('2026-07-25T08:00:00.000Z'),
+  );
+
+  assert.equal(result, 'HEALTHY');
+});
+
+test('从未成功发现的插件设备判定为未知而非健康', () => {
+  const result = mapNetworkDeviceHealth(
+    'UNKNOWN',
+    undefined,
+    'READ_ONLY',
+    undefined,
+    new Date('2026-07-25T08:00:00.000Z'),
+  );
+
+  assert.equal(result, 'UNKNOWN');
+});
+
+test('插件设备管理端口在线但发现结果过期时不再伪装为健康', () => {
   const observedAt = new Date().toISOString();
   const result = new PluginManagedDeviceProjectionAdapter().project({
     ...commonSource,
@@ -250,8 +277,140 @@ test('插件设备管理端口在线时健康状态不再停留在未知', () =>
   });
 
   assert.equal(result.livenessStatus, 'ONLINE');
+  assert.equal(result.healthStatus, 'UNKNOWN');
+  assert.equal(result.health, 'UNKNOWN');
+});
+
+test('插件设备管理端口在线且发现结果新鲜时健康状态正确为健康', () => {
+  const observedAt = new Date().toISOString();
+  const result = new PluginManagedDeviceProjectionAdapter().project({
+    ...commonSource,
+    managementMode: 'API',
+    livenessSignals: [{
+      id: 'signal_management_tcp_fresh',
+      tenantId: 'default',
+      resourceType: 'DEVICE',
+      resourceId: commonSource.id,
+      signalType: 'MANAGEMENT_TCP',
+      required: true,
+      status: 'HEALTHY',
+      consecutiveFailures: 0,
+      lastObservedAt: observedAt,
+      lastSuccessAt: observedAt,
+      source: 'CONTROL_PLANE',
+      createdAt: observedAt,
+      updatedAt: observedAt,
+    }],
+    networkAppliance: {
+      deviceFamily: 'NETSCALER_ADC',
+      capabilityProfile: {},
+      lastDiscoveredAt: observedAt,
+    },
+  });
+
+  assert.equal(result.livenessStatus, 'ONLINE');
   assert.equal(result.healthStatus, 'HEALTHY');
   assert.equal(result.health, 'HEALTHY');
+});
+
+test('插件设备的过期管理端口健康信号不能覆盖当前健康状态', () => {
+  const result = new PluginManagedDeviceProjectionAdapter().project({
+    ...commonSource,
+    managementMode: 'API',
+    livenessSignals: [{
+      id: 'signal_management_tcp_stale',
+      tenantId: 'default',
+      resourceType: 'DEVICE',
+      resourceId: commonSource.id,
+      signalType: 'MANAGEMENT_TCP',
+      required: true,
+      status: 'HEALTHY',
+      consecutiveFailures: 0,
+      lastObservedAt: '2026-07-25T07:50:00.000Z',
+      lastSuccessAt: '2026-07-25T07:50:00.000Z',
+      source: 'CONTROL_PLANE',
+      createdAt: '2026-07-25T07:50:00.000Z',
+      updatedAt: '2026-07-25T07:50:00.000Z',
+    }],
+    networkAppliance: {
+      deviceFamily: 'NETSCALER_ADC',
+      capabilityProfile: {},
+      lastDiscoveredAt: new Date().toISOString(),
+    },
+  });
+
+  assert.equal(result.livenessStatus, 'UNKNOWN');
+  assert.equal(result.healthStatus, 'UNKNOWN');
+  assert.equal(result.health, 'UNKNOWN');
+});
+
+test('从未成功发现的插件设备不能被裸 TCP 握手抬成健康', () => {
+  // 回归场景：F5 建档后从未发现成功，但云侧 LB / 防火墙代答了 8443 的 SYN。
+  // TCP 只能证明有人接了握手，不能证明 iControl REST 可用。
+  const observedAt = new Date().toISOString();
+  const result = new PluginManagedDeviceProjectionAdapter().project({
+    ...commonSource,
+    managementMode: 'AGENTLESS',
+    hostStatus: 'UNKNOWN',
+    livenessSignals: [{
+      id: 'signal_management_tcp_lb_answered',
+      tenantId: 'default',
+      resourceType: 'DEVICE',
+      resourceId: commonSource.id,
+      signalType: 'MANAGEMENT_TCP',
+      required: true,
+      status: 'HEALTHY',
+      consecutiveFailures: 0,
+      lastObservedAt: observedAt,
+      lastSuccessAt: observedAt,
+      source: 'CONTROL_PLANE',
+      createdAt: observedAt,
+      updatedAt: observedAt,
+    }],
+    networkAppliance: {
+      deviceFamily: 'device.f5.bigip',
+      capabilityProfile: {},
+      softwareVersion: '21.0.0.3',
+      supportTier: 'READ_ONLY',
+      managementAddress: '102.37.137.196',
+    },
+  });
+
+  assert.equal(result.livenessStatus, 'ONLINE');
+  assert.equal(result.healthStatus, 'UNKNOWN');
+  assert.equal(result.health, 'UNKNOWN');
+});
+
+test('插件设备发现成功后 TCP 探测失败仍然判定为不可达', () => {
+  const observedAt = new Date().toISOString();
+  const result = new PluginManagedDeviceProjectionAdapter().project({
+    ...commonSource,
+    managementMode: 'AGENTLESS',
+    livenessSignals: [{
+      id: 'signal_management_tcp_failed',
+      tenantId: 'default',
+      resourceType: 'DEVICE',
+      resourceId: commonSource.id,
+      signalType: 'MANAGEMENT_TCP',
+      required: true,
+      status: 'FAILED',
+      consecutiveFailures: 2,
+      lastObservedAt: observedAt,
+      lastFailureAt: observedAt,
+      reasonCode: 'TCP_CONNECT_TIMEOUT',
+      source: 'CONTROL_PLANE',
+      createdAt: observedAt,
+      updatedAt: observedAt,
+    }],
+    networkAppliance: {
+      deviceFamily: 'device.f5.bigip',
+      capabilityProfile: {},
+      lastDiscoveredAt: observedAt,
+    },
+  });
+
+  assert.equal(result.livenessStatus, 'OFFLINE');
+  assert.equal(result.health, 'UNREACHABLE');
 });
 
 test('云服务不消费管理 TCP 探测，也不返回设备软件版本', () => {

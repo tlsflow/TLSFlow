@@ -1,5 +1,6 @@
 import type { DatabasePort } from '../../../database/database-port.js';
 import { newId } from '../../../shared/id.js';
+import { readPositiveSeconds } from '../../../shared/observation-freshness.js';
 import type { CredentialHealthCheckRecord, CredentialHealthDevice, CredentialHealthState } from './credential-health.types.js';
 
 export class CredentialHealthRepository {
@@ -16,6 +17,7 @@ export class CredentialHealthRepository {
   }
 
   async listEligibleDevices(tenantId: string, credentialId: string): Promise<CredentialHealthDevice[]> {
+    const deviceStaleTimeout = readPositiveSeconds('DEVICE_HEALTH_STALE_SECONDS', 60);
     const result = await this.db.query<DeviceRow>(`select da.service_asset_id, da.host_id, da.device_family, da.management_port,
         coalesce(da.credential_id, (
           select credential_slot.value->>'credentialId'
@@ -25,7 +27,9 @@ export class CredentialHealthRepository {
         )) as credential_id,
         coalesce(effective_plugin.id, plugin_version.id) as plugin_version_id, da.plugin_binding_id, da.version,
         sa.display_name, sa.address,
-        case when liveness.status in ('HEALTHY','SUSPECT') then 'ONLINE'
+        case when liveness.status in ('HEALTHY','SUSPECT')
+                   and liveness.last_observed_at is not null
+                   and liveness.last_observed_at >= now() - interval '${deviceStaleTimeout} seconds' then 'ONLINE'
              when liveness.status='FAILED' then 'OFFLINE' else 'UNKNOWN' end as liveness_status,
         (exists (
           select 1
@@ -57,7 +61,7 @@ export class CredentialHealthRepository {
         limit 1
       ) effective_plugin on true
       left join lateral (
-        select signal.status
+        select signal.status, signal.last_observed_at
         from pg_device_liveness_signals signal
         where signal.tenant_id=da.tenant_id
           and signal.resource_type='DEVICE'

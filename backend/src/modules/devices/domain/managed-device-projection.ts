@@ -2,7 +2,7 @@ import type {
   ManagedDeviceHealth,
   ManagedDeviceSummaryDto,
 } from '../dto/devices.dto.js';
-import { isObservationStale, readPositiveSeconds } from '../../../shared/observation-freshness.js';
+import { isObservationStale, readPositiveSeconds, readDiscoveryStaleSeconds } from '../../../shared/observation-freshness.js';
 import { LivenessDomainService } from '../../liveness/domain/liveness.domain-service.js';
 import type { DeviceLivenessSignal } from '../../liveness/schema/liveness.schema.js';
 
@@ -119,7 +119,7 @@ export class PluginManagedDeviceProjectionAdapter implements ManagedDeviceProjec
         ? 'DISCOVERED'
         : source.hostStatus;
     const healthStatus = mapNetworkDeviceHealth(
-      source.hostStatus,
+      sourceStatus,
       appliance.lastErrorCode,
       appliance.supportTier,
       appliance.lastDiscoveredAt,
@@ -128,7 +128,7 @@ export class PluginManagedDeviceProjectionAdapter implements ManagedDeviceProjec
       ? undefined
       : new LivenessDomainService().project(source.livenessSignals ?? [], ['MANAGEMENT_TCP']);
     const projectedHealth = liveness
-      ? mergeNetworkHealthWithLiveness(healthStatus, liveness.livenessStatus)
+      ? mergeNetworkHealthWithLiveness(healthStatus, liveness.livenessStatus, liveness.signals.length > 0)
       : healthStatus;
     return {
       id: source.id,
@@ -152,12 +152,19 @@ export class PluginManagedDeviceProjectionAdapter implements ManagedDeviceProjec
   }
 }
 
+/**
+ * 中文说明：管理 TCP 探测只能证明"这个 IP:PORT 上有人接了 SYN"，
+ * 不能证明设备本身健康——云侧 LB / 防火墙 / NAT 都会代答握手。
+ * 因此 TCP 信号只允许**降级**（把健康打成不可达），绝不允许**升级**
+ * （把未知抬成健康）。健康必须由应用层发现结果这类强证据支撑。
+ */
 function mergeNetworkHealthWithLiveness(
   healthStatus: ManagedDeviceHealth,
   livenessStatus: 'ONLINE' | 'OFFLINE' | 'UNKNOWN',
+  hasLivenessSignal: boolean,
 ): ManagedDeviceHealth {
   if (livenessStatus === 'OFFLINE') return 'UNREACHABLE';
-  if (livenessStatus === 'ONLINE' && healthStatus === 'UNKNOWN') return 'HEALTHY';
+  if (livenessStatus === 'UNKNOWN' && hasLivenessSignal && healthStatus === 'HEALTHY') return 'UNKNOWN';
   return healthStatus;
 }
 
@@ -179,19 +186,25 @@ export class ManagedDeviceProjectionRegistry {
   }
 }
 
+/**
+ * 中文说明：第一个参数必须传**派生后**的来源状态（DISCOVERED / ERROR / 原始
+ * host 状态），不能传原始 pg_hosts.status。发现流程只更新
+ * pg_device_assets.last_discovered_at，从不回写 pg_hosts.status，
+ * 传原始值会让成功发现过的设备永远算不出 HEALTHY。
+ */
 export function mapNetworkDeviceHealth(
-  hostStatus: string,
+  sourceStatus: string,
   lastErrorCode?: string,
   supportTier?: string,
   lastDiscoveredAt?: string,
   now: Date = new Date(),
 ): ManagedDeviceHealth {
   return resolveManagedDeviceHealth({
-    sourceStatus: hostStatus,
+    sourceStatus,
     lastContactAt: lastDiscoveredAt,
     lastErrorCode,
     degraded: supportTier?.trim().toUpperCase() === 'UNSUPPORTED',
-    staleAfterSeconds: readPositiveSeconds('DEVICE_HEALTH_STALE_SECONDS', 300),
+    staleAfterSeconds: readDiscoveryStaleSeconds(),
     staleHealth: 'UNKNOWN',
     now,
   });
@@ -201,7 +214,7 @@ export function mapAgentHealth(status: string, lastHeartbeatAt?: string, now: Da
   return resolveManagedDeviceHealth({
     sourceStatus: status,
     lastContactAt: lastHeartbeatAt,
-    staleAfterSeconds: readPositiveSeconds('AGENT_OFFLINE_TIMEOUT_SECONDS', 180),
+    staleAfterSeconds: readPositiveSeconds('AGENT_OFFLINE_TIMEOUT_SECONDS', 60),
     staleHealth: 'UNREACHABLE',
     now,
   });

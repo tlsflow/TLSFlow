@@ -7,6 +7,7 @@ import type { CertificateAssetEntity, CertificateVersionEntity } from '../../cer
 import { mapAgentHealth, mapNetworkDeviceHealth } from '../../devices/domain/managed-device-projection.js';
 import type { ManagedDeviceSummaryDto } from '../../devices/dto/devices.dto.js';
 import type { GatewayDto, GatewayReachabilityDto, GatewayZoneDto } from '../../gateways/dto/gateways.dto.js';
+import { isObservationStale, readPositiveSeconds } from '../../../shared/observation-freshness.js';
 
 export interface DashboardReadAuthorizations {
   readonly applicationAssets: PageAuthorizationFilter;
@@ -541,7 +542,8 @@ export class DashboardReadRepository {
                device.last_error_code, device.metadata as device_metadata,
                service.address as device_address,
                plugin.plugin_version as device_control_version,
-               liveness.status as liveness_signal_status
+               liveness.status as liveness_signal_status,
+               liveness.last_observed_at as liveness_signal_last_observed_at
           from visible_hosts host
           left join pg_documents agent
             on agent.namespace = 'agents:registrations'
@@ -746,6 +748,7 @@ type DashboardManagedDeviceRow = {
   device_address?: string | null;
   device_control_version?: string | null;
   liveness_signal_status?: string | null;
+  liveness_signal_last_observed_at?: string | Date | null;
   total_count?: string | number | null;
 };
 
@@ -854,11 +857,11 @@ function toDashboardManagedDevice(row: DashboardManagedDeviceRow, nowIso: string
     : optionalIsoText(row.device_last_discovered_at) ?? optionalIsoText(row.last_discovered_at);
   const livenessStatus = isCloudService
     ? undefined
-    : dashboardLivenessStatus(row.liveness_signal_status);
+    : dashboardLivenessStatus(row.liveness_signal_status, row.liveness_signal_last_observed_at, isAgent, new Date(nowIso));
   const baseHealth = isAgent
     ? mapAgentHealth(sourceStatus, lastContactAt, new Date(nowIso))
     : mapNetworkDeviceHealth(
-      row.host_status,
+      sourceStatus,
       optionalString(row.last_error_code),
       optionalString(row.support_tier),
       optionalIsoText(row.device_last_discovered_at),
@@ -866,8 +869,8 @@ function toDashboardManagedDevice(row: DashboardManagedDeviceRow, nowIso: string
     );
   const health = livenessStatus === 'OFFLINE'
     ? 'UNREACHABLE'
-    : livenessStatus === 'ONLINE' && baseHealth === 'UNKNOWN'
-      ? 'HEALTHY'
+    : livenessStatus === 'UNKNOWN' && row.liveness_signal_status && baseHealth === 'HEALTHY'
+      ? 'UNKNOWN'
       : baseHealth;
   const osType = (optionalString(descriptor.osType) ?? row.os_type).toUpperCase();
 
@@ -903,9 +906,19 @@ function toDashboardManagedDevice(row: DashboardManagedDeviceRow, nowIso: string
   };
 }
 
-function dashboardLivenessStatus(status: string | null | undefined): ManagedDeviceSummaryDto['livenessStatus'] {
+function dashboardLivenessStatus(
+  status: string | null | undefined,
+  lastObservedAt: string | Date | null | undefined,
+  isAgent: boolean,
+  now: Date,
+): ManagedDeviceSummaryDto['livenessStatus'] {
   if (status === 'FAILED') return 'OFFLINE';
   if (!status || status === 'UNKNOWN') return 'UNKNOWN';
+  const observedAt = lastObservedAt instanceof Date ? lastObservedAt.toISOString() : lastObservedAt ?? undefined;
+  const staleAfterSeconds = isAgent
+    ? readPositiveSeconds('AGENT_OFFLINE_TIMEOUT_SECONDS', 60)
+    : readPositiveSeconds('DEVICE_HEALTH_STALE_SECONDS', 60);
+  if (!observedAt || isObservationStale(observedAt, staleAfterSeconds, now)) return 'UNKNOWN';
   return 'ONLINE';
 }
 

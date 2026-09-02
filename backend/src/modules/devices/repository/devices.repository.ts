@@ -130,6 +130,15 @@ export class PgDevicesRepository implements DevicesRepository {
          from pg_framework_instances
          where tenant_id=$1 and device_id=$2 and status='ACTIVE' and deleted_at is null
            and framework_type <> 'device.generic'
+           and exists (
+             select 1
+               from pg_site_assets site
+              where site.tenant_id=pg_framework_instances.tenant_id
+                and site.device_id=pg_framework_instances.device_id
+                and site.framework_instance_id=pg_framework_instances.id
+                and site.status='ACTIVE'
+                and site.deleted_at is null
+           )
          order by display_name, framework_key`,
         [tenantId, deviceId],
       ) : Promise.resolve({ rows: [] as FrameworkRow[] }),
@@ -331,8 +340,8 @@ function buildDeviceListSql(query: ManagedDeviceListQuery, parameters: unknown[]
   const limitPlaceholder = parameters.push(query.pageSize);
   const offsetPlaceholder = parameters.push(Math.max(0, (query.page - 1) * query.pageSize));
   const whereClause = filterConditions.length ? `where ${filterConditions.join(' and ')}` : '';
-  const agentOfflineTimeout = Number.parseInt(process.env.AGENT_OFFLINE_TIMEOUT_SECONDS ?? '180', 10) || 180;
-  const deviceStaleTimeout = Number.parseInt(process.env.DEVICE_HEALTH_STALE_SECONDS ?? '300', 10) || 300;
+  const agentOfflineTimeout = Number.parseInt(process.env.AGENT_OFFLINE_TIMEOUT_SECONDS ?? '60', 10) || 60;
+  const deviceStaleTimeout = Number.parseInt(process.env.DEVICE_HEALTH_STALE_SECONDS ?? '60', 10) || 60;
 
   return `
     with tenant_hosts as (
@@ -672,6 +681,11 @@ function buildDeviceListSql(query: ManagedDeviceListQuery, parameters: unknown[]
                   else case
                when liveness_signal_status = 'FAILED' then 'OFFLINE'
                when liveness_signal_status is null or liveness_signal_status = 'UNKNOWN' then 'UNKNOWN'
+               when liveness_signal_last_observed_at is null
+                 or case when agent_id is not null
+                    then liveness_signal_last_observed_at::timestamptz < now() - interval '${agentOfflineTimeout} seconds'
+                    else liveness_signal_last_observed_at::timestamptz < now() - interval '${deviceStaleTimeout} seconds'
+                   end then 'UNKNOWN'
                else 'ONLINE'
              end end as liveness_status,
              case when agent_id is not null then
@@ -689,6 +703,9 @@ function buildDeviceListSql(query: ManagedDeviceListQuery, parameters: unknown[]
                case
                  when liveness_signal_status = 'FAILED' then 'UNREACHABLE'
                  when last_error_code is not null or upper(host_status) in ('OFFLINE', 'UNREACHABLE', 'ERROR') then 'UNREACHABLE'
+                 when liveness_signal_status is not null
+                  and (liveness_signal_last_observed_at is null
+                    or liveness_signal_last_observed_at::timestamptz < now() - interval '${deviceStaleTimeout} seconds') then 'UNKNOWN'
                  when coalesce(device_last_discovered_at, last_discovered_at)::timestamptz < now() - interval '${deviceStaleTimeout} seconds' then 'UNKNOWN'
                  when upper(host_status) in ('UPGRADING', 'DEGRADED', 'STALE') or upper(coalesce(support_tier, '')) = 'UNSUPPORTED' then 'DEGRADED'
                  when coalesce(device_last_discovered_at, last_discovered_at) is not null
@@ -795,7 +812,19 @@ const DEVICE_DETAIL_SQL = `
       ) related_assets
   ), resource_counts as (
     select
-      (select count(*) from pg_framework_instances where tenant_id=$1 and device_id=(select id from target_host) and status='ACTIVE' and deleted_at is null)::int as framework_count,
+      (select count(*)
+         from pg_framework_instances framework
+        where framework.tenant_id=$1 and framework.device_id=(select id from target_host)
+          and framework.status='ACTIVE' and framework.deleted_at is null
+          and exists (
+            select 1
+              from pg_site_assets site
+             where site.tenant_id=framework.tenant_id
+               and site.device_id=framework.device_id
+               and site.framework_instance_id=framework.id
+               and site.status='ACTIVE'
+               and site.deleted_at is null
+          ))::int as framework_count,
       (select count(*) from pg_site_assets where tenant_id=$1 and device_id=(select id from target_host) and status='ACTIVE' and deleted_at is null)::int as site_count,
       (select count(*) from plugin_discovered_certificates where tenant_id=$1 and device_asset_id=(select service_asset_id from pg_device_assets where tenant_id=$1 and host_id=(select id from target_host)) and status='ACTIVE')::int as certificate_count,
       (select count(*) from pg_documents

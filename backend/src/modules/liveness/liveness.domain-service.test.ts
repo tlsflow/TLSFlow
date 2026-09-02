@@ -33,7 +33,31 @@ test('非 Agent 设备只要求管理端口成功', () => {
   assert.equal(projection.livenessStatus, 'ONLINE');
 });
 
-function signal(signalType: LivenessSignalType, status: DeviceLivenessSignal['status'], failures: number, reasonCode?: string): DeviceLivenessSignal {
+test('管理端口健康信号过期后不再判定在线', () => {
+  const projection = domain.project(
+    [signal('MANAGEMENT_TCP', 'HEALTHY', 0, undefined, '2026-07-27T00:00:00.000Z')],
+    ['MANAGEMENT_TCP'],
+    { now: new Date('2026-07-27T00:10:00.000Z') },
+  );
+  assert.equal(projection.livenessStatus, 'UNKNOWN');
+  assert.equal(projection.livenessReasonCode, 'LIVENESS_SIGNAL_STALE');
+  assert.equal(projection.signals.find((item) => item.signalType === 'MANAGEMENT_TCP')?.status, 'UNKNOWN');
+});
+
+test('管理端口健康信号缺少探测时间时不再判定在线', () => {
+  const staleSignal = signal('MANAGEMENT_TCP', 'HEALTHY', 0);
+  delete staleSignal.lastObservedAt;
+  const projection = domain.project([staleSignal], ['MANAGEMENT_TCP']);
+  assert.equal(projection.livenessStatus, 'UNKNOWN');
+});
+
+function signal(
+  signalType: LivenessSignalType,
+  status: DeviceLivenessSignal['status'],
+  failures: number,
+  reasonCode?: string,
+  lastObservedAt = new Date().toISOString(),
+): DeviceLivenessSignal {
   return {
     id: `signal_${signalType}`,
     tenantId: 'tenant_liveness',
@@ -43,10 +67,10 @@ function signal(signalType: LivenessSignalType, status: DeviceLivenessSignal['st
     required: true,
     status,
     consecutiveFailures: failures,
-    lastObservedAt: '2026-07-27T00:00:00.000Z',
+    lastObservedAt,
     source: signalType === 'HEARTBEAT' ? 'AGENT' : 'CONTROL_PLANE',
     reasonCode,
-    createdAt: '2026-07-27T00:00:00.000Z',
-    updatedAt: '2026-07-27T00:00:00.000Z',
+    createdAt: lastObservedAt,
+    updatedAt: lastObservedAt,
   };
 }
