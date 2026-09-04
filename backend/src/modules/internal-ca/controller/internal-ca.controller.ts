@@ -512,9 +512,7 @@ export class InternalCaController {
       taskType: 'ACME_CERTIFICATE_ISSUE',
       requestedBy: actorId(request),
       triggerSource: 'acme.certificate.create',
-      // 与后台调度器共享 RenewalJob 维度的幂等键，避免创建接口和补偿扫描
-      // 为同一个首次申请分别生成“签发”和“续签”任务。
-      idempotencyKey: `acme-issue:${certificate.renewalJobId}`,
+      idempotencyKey: `acme-issue:${certificate.asset.id}`,
       payload: { certificateAssetId: certificate.asset.id, certificateRequestId: certificate.certificateRequestId, renewalJobId: certificate.renewalJobId },
       resourceRefs: [
         { resourceType: 'certificateAsset', resourceId: certificate.asset.id },

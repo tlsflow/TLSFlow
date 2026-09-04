@@ -136,9 +136,9 @@ test('自动扫描同样从已批准的首次申请恢复缺失任务', async ()
   assert.equal(saved.length, 1);
   assert.deepEqual(enqueued, [{
     tenantId,
-    taskType: 'ACME_CERTIFICATE_ISSUE',
+    taskType: 'ACME_CERTIFICATE_RENEWAL',
     triggerSource: 'acme.renewal.scheduler',
-    idempotencyKey: `acme-issue:${jobs[0]!.id}`,
+    idempotencyKey: `acme-renewal:${jobs[0]!.id}`,
     payload: { renewalJobId: jobs[0]!.id },
     resourceRefs: [{ resourceType: 'acmeRenewalJob', resourceId: jobs[0]!.id }],
   }]);
