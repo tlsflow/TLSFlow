@@ -48,7 +48,7 @@ curl -fsSL https://www.tlsflow.com/install.sh | bash
 
 脚本会先让你选择交互语言，然后依次收集安装方式、端口、公开访问 URL、加密密钥和镜像源。回答会从当前终端读取。
 
-> 截图占位符：显示执行 `curl -fsSL https://www.tlsflow.com/install.sh | bash` 后的语言选择和安装方式选择界面。
+![image-20260903T164457.webp](img/image-20260903T164457.webp)
 
 ## 3. 按提示完成配置
 
@@ -85,7 +85,6 @@ docker logs --tail 200 tlsflow-small
 
 确认容器处于运行状态、迁移已完成且页面可以打开后，继续阅读[首次登录](./first-login.md)。
 
-> 截图占位符：显示单机安装完成摘要，以及 `tlsflow-small` 容器为运行状态的验证结果。
 
 ## 5. 标准安装（standard）
 
@@ -95,11 +94,11 @@ docker logs --tail 200 tlsflow-small
 - `backend`：TLSFlow API 和后台任务；
 - `web`：TLSFlow Web 控制台；
 - `browser-runtime`：可选的隔离 Chromium 服务，仅在启用 Browser Runtime 时启动。
-
+![image-20260903T163943.webp](img/image-20260903T163943.webp)
 脚本会自动创建 `data/postgres`、`data/workflows`、`data/runtime`、`data/tls-inspector` 和 `data/plugins` 目录，并在启动前检查 Compose 配置、拉取镜像和初始化目录权限。Browser Runtime 默认关闭；只有明确需要浏览器类工作流时才启用。
 
 安装完成后，使用脚本输出的 Compose 文件路径验证服务：
-
+![image-20260903T164129.webp](img/image-20260903T164129.webp)
 ```bash
 docker compose \
   --project-name tlsflow \
@@ -116,9 +115,8 @@ docker compose \
 
 将 `<安装目录>` 替换为脚本结果中的实际路径。确认 `db` 为 `healthy`、`backend` 已完成迁移并监听 `3003`、`web` 处于运行状态后，再打开脚本输出的访问地址。
 
-> 截图占位符：显示标准安装完成摘要，以及 `db`、`backend`、`web` 服务状态均正常的 Compose 输出。
-
 ## 6. 安装完成后
+![image-20260903T164314.webp](img/image-20260903T164314.webp)
 
 1. 打开脚本输出的访问地址，按[首次登录](./first-login.md)中的向导创建管理员账号。
 2. 登录后修改管理员密码，创建日常使用账号，并按最小权限原则分配角色。
