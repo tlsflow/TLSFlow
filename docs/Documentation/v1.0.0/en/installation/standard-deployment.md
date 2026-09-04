@@ -1,6 +1,6 @@
 ---
-title: Standard Deployment
-description: Deploy TLSFlow v1.0.0 standard edition with Docker Compose
+title: Standard deployment
+description: Deploy TLSFlow v1.0.0 standard on a single host with Docker Compose
 docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
@@ -13,55 +13,89 @@ testRefs: []
 lastVerified: 2026-09-02
 ---
 
-# Standard Deployment
+# Standard deployment
 
-## Resource Recommendations
+The standard edition runs TLSFlow as multiple Docker Compose services and stores business data in a separate PostgreSQL database. It is intended for production, multi-tenant and multi-enterprise environments, and deployments with continuously running monitoring, credential-check, and certificate-update jobs.
 
-The standard edition is suitable for multi-tenant, multi-enterprise, and continuous background task scenarios. The following recommendations account for monitoring tasks, credential validity checks, task queues, intermittent certificate batch updates, PostgreSQL, and Browser Runtime overhead; they do not include image build processes or consumption by other Docker services on the host:
+This guide deploys prebuilt images on a single host. The host does not need Node.js, Go, Buildx, or TLSFlow source code. After deployment, continue with [First Login](./first-login.md) to create the administrator account and complete security setup.
 
-| Application Assets | Recommended Available Memory | Recommended CPU | Browser Runtime Session Recommendation |
+## When to use standard
+
+These resource recommendations include PostgreSQL, background tasks, and optional Browser Runtime overhead; they exclude image builds and other Docker services on the host:
+
+| Application assets | Recommended available memory | Recommended CPU | Browser Runtime sessions |
 | ---: | ---: | ---: | ---: |
 | 5 | 4 GiB | 2 vCPU | 1 |
-| 15 | 6 GiB | 2 vCPU | 1-2 |
+| 15 | 6 GiB | 2 vCPU | 1–2 |
 | 50 | 10 GiB | 4 vCPU | 2 |
 | 100 | 16 GiB | 4 vCPU | 4 |
 
-When host total memory is below 8 GiB, unless Browser Runtime is essential, choose [Single-node Deployment](./single-node-deployment.md) instead. Standard edition also requires memory reservation for NAS systems, PostgreSQL databases, and other Docker services; with higher browser sessions, monitoring frequency, credential check frequency, and certificate update concurrency, prioritize the higher configuration tier from the table.
+If the host has less than 8 GiB of total memory and Browser Runtime is not required, use [Single-node deployment](./single-node-deployment.md). Increase the configuration tier as browser sessions, monitoring frequency, credential-check frequency, and certificate-update concurrency grow.
 
-The standard edition base deployment consists of three services: `db` uses PostgreSQL 16 to store business data, `backend` provides the API, and `web` provides the console. `browser-runtime` is an independently enabled on-demand service that only operates within the Docker internal network and should not be directly exposed to the public internet.
+The standard deployment includes:
 
-The user deployment entry is fixed at `docker/docker-compose.yml`, and all application images are pulled from the `tlsflow` namespace on Docker Hub. Developers building from source use `docker/dev-compose.yml`; do not modify the user-facing Compose file to complete source builds.
+| Service | Purpose | Publicly exposed |
+| --- | --- | --- |
+| `db` | PostgreSQL 16 database | No; Compose internal network only |
+| `backend` | API and background tasks | No; Compose internal network only |
+| `web` | TLSFlow Web console | Yes; host port `8085` by default |
+| `browser-runtime` | Optional isolated Chromium service | No; access through the internal network and Web's `/vnc/` proxy only |
 
-## 1. Prepare Variables
+Standard is designed for single-host operation and does not provide automatic failover or other cluster capabilities. Small and standard cannot run at the same time or share ports or data directories.
 
-Execute in the repository root directory:
+## Before you start
+
+On the deployment host, confirm that:
+
+- Docker Engine and Docker Compose v2 are installed. Check with `docker compose version`.
+- The Docker daemon is running and the host can reach the Docker registry.
+- The host can reach the devices, certificate services, and vendor APIs that TLSFlow will use.
+- You know the URL users and Agents will use to reach TLSFlow, such as `http://192.168.1.20:8085` or `https://tlsflow.example.com`.
+- Persistent disk space is available and UID/GID `10001:10001` can read and write the data directory.
+- You have random values for `POSTGRES_PASSWORD`, `GCAC_TOKEN_SECRET`, and `GCAC_SECRET_KEK`. Generate and store them in a password manager; do not change them after initialization.
+
+> **Security note:** Never put the database password, KEK, Token signing key, or Browser Runtime shared secret in screenshots, logs, or support tickets. Values in this guide are examples only.
+
+## Quick deployment
+
+### 1. Create the configuration file
+
+Run this from the repository root:
 
 ```bash
 cp docker/.env.example docker/.env
 ```
 
-Edit `docker/.env` and fill in at least the following, replacing example values:
+Edit `docker/.env` and replace at least these values:
 
-- `GCAC_RELEASE_VERSION`: Image tag; production environments use fixed release tags, do not use `latest` long-term;
-- `GCAC_PUBLIC_BASE_URL`: TLSFlow Web address accessible by Agent, e.g., `http://tlsflow.example.com:8085`;
-- `POSTGRES_PASSWORD`: PostgreSQL password;
-- `GCAC_TOKEN_SECRET`: Login token signing key;
-- `GCAC_SECRET_KEK`: Encryption key for Secrets and runtime security materials, must remain unchanged long-term.
+| Variable | Purpose |
+| --- | --- |
+| `GCAC_RELEASE_VERSION` | Image tag; pin a release in production instead of using `latest` long-term |
+| `GCAC_PUBLIC_BASE_URL` | TLSFlow address reachable by Agents and users |
+| `POSTGRES_PASSWORD` | PostgreSQL password |
+| `GCAC_TOKEN_SECRET` | Login-token signing key |
+| `GCAC_SECRET_KEK` | Encryption key for Secrets and runtime security materials |
 
-Do not configure administrator initial password, CA confirmation key, or approval self-approval variables in Compose or `.env`. Administrator password is set by the system initialization wizard when first opening the console; CA confirmation key is randomly generated and encrypted on Backend first startup. General approval functionality has been discontinued and no longer requires approval-related environment variables.
+`GCAC_PUBLIC_BASE_URL` must include the protocol, hostname, and port users actually use. With an HTTPS reverse proxy, enter the proxy URL rather than an internal container address.
 
-By default, Browser Runtime is not pulled or started. When browser login credentials are needed, set `BROWSER_RUNTIME_ENABLED=true`, keep `COMPOSE_PROFILES=${BROWSER_RUNTIME_ENABLED}` from the template, and fill in `BROWSER_RUNTIME_SHARED_SECRET`. This toggle is only for Docker Compose to select the Profile and is not passed to Backend.
+The administrator password is set by the system initialization wizard on first access; do not set `GCAC_INITIAL_ADMIN_PASSWORD` in `.env`. On first startup, Backend generates the CA high-risk-operation confirmation key and encrypts it with the KEK; no extra variable is required. General approval functionality has been discontinued, so approval-related variables are not needed.
 
-`GCAC_DATA_ROOT` defaults to `./data`, meaning `docker/data/`. To use another host directory, set an absolute path in `.env` and ensure that directory and its subdirectories allow container user `10001:10001` to write. The following commands target the default path; when using a custom root directory, replace `docker/data` in commands with the actual path:
+> **Screenshot placeholder:** Insert a `.env` configuration screenshot here. Show variable names and redacted example values only; do not show real passwords or keys.
+
+### 2. Prepare persistent directories
+
+The default data root is `docker/data/`. From the repository root, run:
 
 ```bash
 mkdir -p docker/data/{postgres,workflows,runtime,tls-inspector,plugins}
 sudo chown -R 10001:10001 docker/data
 ```
 
-## 2. Pull and Start Images
+To use another location, set `GCAC_DATA_ROOT` to an absolute path in `.env` and apply the same permission settings to that directory. Do not place production data in a temporary directory or the container writable layer.
 
-Execute the following commands in the `docker` directory. Deploying pre-built images does not require installing Node.js, Go, Buildx, or source code:
+### 3. Pull and start the services
+
+Enter the `docker` directory and pull and start the prebuilt images:
 
 ```bash
 cd docker
@@ -69,48 +103,119 @@ docker compose pull
 docker compose up -d
 ```
 
-`docker compose` automatically reads the `.env` in the same directory. When `BROWSER_RUNTIME_ENABLED=true`, the `COMPOSE_PROFILES` in the template makes `pull` and `up` automatically include Browser Runtime; keeping the default `false` will not download or start that image. No additional `--profile` parameter needed.
+Compose automatically reads the `.env` in the same directory. By default, only `db`, `backend`, and `web` start; Browser Runtime is not downloaded or started.
 
-Web defaults to mapping to host port `8085`, modifiable via `GCAC_PORT` for the left-side port, e.g., `GCAC_PORT=8103`. Backend only joins the Compose internal network and does not publish host ports; Browser Runtime only provides `8787` through the internal network and is not mapped to the host.
+Web maps to host port `8085` by default. To change it, set `GCAC_PORT=8103` in `.env` and run `docker compose up -d` again. Backend does not publish a host port. Browser Runtime provides `8787` only inside the Compose network; do not add a public port mapping.
 
-The Compose file does not include small services or source build configuration. Developers building from source use:
+### 4. Open the console and initialize TLSFlow
 
-```bash
-docker compose -f dev-compose.yml up --build -d
-```
+Open `http://<host-address>:<GCAC_PORT>/`. The first visit opens the system initialization wizard. Follow the prompts to create the administrator account and password, then sign in.
 
-This command generates and uses `tlsflow-dev-*` local images without overwriting the user-facing `tlsflow/*` images.
+> **Screenshot placeholder:** Insert a screenshot of the system initialization wizard here. Show the administrator-creation form and browser address bar; do not include a real password, KEK, or Token.
 
-## 3. Verification
+## Verify the deployment
+
+From the `docker` directory, run:
 
 ```bash
 docker compose ps
 docker compose logs --tail=200 db backend web
 ```
 
-Confirm that `db` status is `healthy`, Backend logs show migration completed and listening on `3003`, Web status is `running`, then access `http://<host-address>:<GCAC_PORT>/`. When Browser Runtime is enabled, confirm its container status is `running`; its CDP, RFB, and `8787` ports are not mapped to the host and can only be accessed through Web's `/vnc/` proxy when remote browser sessions are needed.
+A successful deployment has:
 
-After first opening the console, follow the initialization wizard to create an administrator account and password, then complete first login. If Web cannot call the API, check Backend container logs, Web reverse proxy, and Compose internal network; do not change the Browser Runtime address to a public address.
+- `db` in `healthy` state;
+- Backend logs showing completed migrations and a listener on `3003`;
+- Web in `running` state;
+- A console that opens in the browser and accepts your login.
 
-## Runtime Boundaries
+When Browser Runtime is enabled, also confirm that its container is `running`. CDP, RFB, and `8787` are not mapped to the host; remote browser sessions are available only through Web's `/vnc/` proxy. If the page opens but API calls fail, check Backend logs, the Web reverse proxy, and the Compose internal network first.
 
-The Compose file defaults to saving persistence data to `docker/data/`, but can be uniformly migrated to another host directory via `GCAC_DATA_ROOT`:
+## Enable Browser Runtime (optional)
 
-| Directory | Contents |
-| --- | --- |
-| `docker/data/postgres/` | PostgreSQL database |
-| `docker/data/workflows/` | User workflow directory `/app/data/workflows` |
-| `docker/data/runtime/` | Encrypted runtime keys, CA confirmation key, and policy state |
-| `docker/data/tls-inspector/` | TLS Inspector data |
-| `docker/data/plugins/` | User plugin packages, read-only mounted to Backend |
+Enable Browser Runtime only when browser login credentials or browser-based workflows are required. Edit `.env`:
 
-The `runtime/` directory must be included in backups. Deleting this directory generates a new policy trust root and CA confirmation key; changing `GCAC_SECRET_KEK` prevents Backend from decrypting existing runtime materials. Standard edition will not create a `pglite/` directory.
+```dotenv
+BROWSER_RUNTIME_ENABLED=true
+COMPOSE_PROFILES=${BROWSER_RUNTIME_ENABLED}
+BROWSER_RUNTIME_SHARED_SECRET=your-random-browser-runtime-secret
+```
 
-Small and standard editions cannot run simultaneously; before switching architectures, you must first stop the small container and confirm that the `GCAC_PORT` port and shared data directories are not occupied. Before upgrading, back up `GCAC_DATA_ROOT` and `.env`, then execute:
+Then, from the `docker` directory, run:
 
 ```bash
 docker compose pull
 docker compose up -d
 ```
 
-When upgrading, only replace the image tag; do not delete data directories or regenerate `GCAC_SECRET_KEK`. Standard edition is designed for single-host operation and does not provide automatic failover or other cluster capabilities.
+The template's `COMPOSE_PROFILES` selects the Profile automatically; no additional `--profile` argument is required. The shared secret must match between Backend and Browser Runtime. Do not expose the Browser Runtime address directly to the public internet.
+
+## Data directories and backups
+
+Compose stores the following directories under `GCAC_DATA_ROOT` (default: `docker/data/`):
+
+| Directory | Contents |
+| --- | --- |
+| `postgres/` | PostgreSQL database |
+| `workflows/` | User workflows, mounted at `/app/data/workflows` |
+| `runtime/` | Encrypted runtime keys, CA confirmation key, and policy state |
+| `tls-inspector/` | TLS Inspector data |
+| `plugins/` | User plugin packages, mounted read-only to Backend |
+
+Always back up `runtime/`. Deleting it creates a new policy trust root and CA confirmation key; changing `GCAC_SECRET_KEK` prevents Backend from decrypting existing runtime materials. Standard does not create a `pglite/` directory.
+
+Stop the services before backup or recovery:
+
+```bash
+cd docker
+docker compose down
+```
+
+Then handle the complete `GCAC_DATA_ROOT` directory and `.env` according to [Backup and Recovery](../manual/backup-and-restore.md). Start the services again with `docker compose up -d` after recovery.
+
+## Upgrade, switch editions, or build from source
+
+### Upgrade the images
+
+Back up `GCAC_DATA_ROOT` and `.env` first, then run from the `docker` directory:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+For production upgrades, change only the image tag in `GCAC_RELEASE_VERSION`. Do not delete data directories or regenerate `POSTGRES_PASSWORD`, `GCAC_TOKEN_SECRET`, or `GCAC_SECRET_KEK`.
+
+### Switch from small to standard
+
+Stop and remove the small container:
+
+```bash
+docker rm -f tlsflow-small
+```
+
+Confirm that the host port and data directory are free, then configure and start standard as described in this guide. The two editions cannot run at the same time or share data directories; small's PGlite data cannot be used directly as standard's PostgreSQL data.
+
+### Build from source (developers)
+
+User deployments use `docker/docker-compose.yml` and prebuilt Docker Hub images. Developers building from source should run this from the `docker` directory:
+
+```bash
+docker compose -f dev-compose.yml up --build -d
+```
+
+This command uses local `tlsflow-dev-*` images and does not overwrite the user-facing `tlsflow/*` images. Do not modify the user Compose file for source builds.
+
+## Troubleshooting
+
+| Symptom | What to do |
+| --- | --- |
+| `docker compose up` fails immediately | Run `docker compose config`; check that `.env` exists, required variables are set, and the YAML is valid |
+| `db` is unhealthy | Run `docker compose logs db`; check the PostgreSQL password, disk space, and data-directory permissions |
+| Web page does not open | Run `docker compose ps`; verify `GCAC_PORT` and firewall settings. Do not access Backend on `3003` |
+| Page opens but API calls fail | Review `docker compose logs backend web`; confirm migrations completed and the internal proxy is reachable |
+| Login fails or data cannot be decrypted after restart | Confirm `GCAC_DATA_ROOT` still points to the original directory and `GCAC_SECRET_KEK` and `GCAC_TOKEN_SECRET` have not changed |
+| Browser Runtime does not start | Confirm `BROWSER_RUNTIME_ENABLED=true`, `COMPOSE_PROFILES` is present, and the shared secret is set |
+| NAS reports a permission error | Grant UID/GID `10001:10001` read and write access to `GCAC_DATA_ROOT` and its subdirectories |
+
+After installation and verification, continue with [First Login](./first-login.md). For the full environment-variable reference, see [Deployment Parameters](./deployment-parameters.md). For production backup guidance, see [Backup and Recovery](../manual/backup-and-restore.md).

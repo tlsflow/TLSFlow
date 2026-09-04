@@ -48,7 +48,7 @@ curl -fsSL https://www.tlsflow.com/install.sh | bash
 
 The installer first asks for the interaction language, then collects the deployment mode, port, public URL, encryption key, and image source. Answers are read from the current terminal.
 
-> Screenshot placeholder: The language and deployment mode prompts shown after running `curl -fsSL https://www.tlsflow.com/install.sh | bash`.
+![image-20260903T164613.webp](img/image-20260903T164613.webp)
 
 ## 3. Complete the prompts
 
@@ -85,7 +85,6 @@ docker logs --tail 200 tlsflow-small
 
 After the container is running, migrations have completed, and the console opens, continue with [First login](./first-login.md).
 
-> Screenshot placeholder: The completed single-node summary and the `tlsflow-small` container showing a running state.
 
 ## 5. Standard mode
 
@@ -95,10 +94,11 @@ Choose `2` at the deployment mode prompt. The installer writes `.env` and `docke
 - `backend`: TLSFlow API and background workers;
 - `web`: TLSFlow Web console;
 - `browser-runtime`: an isolated Chromium service, started only when Browser Runtime is enabled.
-
+![image-20260903T164741.webp](img/image-20260903T164741.webp)
 The installer creates `data/postgres`, `data/workflows`, `data/runtime`, `data/tls-inspector`, and `data/plugins`, validates the Compose configuration, pulls the images, and prepares the directory permissions before startup. Browser Runtime is disabled by default; enable it only when browser-based workflows require it.
 
 After installation, verify the services using the paths printed by the installer:
+![image-20260903T164829.webp](img/image-20260903T164829.webp)
 
 ```bash
 docker compose \
@@ -116,10 +116,8 @@ docker compose \
 
 Replace `<install-directory>` with the path from the installer output. Confirm that `db` is `healthy`, `backend` has completed migrations and is listening on `3003`, and `web` is running before opening the printed access URL.
 
-> Screenshot placeholder: The completed standard summary and Compose output showing healthy `db`, running `backend`, and running `web` services.
-
 ## 6. After installation
-
+![image-20260903T164920.webp](img/image-20260903T164920.webp)
 1. Open the access URL printed by the installer and create the administrator account using [First login](./first-login.md).
 2. Change the administrator password, create daily-use accounts, and assign roles according to least privilege.
 3. Store device and vendor API credentials under **Settings > Credentials**, connect a test device, and run read-only discovery.

@@ -35,7 +35,7 @@ Both options use prebuilt images from Docker Hub. The host does not need Node.js
 
 > **Important:** Standard and small deployments cannot run at the same time. Before switching, stop the existing containers and make sure that no container still uses port `8085` or the same data directories.
 
-> [Screenshot placeholder: Deployment method comparison showing the use case, service layout, and data directories for Standard and small deployments]
+![image-20260903T160242.webp](img/image-20260903T160242.webp)
 
 ## Recommended Installation Sequence
 
