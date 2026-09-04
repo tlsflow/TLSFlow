@@ -14,21 +14,51 @@ testRefs: []
 lastVerified: 2026-08-26
 ---
 
-# 安装部署
+<h1>安装部署</h1>
 
-本组文档介绍 TLSFlow v1.0.0 的 Docker 部署方式。标准版使用 Docker Compose；small
-使用单个容器的 `docker run`。两种方式都直接使用 Docker Hub 镜像，不要求宿主机安装
-Node.js，也不要求部署源码。
+本页帮助你完成 TLSFlow v1.0.0 的首次部署。TLSFlow 提供两种 Docker 部署方式：
 
-## 选择部署方式
+<ul>
+  <li><strong>标准部署</strong>适合生产环境，使用 Docker Compose 运行多个服务，并使用 PostgreSQL 保存业务数据。</li>
+  <li><strong>单机部署（small）</strong>适合评估、小规模使用或家用 NAS，使用一个 Docker 容器和内置的文件型数据库。</li>
+</ul>
 
-| 方式 | 适用场景 | 服务组成 | 数据存储 |
+两种方式都使用 Docker Hub 上的预构建镜像。部署主机不需要安装 Node.js、Go 或 TLSFlow 源码。
+
+## 先选择部署方式
+
+| 如果你的情况是 | 推荐方式 | 你需要准备 | 详细说明 |
 | --- | --- | --- | --- |
-| 标准部署 | 生产环境、多企业和持续后台任务；Browser Runtime 按需启用 | `db`、`backend`、`web`（可选 `browser-runtime`） | `docker/data/postgres/`、`docker/data/workflows/`、`docker/data/runtime/` |
-| small 单容器 | 50 个应用资产以下、家用 NAS 或无法使用 Compose 的环境 | `tlsflow-small` | `data/pglite/`、`data/workflows/`、`data/runtime/`、`data/tls-inspector/`、`data/plugins/` |
+| 用于生产环境，应用资产接近或超过 50 个，需要多租户或持续运行后台任务 | **标准部署** | Docker Compose v2、持久化目录、PostgreSQL 配置和平台密钥 | [标准部署](./standard-deployment.md) |
+| 用于功能评估、个人环境、家用 NAS，且应用资产少于 50 个 | **单机部署（small）** | Docker CLI、持久化目录和平台密钥 | [单机部署](./single-node-deployment.md) |
+| 需要浏览器登录能力 | **标准部署** | 在标准部署基础上按需启用 Browser Runtime（浏览器运行时） | [部署参数](./deployment-parameters.md) |
 
-按[快速开始](./quick-start.md)准备镜像、目录和密钥，再选择[标准部署](./standard-deployment.md)
-或[单机部署](./single-node-deployment.md)。两种架构不能同时运行。所有变量的含义和必填条件见
-[部署参数](./deployment-parameters.md)，容器启动后按[首次登录](./first-login.md)操作。
+> **注意**：标准部署和单机部署不能同时运行。切换方式前，请先停止原有容器，并确认没有继续占用 `8085` 端口或使用同一组数据目录。
 
-安装完成后，建议依次完成：创建日常账号、导入许可证（如有）、录入凭据、接入一个测试设备、导入一张测试证书并执行一次 Dry Run（只读演练）。按这个顺序操作，可以逐步排除基础设施、权限和目标连通性方面的问题。
+> 【截图占位：部署方式选择说明，展示“标准部署”和“单机部署（small）”的适用场景、服务组成和数据目录对比】
+
+## 推荐的安装顺序
+
+无论选择哪种方式，都按下面的顺序操作：
+
+1. 阅读[快速开始](./quick-start.md)，确认主机条件、镜像来源和必填密钥。
+2. 根据上表进入[标准部署](./standard-deployment.md)或[单机部署](./single-node-deployment.md)，启动对应容器。
+3. 参考[部署参数](./deployment-parameters.md)检查环境变量；密钥类变量在首次初始化后必须保持不变。
+4. 打开[首次登录](./first-login.md)，创建管理员账号并完成安全初始化。
+5. 登录后确认许可证状态（如有许可证），再创建日常账号、录入凭据、接入测试设备，最后导入测试证书并执行一次 Dry Run（只读演练）。
+
+这个顺序可以把问题分成几类逐步确认：主机和容器是否正常、账号和权限是否正确、目标设备是否可连接，以及证书部署是否真正完成。
+
+## 安装完成后你应该确认
+
+- 容器状态为 `running`，数据库迁移已完成，Web 页面可以打开。
+- 管理员账号已创建，日常操作使用单独账号，权限遵循最小授权原则。
+- 生产环境已配置持久化目录，并已备份数据库、工作流和运行时安全材料。
+- 测试设备可以完成连接和只读发现，测试证书可以执行 Dry Run。
+- 需要确认的结果以执行记录、目标回读、监控和审计日志为准；页面提交成功不等于证书已经部署成功。
+
+## 相关文档
+
+- [快速开始](./quick-start.md)：从准备文件到启动容器的最短路径。
+- [部署参数](./deployment-parameters.md)：环境变量、密钥和数据目录的完整说明。
+- [首次登录](./first-login.md)：初始化管理员账号并完成首次安全设置。
