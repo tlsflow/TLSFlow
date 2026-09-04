@@ -29,6 +29,8 @@ Por favor, lea cuidadosamente lo siguiente antes de usar este proyecto:
 
 ---
 
+<p align="center">Comunidad: <a href="https://github.com/tlsflow/TLSFlow/issues">GitHub</a> · <a href="https://docs.tlsflow.com">Docs</a> · <a href="https://t.me/tlsflow">Telegram</a> · <a href="https://discord.gg/KXyhGGRkJ">Discord</a> · Grupo QQ: <code>239991420</code></p>
+
 ## Introducción del Producto
 
 ### No permita que los certificados expirados arruinen su negocio

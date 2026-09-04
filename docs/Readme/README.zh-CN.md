@@ -31,6 +31,8 @@ Please read the following carefully before using this project:
 
 ---
 
+<p align="center">社区交流：<a href="https://github.com/tlsflow/TLSFlow/issues">GitHub</a> · <a href="https://docs.tlsflow.com">官方文档</a> · <a href="https://t.me/tlsflow">Telegram</a> · <a href="https://discord.gg/KXyhGGRkJ">Discord</a> · QQ 群：<code>239991420</code></p>
+
 ## 产品介绍
 
 ### 别让证书过期，拖垮你的业务
