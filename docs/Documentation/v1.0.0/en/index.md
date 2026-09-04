@@ -15,9 +15,7 @@ lastVerified: 2026-09-02
 
 Welcome to TLSFlow! An enterprise-grade certificate lifecycle management platform that unifies certificate provisioning, deployment, renewal, and monitoring — transforming manual operations into automated workflows and reactive troubleshooting into proactive monitoring.
 
-<LocalizedImage name="tlsflow-overview.png" alt="TLSFlow console overview" width="1200" height="675" />
-<!-- Screenshot placeholder: Console homepage showing certificate expiration trends, device health status, and quick action entry points -->
-
+![image-20260903T155907.webp](img/image-20260903T155907.webp)
 ---
 
 ## Core Capabilities
