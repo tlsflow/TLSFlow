@@ -18,8 +18,7 @@ lastVerified: 2026-08-22
 
 欢迎使用 TLSFlow！这是一款企业级证书生命周期管理平台，帮助你统一管理证书的申请、部署、更新和监控，让证书管理从手工操作变为自动化执行，从事后补救变为主动监控。
 
-<LocalizedImage name="tlsflow-overview.png" alt="TLSFlow 控制台概览" width="1200" height="675" />
-<!-- 截图占位符：控制台首页，展示证书到期趋势图、设备健康状态、快速操作入口 -->
+![image-20260903T155324.webp](img/image-20260903T155324.webp)
 
 ---
 
