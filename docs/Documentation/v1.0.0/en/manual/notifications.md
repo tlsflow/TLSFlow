@@ -48,7 +48,7 @@ Notifications send certificate status, renewal results, reports and binding-drif
 
 ## Edit and preview templates
 
-In **Templates**, select **Create Notification Template** or **Edit**. Keep the template key stable and enter the title and body. Variables use the `{{variable}}` format. Review the required variables shown by the page, then select **Preview** to confirm that the message is readable on a phone. A disabled template is not sent by routes that reference it.
+In **Templates**, select **Create Notification Template** or **Edit**. Keep the template key stable and enter the title and body. Variables use <span v-pre><code>{{variable}}</code></span> format. Review the required variables shown by the page, then select **Preview** to confirm that the message is readable on a phone. A disabled template is not sent by routes that reference it.
 
 
 ## Review delivery and handle failures

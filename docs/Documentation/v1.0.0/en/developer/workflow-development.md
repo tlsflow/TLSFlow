@@ -71,7 +71,7 @@ Resolution results must be `ResolvedDeploymentInputV1`, containing `assetContext
 
 ### 2.1 Minimal Executable Workflow
 
-The following file is a complete starting point for a connection test (omitted resources must be provided outside the Manifest; undeclared root fields cannot be added). `{{...}}` denotes a host template reference, not JavaScript. `connectionRef`, `credentialSlot`, and artifact names must be declared in `inputContract` first.
+The following file is a complete starting point for a connection test (omitted resources must be provided outside the Manifest; undeclared root fields cannot be added). <span v-pre><code>{{...}}</code></span> denotes a host template reference, not JavaScript. `connectionRef`, `credentialSlot`, and artifact names must be declared in `inputContract` first.
 
 ```json
 {

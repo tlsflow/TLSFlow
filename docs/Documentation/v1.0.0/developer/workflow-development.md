@@ -71,7 +71,7 @@ lastVerified: 2026-09-04
 
 ### 2.1 最小可执行 Workflow
 
-以下文件可作为连接测试的完整起点（省略的资源只允许在 Manifest 之外提供，不能添加未知根字段）。步骤中的 `{{...}}` 是宿主模板引用，不是 JavaScript；`connectionRef`、`credentialSlot` 和 `artifact` 名称必须在 `inputContract` 中先声明。
+以下文件可作为连接测试的完整起点（省略的资源只允许在 Manifest 之外提供，不能添加未知根字段）。步骤中的 <span v-pre><code>{{...}}</code></span> 是宿主模板引用，不是 JavaScript；`connectionRef`、`credentialSlot` 和 `artifact` 名称必须在 `inputContract` 中先声明。
 
 ```json
 {
