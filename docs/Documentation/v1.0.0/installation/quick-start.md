@@ -7,7 +7,6 @@ sourceLocale: zh-CN
 locale: zh-CN
 specRefs: []
 codeRefs:
-  - data/website/install.sh
   - docker/docker-compose.yml
 testRefs: []
 lastVerified: 2026-09-03
