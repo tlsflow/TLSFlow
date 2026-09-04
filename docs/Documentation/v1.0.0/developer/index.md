@@ -19,7 +19,7 @@ testRefs:
   - backend/src/modules/browser-runtime/browser-credential-session.service.test.ts
   - backend/src/modules/agents/security/agent-security.contract.test.ts
   - backend/src/modules/executions/workflow-executor-adapter.test.ts
-lastVerified: 2026-08-24
+lastVerified: 2026-09-04
 ---
 
 # 开发文档

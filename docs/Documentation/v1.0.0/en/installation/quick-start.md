@@ -121,7 +121,7 @@ Replace `<install-directory>` with the path from the installer output. Confirm t
 1. Open the access URL printed by the installer and create the administrator account using [First login](./first-login.md).
 2. Change the administrator password, create daily-use accounts, and assign roles according to least privilege.
 3. Store device and vendor API credentials under **Settings > Credentials**, connect a test device, and run read-only discovery.
-4. Import a test certificate and run a Dry Run (read-only rehearsal). Confirm the execution record, target read-back, and audit log.
+4. Import a test certificate and perform a small-scale test deployment. Confirm the execution record, target read-back, and audit log.
 5. For production, back up `.env` and `data/`, especially `data/runtime/`. Never regenerate or replace a KEK that is already in use.
 
 See [Deployment parameters](./deployment-parameters.md), [Single-node deployment](./single-node-deployment.md), and [Standard deployment](./standard-deployment.md) for the complete reference.

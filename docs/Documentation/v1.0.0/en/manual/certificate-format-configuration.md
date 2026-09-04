@@ -1,55 +1,53 @@
 ---
 title: Certificate Format Configuration
-description: Configure output formats and key materials required for certificate deployment
+description: Prepare deployment output formats and password credentials for a certificate version
 docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
 locale: en-US
 specRefs: []
 codeRefs:
-  - web/src/views/bindings/BindingsView.vue
-  - backend/src/modules/bindings
+  - web/src/views/certificates/CertificateFormatsView.vue
+  - backend/src/modules/certificates/application/certificate-format-exporter.ts
 testRefs: []
-lastVerified: 2026-09-02
+lastVerified: 2026-09-04
 ---
 
 # Certificate Format Configuration
 
-Format configuration is a preset for "what files to generate during deployment", not the certificate itself, and will not trigger deployment alone. The page supports common formats such as PEM, PFX, JKS, P7B, and allows saving multiple configuration sets for different systems.
+Format configuration determines which certificate artifact is generated during deployment. It is not the certificate itself and does not trigger deployment. The platform generates files only when a configuration is selected by an application asset or workflow.
 
-> [Screenshot placeholder: Certificate format configuration list showing configuration name, system platform, output format, and status]
 
-## Create Format Configuration
+## Create a Configuration
 
-1. Go to "Certificate Management → Certificate Format Configuration" and click "New".
-2. Select system platform and runtime environment (such as Linux, Windows, or Java). Click "Apply Template" to bring in common settings.
-3. Fill in configuration name and select output format: PEM, PFX, JKS, P7B, CER, CRT, or custom format.
-4. Set file extension, certificate chain order, certificate content encoding, and alias as needed.
-5. When PFX/JKS requires password, select existing security credentials, or enter in the password input box and let the system save it as credentials.
-6. Click "Save" and return to the list to confirm the configuration is available.
+1. Open “Certificate Management → Certificate Assets”, open the target version, and select “Format Configuration”.
+2. Choose an output format: `PEM`, `PFX / PKCS#12`, `JKS`, `P7B / PKCS#7`, or `DER`.
+3. Enter a certificate version ID when the configuration must be bound to one version. Leave it empty to create a reusable template when the page offers that option.
+4. Choose whether the output contains a private key. `PFX` and `JKS` require a private key; `DER` and `P7B` cannot contain one.
+5. For `PFX` or `JKS`, select a password credential. Enter an alias when the Java keystore target requires one.
+6. Select “Create” and confirm that the configuration is available in the list.
 
-> [Screenshot placeholder: New format configuration window highlighting platform, runtime environment, apply template, and output format]
->
-> [Screenshot placeholder: Format parameter area highlighting extension, chain order, alias, and password source]
 
-## Using in Application Assets
+The password field represents a credential reference and never reveals the plaintext password. A configuration may be saved without a matching key or password, but deployment submission or artifact generation will fail until the material is fixed.
 
-1. Open "Asset Center → Application Assets" and create or edit an application asset.
-2. Select configuration in the certificate format or deployment input area.
-3. Check the file name, extension, certificate chain, and required credentials in the preview.
-4. Save the application asset and confirm in deployment pre-check that target files can be generated.
+## Format Guidance
 
-Format configuration only takes effect when actually selected in application asset or workflow; saving configuration alone will not generate files.
-
-## What Each Format Requires
-
-| Format | Applicable Scenario | Notes |
+| Format | Typical targets | Confirm before generating |
 | --- | --- | --- |
-| PEM | Nginx, Apache, common Linux services | Typically requires leaf certificate, private key, and certificate chain in order |
-| PFX/P12 | Windows, some gateways and middleware | Requires private key, password, and certificate alias |
-| JKS | Java application servers | Requires private key, password, and certificate alias |
-| P7B/P7C/SPC | Scenarios requiring only certificate chain | Does not contain private key, cannot complete HTTPS deployment alone |
+| PEM | Nginx, Apache, and most Linux services | Chain order and whether the target needs a separate private-key file |
+| PFX / PKCS#12 | Windows, gateways, and some middleware | Matching private key, password credential, and alias when required |
+| JKS | Java application servers | Matching private key, password credential, and alias |
+| P7B / PKCS#7 | Certificate-chain-only import scenarios | It has no private key and cannot complete HTTPS setup alone |
+| DER | Systems requiring a binary single certificate | The target accepts DER encoding; it has no private key |
 
-Editing configuration affects subsequently created deployment plans; executions that have already started or completed still proceed according to the configuration saved at that time. Before deletion, please first confirm that no application assets are using it; the system will prevent accidental deletion of configurations in use.
+## Use It in Deployment
 
-Output format boundaries are as follows: PEM consists of certificate, private key, and ordered chain; PFX/P12 and JKS also require password and alias; P7B/P7C/SPC only carry certificate chain and cannot replace private key. Passwords can only come from saved security credentials; the system will validate before generation, and incorrect passwords will not generate deployable artifacts.
+1. Edit the application asset in “Asset Center → Application Assets” and select the certificate version and format configuration.
+2. Save, then open Certificate Deployment to confirm that the generated filename, format, and credential references meet the target’s requirements.
+3. Review the page messages, then submit for execution or approval.
+
+Changing a format configuration affects plans created afterward. Existing plans retain the configuration snapshot from creation; create a new plan to use the updated rules.
+
+## Edit or Delete
+
+Check for running tasks that depend on a configuration before editing it. Check usage relationships before deletion; the system prevents deleting a referenced configuration. Editing or deleting a configuration does not remove historical files already generated on servers.

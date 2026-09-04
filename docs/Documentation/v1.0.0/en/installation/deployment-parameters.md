@@ -123,7 +123,7 @@ A reverse proxy should forward user requests to the Web port. Browser Runtime an
 | --- | --- | --- |
 | `AUTH_COOKIE_SECURE` | Enabled automatically in production | Only temporary HTTP internal testing; do not disable for HTTPS |
 | `AUTH_BROWSER_SESSION_TTL_SECONDS` | `28800` (8 hours) | You need a different browser-session lifetime, in seconds |
-| `GCAC_TENANT_MODE` | `single` | You choose a tenant mode during initialization; pre-check existing data before switching |
+| `GCAC_TENANT_MODE` | `single` | You choose a tenant mode during initialization; review the existing data before switching |
 | `GCAC_TOKEN_SECRET_FILE` | Small default `/app/data/runtime/token-secret` | You need a different writable and persistent path for the generated Token key |
 | `GCAC_INITIAL_ADMIN_PASSWORD` | Unset | Legacy automated Admin seed only; use the initialization wizard for new deployments |
 | `GCAC_ENABLE_LEGACY_ADMIN_SEED` | `false` | You need the legacy Admin seed; leave disabled for new deployments |

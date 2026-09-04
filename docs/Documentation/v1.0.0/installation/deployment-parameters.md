@@ -123,7 +123,7 @@ small 版只需要 `GCAC_PUBLIC_BASE_URL` 和 `GCAC_SECRET_KEK` 两个应用参�
 | --- | --- | --- |
 | `AUTH_COOKIE_SECURE` | 生产环境自动开启 | 仅在 HTTP 内网测试时临时设为 `false`；HTTPS 部署不要关闭 |
 | `AUTH_BROWSER_SESSION_TTL_SECONDS` | `28800`（8 小时） | 浏览器会话有效期，单位为秒 |
-| `GCAC_TENANT_MODE` | `single` | 初始化时选择租户模式；已有数据切换前先在控制台预检查 |
+| `GCAC_TENANT_MODE` | `single` | 初始化时选择租户模式；已有数据切换前先在控制台核对现状 |
 | `GCAC_TOKEN_SECRET_FILE` | small 默认 `/app/data/runtime/token-secret` | 自定义自动生成 Token 密钥的持久化路径，必须位于可写且持久化的目录 |
 | `GCAC_INITIAL_ADMIN_PASSWORD` | 未设置 | 仅兼容旧版自动化 Admin seed；新部署使用初始化向导 |
 | `GCAC_ENABLE_LEGACY_ADMIN_SEED` | `false` | 是否启用旧版 Admin seed；新部署建议保持关闭 |

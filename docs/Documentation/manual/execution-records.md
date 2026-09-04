@@ -1,7 +1,7 @@
 ---
 layout: false
 title: 执行记录
-description: 查看证书部署执行状态、预检、审批、验证和回滚结果
+description: 查看证书部署执行状态、审批、验证和回滚结果
 docStatus: implemented
 productVersion: current
 sourceLocale: zh-CN
