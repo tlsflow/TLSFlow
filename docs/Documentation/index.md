@@ -15,7 +15,7 @@ testRefs: []
 lastVerified: 2026-08-22
 ---
 
-<meta http-equiv="refresh" content="0; url=/v1.0.0/">
-<script>window.location.replace("/v1.0.0/");</script>
+<meta http-equiv="refresh" content="0; url=v1.0.0/">
+<script>window.location.replace("v1.0.0/");</script>
 
-<p>即将自动跳转到官方文档首页。如果浏览器没有自动跳转，请<a href="/v1.0.0/">打开 v1.0.0 文档</a>。</p>
+<p>即将自动跳转到官方文档首页。如果浏览器没有自动跳转，请<a href="v1.0.0/">打开 v1.0.0 文档</a>。</p>
