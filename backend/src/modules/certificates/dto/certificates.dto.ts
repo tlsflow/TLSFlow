@@ -171,6 +171,8 @@ export interface ImportCertificateVersionInput {
   keyReferenceId?: string;
   keyCustodyMode?: 'local_agent' | 'managed_secret' | 'external_key' | 'device_local';
   sourceType?: CertificateSourceType;
+  /** 是否允许证书版本创建事件进入自动化；应用专属手动签发默认由父任务独占部署。 */
+  publishAutomationEvent?: boolean;
   name?: string;
   tags?: string[];
   createdBy: string;

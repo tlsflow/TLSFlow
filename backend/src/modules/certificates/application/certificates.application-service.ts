@@ -471,17 +471,23 @@ export class CertificatesApplicationService {
     const eventSourceType: 'manual_import' | 'acme_issue' = sourceType === 'acme' ? 'acme_issue' : 'manual_import';
     const eventTenantId = input.tenantId ?? asset.tenantId ?? version.tenantId ?? updatedAsset.tenantId;
     if (!eventTenantId) throw new AppError('VALIDATION_FAILED', '证书版本事件缺少 tenantId');
-    void this.dependencies.versionEvents?.publishCertificateVersionCreated({
-      eventType: 'certificate.version.created',
-      tenantId: eventTenantId,
-      eventId: version.id,
-      certificateAssetId: updatedAsset.id,
-      certificateVersionId: version.id,
-      sourceType: eventSourceType,
-      domains: uniqueStrings([updatedAsset.primaryDomain, ...updatedAsset.sans].filter(Boolean)),
-      tags: [...updatedAsset.tags],
-      occurredAt: version.createdAt,
-    }).catch(() => undefined);
+    // 专属证书也支持自动化更新，但只应投递给明确绑定所属应用的计划；
+    // 普通证书不携带应用归属，保持原有全局证书事件匹配行为。
+    if (input.publishAutomationEvent !== false) {
+      void this.dependencies.versionEvents?.publishCertificateVersionCreated({
+        eventType: 'certificate.version.created',
+        tenantId: eventTenantId,
+        eventId: version.id,
+        certificateAssetId: updatedAsset.id,
+        certificateVersionId: version.id,
+        applicationAssetId: updatedAsset.applicationAssetId,
+        automationEligible: true,
+        sourceType: eventSourceType,
+        domains: uniqueStrings([updatedAsset.primaryDomain, ...updatedAsset.sans].filter(Boolean)),
+        tags: [...updatedAsset.tags],
+        occurredAt: version.createdAt,
+      }).catch(() => undefined);
+    }
     void this.dependencies.certificateNotifications?.publish({
       tenantId: eventTenantId,
       eventId: `renewal:${version.id}`,

@@ -92,3 +92,94 @@ test('证书事件配置部署时间时先创建等待中的统一任务并计�
   assert.equal(queued[0]?.initialStatus, 'WAITING_RESULT');
   assert.equal(queued[0]?.availableAt, '2026-08-07T18:00:00.000Z');
 });
+
+test('专属证书事件只投递到明确绑定所属应用的自动化计划', async () => {
+  const db = new PgliteDatabase();
+  await applyAutomationMigrations(db);
+  const repository = new AutomationsRepository(db);
+  const now = '2026-08-07T08:00:00.000Z';
+  for (const [id, assetIds] of [
+    ['aut_unbound', undefined],
+    ['aut_other_application', ['application_other']],
+    ['aut_bound_application', ['application_dedicated']],
+  ] as const) {
+    await repository.createAutomation({ id, tenantId: 'tenant_1', name: id, status: 'active', currentVersion: 1, createdBy: 'u', createdAt: now, updatedAt: now, version: 1 });
+    await repository.createVersion({
+      id: `${id}_v1`,
+      tenantId: 'tenant_1',
+      automationId: id,
+      version: 1,
+      trigger: { type: 'certificate_version_created', sources: ['manual_import'] },
+      filters: [],
+      targetResolver: { type: 'certificate_version_targets', ...(assetIds ? { assetIds: [...assetIds] } : {}) },
+      approvalStage: undefined,
+      actions: [{ type: 'send_notification', position: 1, config: { templateKey: 'x', eventKey: 'completed' } }],
+      guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 1, requirePreview: true, requireDryRun: false, requireApproval: false },
+      checksum: id.padEnd(64, '_'),
+      createdBy: 'u',
+      createdAt: now,
+    });
+  }
+  const automations = new AutomationsApplicationService(repository, undefined, () => new Date(now));
+  const deliveryService = new AutomationEventDeliveryService(repository, automations, new AutomationTriggerRegistry(), undefined, () => new Date(now));
+
+  const deliveryIds = await deliveryService.publishCertificateVersionCreated({
+    eventType: 'certificate.version.created',
+    tenantId: 'tenant_1',
+    eventId: 'evt_dedicated',
+    certificateAssetId: 'cert_dedicated',
+    certificateVersionId: 'version_dedicated',
+    applicationAssetId: 'application_dedicated',
+    sourceType: 'manual_import',
+    domains: ['dedicated.example.test'],
+    tags: [],
+    occurredAt: now,
+  });
+
+  assert.equal(deliveryIds.length, 1);
+  const deliveries = await repository.listDeliveries('tenant_1');
+  assert.equal(deliveries[0]?.automationId, 'aut_bound_application');
+});
+
+test('未明确授权自动化的专属证书事件不会创建投递或自动化运行', async () => {
+  const db = new PgliteDatabase();
+  await applyAutomationMigrations(db);
+  const repository = new AutomationsRepository(db);
+  const now = '2026-08-07T08:00:00.000Z';
+  await repository.createAutomation({ id: 'aut_suppressed', tenantId: 'tenant_1', name: '专属证书自动化', status: 'active', currentVersion: 1, createdBy: 'u', createdAt: now, updatedAt: now, version: 1 });
+  await repository.createVersion({
+    id: 'aut_suppressed_v1',
+    tenantId: 'tenant_1',
+    automationId: 'aut_suppressed',
+    version: 1,
+    trigger: { type: 'certificate_version_created', sources: ['manual_import'] },
+    filters: [],
+    targetResolver: { type: 'certificate_version_targets', assetIds: ['application_dedicated'] },
+    approvalStage: undefined,
+    actions: [{ type: 'send_notification', position: 1, config: { templateKey: 'x', eventKey: 'completed' } }],
+    guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 1, requirePreview: true, requireDryRun: false, requireApproval: false },
+    checksum: 's'.repeat(64),
+    createdBy: 'u',
+    createdAt: now,
+  });
+  const automations = new AutomationsApplicationService(repository, undefined, () => new Date(now));
+  const deliveryService = new AutomationEventDeliveryService(repository, automations, new AutomationTriggerRegistry(), undefined, () => new Date(now));
+
+  const deliveryIds = await deliveryService.publishCertificateVersionCreated({
+    eventType: 'certificate.version.created',
+    tenantId: 'tenant_1',
+    eventId: 'evt_suppressed',
+    certificateAssetId: 'cert_dedicated',
+    certificateVersionId: 'version_suppressed',
+    applicationAssetId: 'application_dedicated',
+    automationEligible: false,
+    sourceType: 'manual_import',
+    domains: ['dedicated.example.test'],
+    tags: [],
+    occurredAt: now,
+  });
+
+  assert.deepEqual(deliveryIds, []);
+  assert.deepEqual(await repository.listDeliveries('tenant_1'), []);
+  assert.deepEqual(await repository.listRuns('tenant_1', 'aut_suppressed'), []);
+});

@@ -165,6 +165,42 @@ describe('证书资产 API', () => {
     assert.equal(imported.asset.currentVersionId, imported.version.id);
   });
 
+  it('专属证书版本携带所属应用发布自动化事件', async () => {
+    const db = new PgliteDatabase();
+    await runMigrations(db);
+    let published: { applicationAssetId?: string } | undefined;
+    const certificates = new CertificatesApplicationService({
+      db,
+      secrets: {
+        create: async () => ({ secretRef: 'secret://certificate_private_key/dedicated#current' }),
+      } as never,
+      versionEvents: {
+        publishCertificateVersionCreated: async (event) => {
+          published = event;
+          return [];
+        },
+      },
+    });
+    const asset = await certificates.createAsset({
+      tenantId: 'tenant_1',
+      applicationAssetId: 'application-dedicated-1',
+      name: '专属证书',
+      primaryDomain: 'dedicated.example.test',
+      sourceType: 'internal_ca',
+      createdBy: 'user_dedicated',
+    });
+    await certificates.importVersion({
+      tenantId: 'tenant_1',
+      certificateAssetId: asset.id,
+      certificatePem: CERT_PEM,
+      privateKeyPem: PRIVATE_KEY_PEM,
+      sourceType: 'internal_ca',
+      createdBy: 'user_dedicated',
+    });
+
+    assert.equal(published?.applicationAssetId, 'application-dedicated-1');
+  });
+
   it('多证书 PEM 能识别 leaf、链顺序和链状态', async () => {
     const chain = createPemChainFixture();
     const { app } = await createAuthorizedApp('user_chain');

@@ -249,6 +249,10 @@ export interface AutomationTriggerContextDto {
   sourceType?: string;
   certificateAssetId?: string;
   certificateVersionId?: string;
+  /** 专属证书所属应用，用于只投递到明确选择该应用的自动化计划。 */
+  applicationAssetId?: string;
+  /** 证书签发流程是否明确允许该事件进入自动化。 */
+  automationEligible?: boolean;
   domains?: string[];
   tags?: string[];
   totalMatched?: number;
