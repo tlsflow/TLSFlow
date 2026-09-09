@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { AppError } from '../../common/errors/app-error.js';
 import { TaskRegistry } from './task.registry.js';
 import { TaskExecutorRegistry, TaskWorkerSupervisor } from './task-worker-supervisor.js';
 import type { LogEvent } from '../../common/logging/structured-logger.js';
@@ -83,6 +84,39 @@ test('统一任务 Worker 只对执行类任务输出完成日志', async () => 
   assert.equal(monitoringCalls, 1);
   assert.equal(events.some((event) => event.message === '统一任务执行完成'), false);
   assert.equal(events.some((event) => event.message === '统一任务执行器抛出异常'), false);
+});
+
+test('统一任务 Worker 保留异步事实采集等待语义，避免父任务被错误终止', async () => {
+  const registry = new TaskRegistry([definition('EXECUTION_TASK', 'EXECUTION', 'execution.worker')]);
+  const executors = new TaskExecutorRegistry()
+    .register('execution.worker', async () => {
+      throw new AppError('EXECUTION_TARGET_UNAVAILABLE', '宿主根信任检查已提交 Agent v2 事实采集任务，必须等待 Receipt 后再生成计划', {
+        asyncPending: true,
+        taskId: 'agent-fact-task-1',
+      });
+    });
+  let result: unknown;
+  const supervisor = new TaskWorkerSupervisor(
+    {
+      registry,
+      runNext: async (_workerId, executor) => {
+        result = await executor(task('EXECUTION_TASK', 'EXECUTION'), attempt);
+        return task('EXECUTION_TASK', 'EXECUTION');
+      },
+    },
+    executors,
+    { workerId: 'worker-async-pending', maxTasksPerTick: 1 },
+  );
+
+  assert.equal(await supervisor.runOnce(), 1);
+  assert.deepEqual(result, {
+    success: false,
+    waitingStatus: 'WAITING_RESULT',
+    retryAfterSeconds: 10,
+    errorCode: 'EXECUTION_TARGET_UNAVAILABLE',
+    errorMessage: '宿主根信任检查已提交 Agent v2 事实采集任务，必须等待 Receipt 后再生成计划',
+    detail: { asyncPending: true, taskId: 'agent-fact-task-1' },
+  });
 });
 
 function definition(taskType: string, category: 'EXECUTION' | 'MONITORING', executorKey: string): TaskDefinition {

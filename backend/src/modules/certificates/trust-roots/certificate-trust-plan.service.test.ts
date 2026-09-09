@@ -121,6 +121,32 @@ test('根信任检查复用成功 Receipt 并生成安装或跳过决策', async
   assert.equal(result.plan.inspection.status, 'found');
 });
 
+test('根信任检查已有活动事实任务时只等待原任务，不重新生成授权或提交任务', async () => {
+  let requestCount = 0;
+  let enqueueCount = 0;
+  const service = new CertificateTrustPlanService({
+    trustRoots: {
+      resolveVersionInstallableRoot: async () => rootMaterial('e'.repeat(64)),
+      discoverRoot: async () => { throw new Error('不应发现'); },
+    },
+    agents: {
+      findTaskByIdempotencyKey: async () => ({ ...(taskEnvelope('task_fact_collect_active') as unknown as Record<string, unknown>), status: 'acked' } as never),
+      createFactCollectionRequest: async () => { requestCount += 1; throw new Error('已有活动任务时不应重新生成授权'); },
+      enqueueTask: async () => { enqueueCount += 1; throw new Error('已有活动任务时不应重复提交'); },
+    },
+  });
+
+  await assert.rejects(
+    service.build({ tenantId: 'tenant_1', actorId: 'tester', agentId: 'agent_1', certificateVersionId: 'certver_active', requestId: 'request_active' }),
+    (error: unknown) => error instanceof AppError
+      && error.errorCode === 'EXECUTION_TARGET_UNAVAILABLE'
+      && (error.details as { taskId?: string } | undefined)?.taskId === 'task_fact_collect_active'
+      && (error.details as { asyncPending?: boolean } | undefined)?.asyncPending === true,
+  );
+  assert.equal(requestCount, 0);
+  assert.equal(enqueueCount, 0);
+});
+
 test('历史失败的根信任检查不会阻断新的部署会话', async () => {
   let enqueuedIdempotencyKey: string | undefined;
   const service = new CertificateTrustPlanService({

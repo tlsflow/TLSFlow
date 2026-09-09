@@ -100,13 +100,49 @@ export class AutomationRunCoordinator {
               approvalId: undefined,
             });
             terminal = result.status;
-            await this.repository.updateActionResult(resultId, tenantId, { status: result.status === 'succeeded' ? 'succeeded' : 'running', externalReferenceType: result.referenceType, externalReferenceId: result.referenceId, finishedAt: result.status === 'succeeded' ? this.clock().toISOString() : undefined });
+            await this.repository.updateActionResult(resultId, tenantId, {
+              status: result.status === 'succeeded' ? 'succeeded' : 'running',
+              externalReferenceType: result.referenceType,
+              externalReferenceId: result.referenceId,
+              failureStage: undefined,
+              errorCode: undefined,
+              errorMessage: undefined,
+              finishedAt: result.status === 'succeeded' ? this.clock().toISOString() : undefined,
+            });
             const linkPatch = result.referenceType === 'deployment_plan' ? { deploymentPlanId: result.referenceId }
               : result.referenceType === 'execution_run' ? { executionRunId: result.referenceId }
                 : result.referenceType === 'notification_request' ? { notificationRequestIds: [...((await this.repository.getRunTarget(target.id, tenantId))?.notificationRequestIds ?? []), result.referenceId!] } : {};
-            await this.repository.updateRunTarget(target.id, tenantId, { ...linkPatch, currentAction: action.type, updatedAt: this.clock().toISOString() });
+            await this.repository.updateRunTarget(target.id, tenantId, {
+              ...linkPatch,
+              currentAction: action.type,
+              errorCode: undefined,
+              errorMessage: undefined,
+              updatedAt: this.clock().toISOString(),
+            });
             if (result.status !== 'succeeded') break;
           } catch (error) {
+            // 中文说明：根信任事实采集已经提交但尚未收到 Agent Receipt 时，
+            // 这是异步等待，不是自动化失败。保留动作和目标为 running，
+            // 让统一 AUTOMATION_RUN 任务按退避再次进入本动作；Receipt 到达后
+            // CertificateTrustPlanService 会复用同一事实任务并继续生成计划。
+            if (isAsyncPendingError(error)) {
+              const errorCode = String((error as { errorCode?: string }).errorCode ?? 'AUTOMATION_ACTION_PENDING');
+              const errorMessage = error instanceof Error ? error.message : String(error);
+              await this.repository.updateActionResult(resultId, tenantId, {
+                status: 'running',
+                errorCode,
+                errorMessage,
+              });
+              await this.repository.updateRunTarget(target.id, tenantId, {
+                status: 'running',
+                currentAction: action.type,
+                errorCode,
+                errorMessage,
+                updatedAt: this.clock().toISOString(),
+              });
+              terminal = 'running';
+              break;
+            }
             const fallback = action.type === 'create_deployment_plan' ? 'plan_creation' : action.type === 'send_notification' ? 'notification' : 'execution';
             const failureStage = failureStageFromError(error, fallback);
             await this.repository.updateActionResult(resultId, tenantId, { status: 'failed', failureStage, errorCode: String((error as { errorCode?: string }).errorCode ?? 'AUTOMATION_ACTION_FAILED'), errorMessage: error instanceof Error ? error.message : String(error), finishedAt: this.clock().toISOString() });
@@ -194,4 +230,12 @@ export class AutomationRunCoordinator {
     if (!run) throw new Error(`automation run not found: ${runId}`);
     return run;
   }
+}
+
+function isAsyncPendingError(error: unknown): boolean {
+  const details = (error as { details?: unknown })?.details;
+  return typeof details === 'object'
+    && details !== null
+    && !Array.isArray(details)
+    && (details as { asyncPending?: unknown }).asyncPending === true;
 }

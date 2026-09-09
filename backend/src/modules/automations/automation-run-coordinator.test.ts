@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { AppError } from '../../common/errors/app-error.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { AutomationRunCoordinator, isWithinMaintenanceWindow, type AutomationActionExecutionPort } from './application/automation-run-coordinator.js';
 import { applyAutomationMigrations } from './automation-test-migrations.js';
@@ -41,6 +42,57 @@ test('审批阻塞后从当前动作恢复且不重放计划创建', async () =>
   assert.equal((await coordinator.execute('r', 't')).status, 'succeeded');
   assert.equal(calls.filter((type) => type === 'create_deployment_plan').length, firstPassCreateCount);
   assert.equal((await repository.listActionResults('r', 't')).filter((result) => result.status === 'running').length, 0);
+});
+
+test('根信任 Receipt 未完成时自动化保持运行并在下一轮继续执行且不重复创建计划', async () => {
+  let receiptReady = false;
+  const calls: string[] = [];
+  const { repository, coordinator } = await setup(async ({ action }) => {
+    calls.push(action.type);
+    if (action.type === 'execute_deployment_plan' && !receiptReady) {
+      throw new AppError('EXECUTION_TARGET_UNAVAILABLE', '宿主根信任检查已提交 Agent v2 事实采集任务，必须等待 Receipt 后再生成计划', {
+        code: 'CERTIFICATE_TRUST_INSPECT_PENDING',
+        asyncPending: true,
+        taskId: 'agent-task-fact-1',
+      });
+    }
+    return { status: 'succeeded' };
+  });
+
+  const waiting = await coordinator.execute('r', 't');
+  assert.equal(waiting.status, 'running');
+  assert.deepEqual(calls, [
+    'create_deployment_plan',
+    'execute_deployment_plan',
+    'create_deployment_plan',
+    'execute_deployment_plan',
+    'create_deployment_plan',
+    'execute_deployment_plan',
+  ]);
+  assert.deepEqual((await repository.listRunTargets('r', 't')).map((target) => target.status), ['running', 'running', 'running']);
+  const waitingActions = (await repository.listActionResults('r', 't')).filter((result) => result.actionType === 'execute_deployment_plan');
+  assert.equal(waitingActions.length, 3);
+  assert.equal(waitingActions.every((result) => result.status === 'running' && result.errorCode === 'EXECUTION_TARGET_UNAVAILABLE'), true);
+
+  receiptReady = true;
+  const completed = await coordinator.execute('r', 't');
+  assert.equal(completed.status, 'succeeded');
+  assert.deepEqual(calls, [
+    'create_deployment_plan',
+    'execute_deployment_plan',
+    'create_deployment_plan',
+    'execute_deployment_plan',
+    'create_deployment_plan',
+    'execute_deployment_plan',
+    'execute_deployment_plan',
+    'send_notification',
+    'execute_deployment_plan',
+    'send_notification',
+    'execute_deployment_plan',
+    'send_notification',
+  ]);
+  const resumedActions = await repository.listActionResults('r', 't');
+  assert.equal(resumedActions.every((result) => result.status === 'succeeded' && result.errorCode === undefined), true);
 });
 
 test('历史运行级审批字段不再阻塞运行且不会传入执行授权', async () => {

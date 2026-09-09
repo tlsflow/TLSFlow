@@ -107,6 +107,9 @@ export class CertificateTrustPlanService {
         errorMessage: readRecord(existingTask.result)?.errorMessage,
       });
     }
+    if (existingTask && ['queued', 'leased', 'acked'].includes(existingTask.status)) {
+      throwPendingTrustInspection(existingTask.id, input);
+    }
     const factRequest = await this.dependencies.agents.createFactCollectionRequest(
       input.tenantId,
       input.agentId,
@@ -120,15 +123,19 @@ export class CertificateTrustPlanService {
       idempotencyKey,
       payload: factRequest.payload,
     }, input.requestId);
-    throw new AppError('EXECUTION_TARGET_UNAVAILABLE', '宿主根信任检查已提交 Agent v2 事实采集任务，必须等待 Receipt 后再生成计划', {
-      code: 'CERTIFICATE_TRUST_INSPECT_PENDING',
-      certificateVersionId: input.certificateVersionId,
-      agentId: input.agentId,
-      taskId: inspectTask.id,
-      actionType: 'agent.fact.collect',
-      asyncPending: true,
-    });
+    throwPendingTrustInspection(inspectTask.id, input);
   }
+}
+
+function throwPendingTrustInspection(taskId: string, input: BuildCertificateTrustPlanInput): never {
+  throw new AppError('EXECUTION_TARGET_UNAVAILABLE', '宿主根信任检查已提交 Agent v2 事实采集任务，必须等待 Receipt 后再生成计划', {
+    code: 'CERTIFICATE_TRUST_INSPECT_PENDING',
+    certificateVersionId: input.certificateVersionId,
+    agentId: input.agentId,
+    taskId,
+    actionType: 'agent.fact.collect',
+    asyncPending: true,
+  });
 }
 
 function buildTrustPlanFromFactTask(

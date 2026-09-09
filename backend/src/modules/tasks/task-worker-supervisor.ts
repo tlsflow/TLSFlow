@@ -109,6 +109,24 @@ export class TaskWorkerSupervisor {
           error: error instanceof Error ? error.message : String(error),
         }, { module: 'task-worker-supervisor', resourceType: 'task', resourceId: task.id });
       }
+      // 中文说明：事实采集任务已经提交但尚未收到 Receipt 时，异常本身就是
+      // 异步等待信号。这里不能把 details 丢掉，否则任务控制面会把父任务
+      // 终止为失败，Receipt 到达后也没有机会继续执行原动作。
+      const details = isRecord((error as { details?: unknown })?.details)
+        ? (error as { details: Record<string, unknown> }).details
+        : undefined;
+      if (details?.asyncPending === true) {
+        return {
+          success: false,
+          waitingStatus: 'WAITING_RESULT',
+          retryAfterSeconds: 10,
+          errorCode: typeof (error as { errorCode?: unknown }).errorCode === 'string'
+            ? (error as { errorCode: string }).errorCode
+            : 'EXECUTION_TARGET_UNAVAILABLE',
+          errorMessage: error instanceof Error ? error.message : String(error),
+          detail: details,
+        };
+      }
       return {
         success: false,
         errorCode: 'TASK_EXECUTOR_THROWN',
@@ -124,4 +142,8 @@ function positiveInteger(value: number | undefined, fallback: number): number {
 
 function shouldLogTaskExecution(category: TaskCategory): boolean {
   return category === 'EXECUTION';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }

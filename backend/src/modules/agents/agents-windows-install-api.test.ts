@@ -296,6 +296,10 @@ describe('Agent 一键安装会话', () => {
     assert.match(script, /agent\.config\.json/);
     assert.match(script, /bundle\.tar\.gz/);
     assert.match(script, /enrollmentToken/);
+    assert.match(script, /quarantineStaleTrustMaterial/);
+    assert.match(script, /trust-root-rotated/);
+    assert.match(script, /已备份与本次安装信任根不一致的 Agent 授权材料/);
+    assert.ok(script.indexOf('quarantineStaleTrustMaterial(config.authorizationMaterialPath, config.authorizationTrustKeySet)') < script.indexOf('fs.writeFileSync(path, JSON.stringify(config, null, 2)'));
     assert.doesNotMatch(script, /manifest\?token=/);
 
     const secondBootstrap = await app.inject({
