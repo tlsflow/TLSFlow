@@ -186,6 +186,14 @@ import { GlobalSearchController, getGlobalSearchRouteContracts } from './modules
 import { ApplicationOnboardingController, ApplicationOnboardingService, ApplicationOnboardingSessionRepository, OnboardingCommitService, PublishedDirectWorkflowOnboardingAdapter, getApplicationOnboardingRouteContracts } from './modules/application-onboarding/index.js';
 import type { LoadedApplicationOnboardingRecipe } from './modules/application-onboarding/recipe/index.js';
 import { SystemInitializationController, getSystemInitializationRouteContracts, SystemInitializationService } from './modules/system-initialization/index.js';
+import {
+  getSystemUpdateRouteContracts,
+  GitHubReleaseManifestClient,
+  PgSystemUpdateSettingsRepository,
+  SystemUpdateController,
+  SystemUpdateService,
+  type ReleaseManifestClient,
+} from './modules/system-update/index.js';
 import { PluginCaActionDispatcher } from './modules/internal-ca/providers/plugin-ca-action-dispatcher.js';
 import { CertificateLifecycleService } from './modules/internal-ca/application/certificate-lifecycle.service.js';
 
@@ -211,6 +219,8 @@ export interface AppDependencies {
   pluginRunner?: PluginRunnerExecutionDependencies;
   /** 测试或受控宿主显式注入设备服务；生产默认使用真实装配。 */
   devices?: DevicesApplicationService;
+  /** 仅用于测试注入固定版本清单客户端；生产固定读取 TLSFlow GitHub Releases API。 */
+  systemUpdateManifestClient?: ReleaseManifestClient;
 }
 
 /** 生成证书产物必须包含私钥的格式码；证书版本本身只保存公钥/私钥材料。 */
@@ -799,6 +809,14 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setAuthTokenResolver((authorization, cookie) => security.auth.parseRequestIdentity(authorization, cookie));
   app.setAgentTokenResolver((token, request) => agentsService.parseAgentRequestIdentity(token, request));
   new SystemInitializationController(systemInitialization).register(app.router);
+  new SystemUpdateController(
+    new SystemUpdateService(
+      new PgSystemUpdateSettingsRepository(appDb),
+      dependencies.systemUpdateManifestClient ?? new GitHubReleaseManifestClient(),
+      security.audit,
+    ),
+    security,
+  ).register(app.router);
   new HealthController(new HealthApplicationService(deploymentArchitecture, createTaskAwareHealthRepository(tasksService))).register(app.router);
 
   assetsService.setAgentsService(agentsService);
@@ -2105,6 +2123,7 @@ export function getRouteContracts(
   return [
     ...getHealthRouteContracts(),
     ...getSystemInitializationRouteContracts(),
+    ...getSystemUpdateRouteContracts(),
     ...getSecurityRouteContracts(),
     ...getDeploymentPlanRouteContracts(),
     ...getExecutionRouteContracts(),

@@ -31,6 +31,8 @@ const registeredErrorCodes: Record<string, ErrorCodeDefinition> = {
   AUTH_UNAUTHENTICATED: { httpStatus: 401, message: '未认证' },
   AUTH_FORBIDDEN: { httpStatus: 403, message: '无权限' },
   SYSTEM_INTERNAL_ERROR: { httpStatus: 500, message: '系统内部错误' },
+  RELEASE_MANIFEST_UNAVAILABLE: { httpStatus: 503, message: '版本清单暂时不可用' },
+  RELEASE_MANIFEST_INVALID: { httpStatus: 502, message: '版本清单无效' },
   CERT_PARSE_FAILED: { httpStatus: 422, message: '证书解析失败' },
   CERT_PRIVATE_KEY_MISSING: { httpStatus: 422, message: '缺少私钥' },
   CERT_PRIVATE_KEY_MISMATCH: { httpStatus: 422, message: '私钥与证书不匹配' },

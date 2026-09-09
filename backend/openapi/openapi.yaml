@@ -102,6 +102,174 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/system/update-channel:
+    get:
+      operationId: "getSystemUpdateChannel"
+      summary: "查询系统更新通道"
+      tags:
+        - "System"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "id"
+                  - "channel"
+                  - "version"
+                  - "createdAt"
+                  - "updatedAt"
+                properties:
+                  id:
+                    type: "string"
+                  channel:
+                    type: "string"
+                    enum:
+                      - "stable"
+                      - "dev"
+                  version:
+                    type: "number"
+                  updatedBy:
+                    type: "string"
+                  createdAt:
+                    type: "string"
+                    format: "date-time"
+                  updatedAt:
+                    type: "string"
+                    format: "date-time"
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+    put:
+      operationId: "updateSystemUpdateChannel"
+      summary: "更新系统更新通道"
+      tags:
+        - "System"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              required:
+                - "channel"
+                - "version"
+              properties:
+                channel:
+                  type: "string"
+                  enum:
+                    - "stable"
+                    - "dev"
+                version:
+                  type: "number"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "id"
+                  - "channel"
+                  - "version"
+                  - "createdAt"
+                  - "updatedAt"
+                properties:
+                  id:
+                    type: "string"
+                  channel:
+                    type: "string"
+                    enum:
+                      - "stable"
+                      - "dev"
+                  version:
+                    type: "number"
+                  updatedBy:
+                    type: "string"
+                  createdAt:
+                    type: "string"
+                    format: "date-time"
+                  updatedAt:
+                    type: "string"
+                    format: "date-time"
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/system/update-check:
+    get:
+      operationId: "checkSystemUpdate"
+      summary: "检查系统更新"
+      tags:
+        - "System"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "channel"
+                  - "currentVersion"
+                  - "targetVersion"
+                  - "updateAvailable"
+                  - "relation"
+                  - "publishedAt"
+                  - "releaseNotes"
+                  - "commands"
+                  - "checkedAt"
+                properties:
+                  channel:
+                    type: "string"
+                    enum:
+                      - "stable"
+                      - "dev"
+                  currentVersion:
+                    type: "string"
+                  targetVersion:
+                    type: "string"
+                  updateAvailable:
+                    type: "boolean"
+                  relation:
+                    type: "string"
+                    enum:
+                      - "current"
+                      - "upgrade"
+                      - "downgrade"
+                      - "channel_switch"
+                  publishedAt:
+                    type: "string"
+                    format: "date-time"
+                  releaseNotes:
+                    type: "string"
+                  commands:
+                    type: "object"
+                    required:
+                      - "installScript"
+                      - "compose"
+                    properties:
+                      installScript:
+                        type: "string"
+                      compose:
+                        type: "string"
+                  checkedAt:
+                    type: "string"
+                    format: "date-time"
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/auth/login:
     post:
       operationId: "login"
@@ -17461,4 +17629,4 @@ tags:
   -
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-09-07T14:40:56.418Z"
+x-generatedAt: "2026-09-09T07:32:03.399Z"
