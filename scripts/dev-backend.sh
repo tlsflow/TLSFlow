@@ -51,6 +51,20 @@ fi
 export HOST="${HOST:-0.0.0.0}"
 export PORT="${PORT:-3003}"
 export API_PREFIX="${API_PREFIX:-/api/v1}"
+# 开发脚本仍执行生产安全边界，但不能把 Docker 专用的 /app 路径带到本机。
+# 显式传入的路径保持优先，未配置时统一持久化到仓库根目录 data/runtime。
+export GCAC_RUNTIME_SECRETS_FILE="${GCAC_RUNTIME_SECRETS_FILE:-$ROOT_DIR/data/runtime/runtime-secrets.enc}"
+export GCAC_POLICY_AUTHORITY_STATE_FILE="${GCAC_POLICY_AUTHORITY_STATE_FILE:-$ROOT_DIR/data/runtime/policy-authority-state.json}"
+export GCAC_POLICY_AUTHORITY_SIGNING_KEYS_FILE="${GCAC_POLICY_AUTHORITY_SIGNING_KEYS_FILE:-$ROOT_DIR/data/runtime/policy-authority-signing-keys.json}"
+# Docker 镜像通过 Dockerfile 注入 Policy Authority 进程规格；本地热重载需要提供等价的宿主配置。
+export GCAC_POLICY_AUTHORITY_PROCESS_ROLE="${GCAC_POLICY_AUTHORITY_PROCESS_ROLE:-host}"
+export GCAC_POLICY_AUTHORITY_EXECUTABLE_PATH="${GCAC_POLICY_AUTHORITY_EXECUTABLE_PATH:-$(command -v node)}"
+export GCAC_POLICY_AUTHORITY_WORKING_DIRECTORY="${GCAC_POLICY_AUTHORITY_WORKING_DIRECTORY:-$ROOT_DIR/backend}"
+export GCAC_POLICY_AUTHORITY_ARGS_JSON="${GCAC_POLICY_AUTHORITY_ARGS_JSON:-[\"$ROOT_DIR/backend/dist/modules/agents/security/policy-authority-process.js\"]}"
+# 本地生产 Runner 使用编译后的固定入口，和 Docker 镜像中的 Runner 装配保持一致。
+export GCAC_PLUGIN_RUNNER_EXECUTABLE_PATH="${GCAC_PLUGIN_RUNNER_EXECUTABLE_PATH:-$(command -v node)}"
+export GCAC_PLUGIN_RUNNER_WORKING_DIRECTORY="${GCAC_PLUGIN_RUNNER_WORKING_DIRECTORY:-$ROOT_DIR/backend}"
+export GCAC_PLUGIN_RUNNER_ARGS_JSON="${GCAC_PLUGIN_RUNNER_ARGS_JSON:-[\"$ROOT_DIR/backend/dist/modules/plugins/runner/runner-server.js\"]}"
 unset GCAC_BUILTIN_PLUGIN_VERSION_VIOLATIONS || true
 
 # 同一工作区只允许一个后端监听者。旧会话已经在提供热重载时，当前脚本
