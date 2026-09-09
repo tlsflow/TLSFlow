@@ -17,41 +17,38 @@ lastVerified: 2026-09-02
 
 # Asset Center
 
-Asset Center is the entry point for managed resources. Use it to add devices, view Agent-managed hosts, connect cloud services, and manage Gateways. Application assets are listed under **Asset Center → Applications** and connect a certificate to a specific business endpoint.
+The Asset Center manages unified assets and Gateways (network forwarding entries). `/applications` is the application entry, and `/assets` is the unified asset entry for devices, Agent-associated assets, and cloud service instances; the historical route `/devices` is no longer provided. Cloud service assets themselves are `ServiceAsset(assetKind=CLOUD_SERVICE)`, and their executable resources are uniformly abstracted as `ManagedTarget`, not devices or Hosts.
 
+> [Screenshot placeholder: Asset Center homepage showing application assets, devices, Gateway, and "Add Asset" action]
 
-## Four resource types
+Alibaba Cloud CDN enters through "Add Asset" in the Asset Center, reusing `DeviceOnboardingWizard.vue` and `POST /api/v1/devices/onboarding`; the backend creates `ServiceAsset(CLOUD_SERVICE)` after recognizing cloud service capabilities, then executes connection tests and discovery. It does not use the five-step session of application assets, does not select certificates, and does not create deployment plans. `/providers` is no longer a second-level menu, but the old CloudAccount API still retains compatible implementation.
+
+When cloud resource discovery is needed, first complete cloud service onboarding at the "Add Asset" entry in `/assets`; certificate deployment preparation targets specific `ManagedTarget` for applications.
+
+## How to Distinguish Four Types of Resources
 
 | Resource | Saved Content | When to Use |
 | --- | --- | --- |
-| Application asset | Business name, address, certificate and deployment target | Update certificates on a website or application |
-| Device | Host or appliance, connection method, health and discovery results | Provide an execution location and usable targets |
-| Cloud service asset | Cloud platform, service scope and credential reference | Connect to a cloud platform and discover resources |
-| Gateway | Network forwarding node and availability | Relay traffic when the platform cannot reach a target directly |
+| Application asset | Business name, domain, environment, certificate, and deployment targets | Create deployment plans and view business status |
+| Device | Host/network target, connection method, health status, and discovery results | Provide actual execution location |
+| Cloud service asset | Cloud service provider, scope, and access credential reference | Connect to cloud platforms and discover cloud resources |
+| Gateway | Network forwarding address and availability status | Relay when targets cannot be directly accessed |
 
-## Recommended preparation order
+## Recommended Preparation Order
 
-1. Add a device or cloud service asset and complete its connection test.
-2. Run discovery and confirm that the platform can read the available frameworks, sites or cloud resources.
-3. When you need to deploy a certificate, create an application asset and select a discovered target.
-4. For an isolated network, install and connect a Gateway before selecting it in the device or application connection settings.
+1. Select enabled cloud service plugin.
+2. Fill in display name and credential fields declared by the plugin; credentials only save CredentialRef.
+3. Submit to compatible device onboarding API, which routes to cloud service onboarding service to create `ServiceAsset(CLOUD_SERVICE)`.
+4. Execute read-only connection test and resource discovery, writing to Framework/Site owned by that ServiceAsset.
+5. Return to Asset Center to view assets; currently Alibaba Cloud CDN does not create certificate deployment plans.
 
-### Add an asset
-
-1. Open **Asset Center** and select **Add Asset**.
-2. Choose the category and platform, then enter a name, address and the credential reference requested by the page.
-3. Wait for the connection test. If it fails, correct the address, network path or credential before continuing.
-4. Select **Discover** and review the systems, sites, cloud resources and available capabilities.
-
-Cloud service onboarding is different from application onboarding: it reads cloud resources and does not select certificates or create deployment tasks. Alibaba Cloud CDN is the currently validated cloud service; availability of other providers depends on the support shown in the product.
-
-## Choose a deployment target
+## Target Selection Decision
 
 | Mode | Applicable Situation |
 | --- | --- |
-| Device without Agent | The target supports remote connection but has no Agent installed |
-| Device default capability | Discovery found a usable system or site; this is usually the preferred choice |
-| Workflow override | The business requires custom steps or a special order |
-| Independent target and workflow | The target does not belong to a device and needs a separate workflow connection |
+| Device without Agent | Only network connection or standard discovery results, no Agent installed |
+| Device default capability | Device has discovered available systems/sites, execute by default method |
+| Workflow override | Business explicitly requires custom workflow steps |
+| Independent target + workflow | Target does not belong to any managed device, can only connect with separate workflow |
 
-Prefer the addresses, ports, service names and certificate locations returned by discovery. Edit them manually only when the business configuration has changed. Successful discovery means only that the platform read the target information; review the page validation before submitting a deployment and complete target validation afterwards.
+After discovery is complete, prioritize using discovered addresses, ports, service names, and certificate locations; only manually modify when business actually changes. Successful discovery only means target information was read; pre-check and target validation are still required before deployment.

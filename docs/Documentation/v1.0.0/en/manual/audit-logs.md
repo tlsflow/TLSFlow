@@ -15,16 +15,16 @@ lastVerified: 2026-08-22
 
 # Audit Logs
 
-Audit logs record key platform actions so you can confirm who performed an operation, on which object, when it happened, and whether it succeeded. Use them for daily review, permission tracking, change evidence, and incident handover.
+Audit logs answer "who did what operation on which object at what time, and what was the result." Records are suitable for daily review, permission tracking, and issue handover.
 
-## Find an operation
+## Viewing Audit Records
 
-1. Open **Audit Logs** and review the total, failed, user-operation and successful counts at the top.
-2. Search by object name, operator or event summary, then review results in reverse chronological order.
-3. Select **View Details** to read the full summary, event type, related object and occurrence time. Times are shown in your browser's local time.
-4. For **Failed** or **Rejected** entries, record the operator, object name and associated ID, then continue in Execution Records or the related business page.
-5. Select **Refresh** after a deployment, approval or permission change to confirm that the event has been recorded.
+1. Navigate to "Audit Logs". The page header displays total record count, failed/rejected count, and user operation count to help identify recent anomalies.
+2. In the record list, view the latest events in reverse chronological order. Each record shows result status, human-readable operation title, event type, summary, and occurrence time.
+3. Click "Refresh" to reload the latest records. After completing deployments, approvals, or permission changes, refresh before verification.
+4. Focus on "Failed" and "Rejected" statuses, and record object names, operators, and associated IDs from event summaries to facilitate contacting responsible parties or viewing execution details.
 
+Screenshot placeholder: Audit logs page showing top three statistic cards, success/failure status tags, operation summaries, and local time.
 
 ## Exporting Operation Evidence
 
@@ -32,6 +32,7 @@ Audit logs record key platform actions so you can confirm who performed an opera
 2. Wait for the export result; if a failure prompt appears, record the request ID from the prompt and contact the administrator.
 3. Exported content is used for audit records and issue handover. It's recommended to save it together with corresponding deployment plans, execution records, or reports.
 
+Screenshot placeholder: "Export Operation Evidence" button in upper right corner of audit logs page and failure prompt location.
 
 ## Common Verification Scenarios
 
@@ -45,4 +46,4 @@ When investigating, cross-reference plan IDs, run IDs from execution records wit
 
 ## Security and Privacy Notice
 
-Audit records can be viewed and exported but not edited or deleted. Credentials, private keys, tokens and secrets are redacted. Protect exported files and screenshots according to your audit-data policy; they are not credential backups.
+Audit records only provide viewing evidence and do not offer editing or deletion options. Credentials, private keys, tokens, and secrets only display redacted information. Do not treat audit screenshots as credential backups.

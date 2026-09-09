@@ -29,8 +29,6 @@
 
 ---
 
-<p align="center">Сообщество: <a href="https://github.com/tlsflow/TLSFlow/issues">GitHub</a> · <a href="https://docs.tlsflow.com">Docs</a> · <a href="https://t.me/tlsflow">Telegram</a> · <a href="https://discord.gg/KXyhGGRkJ">Discord</a> · Группа QQ: <code>239991420</code></p>
-
 ## Описание продукта
 
 ### Не позволяйте истечению сертификатов парализовать ваш бизнес

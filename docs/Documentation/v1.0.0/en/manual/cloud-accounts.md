@@ -1,7 +1,7 @@
 ---
-title: Cloud Service Assets
-description: Connect cloud services, discover resources, and maintain the connection
-docStatus: implemented
+title: Cloud Service Asset Onboarding
+description: Configure cloud service connections and run cloud asset discovery through unified asset entry
+docStatus: in_review
 productVersion: v1.0.0
 sourceLocale: zh-CN
 locale: en-US
@@ -9,69 +9,32 @@ specRefs: []
 codeRefs:
   - web/src/views/assets/AssetsView.vue
   - web/src/views/devices/DeviceOnboardingWizard.vue
-  - web/src/views/devices/details/ManagedDeviceDetailModal.vue
   - backend/src/modules/providers
-  - backend/src/modules/assets
 testRefs: []
-lastVerified: 2026-09-04
+lastVerified: 2026-09-02
 ---
 
-# Cloud Service Assets
+# Cloud Service Asset Onboarding
 
-Cloud service assets connect a cloud provider account or service to TLSFlow and read resources that TLSFlow can manage. They appear alongside servers and network appliances under **Asset Center → Assets**, but they do not represent a host and do not create certificate deployment plans automatically.
+Cloud service instances explicitly belong to unified assets, with the root object being `ServiceAsset(assetKind=CLOUD_SERVICE)`, and their executable resources abstracted as standard `ManagedTarget`, not belonging to devices or Hosts. Users reuse `DeviceOnboardingWizard.vue` from the "Add Asset" in `/assets`, submit to `POST /api/v1/devices/onboarding` after selecting the plugin-declared form, and the backend completes connection test and resource discovery; does not enter certificate selection, deployment, or rollback stages. Sensitive content such as access keys should be established first in "System Settings → Credentials".
 
-Alibaba Cloud CDN is the first cloud service formally accepted for this release. Other providers or products should be treated as unsupported until real connection, discovery, and audit acceptance is complete; an entry in the plugin catalog alone is not production support.
+## Add Cloud Service Asset
 
+1. Go to "Asset Center", click "Add Asset", and select cloud service plugin from the platform list.
+2. Fill in display name and plugin credential fields; credentials only save CredentialRef.
+3. After submission, the compatible device onboarding API routes to cloud service onboarding service, creates `ServiceAsset(assetKind=CLOUD_SERVICE)`, and executes connection test and resource discovery.
+4. Discovery results are written to `FrameworkInstance`, `SiteAsset`, and explicitly declared `ManagedTarget` owned by that ServiceAsset. Alibaba Cloud CDN displays by Framework grouped by China Mainland and International; Framework name only shows coverage scope, not account or asset name.
+5. After discovery is complete, results can be viewed in Asset Center; this process does not select certificates and does not create deployment plans.
 
-## Before You Start
+> [Screenshot placeholder: Unified cloud service asset wizard highlighting Provider selection, display name, credential profile, next, and save buttons]
 
-- Under **System Settings → Credentials**, create an enabled **Cloud provider** credential that matches the provider.
-- Confirm that the TLSFlow environment can reach the provider API and that the account has the minimum permissions needed to read the target resources.
-- Choose a clear display name, such as `Alibaba Cloud CDN · Production`. The display name identifies the asset; it is not a substitute for the provider account name.
+## Edit, View, and Delete
 
-## Add a Cloud Service Asset
+- The add asset process executes connection test and discovery; testing is read-only and will not write to cloud platform.
+- Click asset record to view products, Framework, Site, and discovery time from the most recent discovery (displayed in local time).
+- Created cloud service assets cannot change plugin provider; credential references and display names are maintained by the unified asset management interface; asset detail page does not provide certificate deployment edit form.
+- Before deletion, confirm that no other assets or automation tasks depend on that ServiceAsset. Enter confirmation text as required by the page before deletion; asset records cannot be recovered after deletion.
 
-1. Open **Asset Center → Assets** and click **Add asset**.
-2. Select the cloud service provider. The wizard lists only enabled providers with a complete credential contract.
-3. Enter a display name and select or enter the credential reference and other fields required by the provider.
-4. Submit and wait for connection testing and resource discovery to finish. Connection testing is read-only and does not modify the cloud platform.
-5. Return to the inventory and open the details to confirm the provider, product, region or scope, site count, and latest discovery time.
+Currently, the first formal acceptance object is Alibaba Cloud CDN; directories or Fixtures of other Providers do not represent official support. Alibaba Cloud CDN uses the same ServiceAsset credentials and the same API to discover China Mainland and International domains, and displays Framework in discovery results according to actual returned coverage scope. Framework name always displays "International" or "China Mainland"; account name only belongs to ServiceAsset display name. Alibaba Cloud plugin is only responsible for connection test and resource discovery, not certificate deployment, verification, or rollback. When exceptions occur, first check whether credentials are enabled, then contact cloud service administrator. Do not expose access keys in screenshots, notes, or chat.
 
-
-This onboarding flow does not select a certificate, create an application asset, or deploy a certificate. To use a discovered resource for certificate work, return to **Asset Center → Applications** and follow the application onboarding flow.
-
-## View and Rediscover Resources
-
-Open **View details** for a cloud service asset to review:
-
-- provider and product family;
-- account or service region and coverage scope;
-- discovered frameworks, sites, and available target counts;
-- plugin version, discovery status, and latest discovery time.
-
-Click **Rediscover** in the details window to refresh cloud resources. Rediscovery does not replace the credential or change the cloud platform. After it finishes, treat the latest details as the source of truth.
-
-
-Alibaba Cloud CDN results are grouped by **China Mainland** and **International** coverage. These labels describe resource coverage, not two separate accounts; the actual sites come from the provider response.
-
-## Edit and Delete
-
-- You can edit the display name, credential reference, and connection fields allowed by the page. An existing asset cannot switch providers; create a new asset when the provider changes and complete connection testing and discovery again.
-- After changing a credential, confirm that it is enabled and review its health result under **System Settings → Credentials** before rediscovering.
-- Before deletion, confirm that no application asset, automation, or other business flow depends on the cloud service asset. Enter the confirmation text requested by the page. Deleted asset records cannot be restored.
-
-## Troubleshooting
-
-**The provider is missing from the list**
-Ask an administrator to enable the required plugin version and confirm that its credential fields load successfully. A catalog or test fixture does not prove production support.
-
-**Connection testing fails**
-Check API network access, credential type and status, provider matching, and account permissions. Correct the issue and edit the asset, or run Rediscover from its details.
-
-**Connection succeeds but no resources are found**
-Check the account scope, region, and product permissions. TLSFlow displays only resources returned by the provider API and passing resource validation; it does not infer resources from an account name.
-
-**Discovery is stale**
-Run **Rediscover** from the details window. If it still fails, review the error and credential health result before contacting the cloud administrator.
-
-Cloud service plugins handle connection testing and resource discovery only. Use Certificate Management, Applications, and Certificate Deployment for certificate issuance, deployment, verification, and rollback.
+Cloud account actions use plugin versions fixed and auditable at onboarding time; version upgrades and rebinding require passing account binding and capability verification again. Other Providers are not considered officially supported until completing real connection, discovery, and audit acceptance. To confirm real cloud platform connection success, please conduct separate acceptance in an environment configured with valid cloud credentials and external network access.

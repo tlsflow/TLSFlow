@@ -16,7 +16,7 @@ lastVerified: 2026-08-22
 
 # Reports
 
-Reports summarize certificate, risk and automation data in filterable, downloadable views for weekly reviews, incident retrospectives and risk tracking. They are statistical views and do not replace individual execution records, audit records or live site measurements.
+Reports organize certificate, risk, and automation execution data into summaries convenient for management decisions. Report results are aggregated data and cannot replace individual execution records, audit records, or actual site measurement results.
 
 ## Selecting Reports
 
@@ -28,16 +28,17 @@ Currently, three types of reports are available:
 | Risk Handling | Are risks being confirmed and resolved promptly? Are there cases of reopening or exceeding handling time limits? |
 | Automation Effectiveness | What are the success rates of automation runs and targets? Which stage do failures concentrate in? Are there retries, rollbacks, or manual interventions? |
 
-Open the corresponding page from **Monitoring → Reports**.
+Access corresponding pages from the in-application reports entry.
 
 ## Setting Time Range and Filters
 
 1. At the top of the page, select "Last 7 Days", "Last 30 Days", or "Last 90 Days". After switching ranges, the system will automatically reload data.
 2. In the filter section, fill in common conditions such as environment, owner, application asset, tags, etc.
 3. Risk handling reports can also filter by severity and risk type.
-4. Automation effectiveness reports can also filter by automation ID and failure stage (target selection, plan creation, approval, execution, verification, rollback, or notification).
+4. Automation effectiveness reports can also filter by automation ID and failure stage (target selection, plan creation, pre-check, approval, execution, verification, rollback, or notification).
 5. Click "Apply Filters" to view results; click "Reset Filters" when needing to start over.
 
+Screenshot placeholder: Report page header showing 7/30/90-day range switching, common filter fields, and report-specific filter fields.
 
 ## Reading Report Results
 
@@ -46,6 +47,7 @@ Open the corresponding page from **Monitoring → Reports**.
 3. In "Group Comparison", compare counts by environment, owner, severity, risk type, or failure stage to identify groups requiring priority attention.
 4. In "Object Drill-Down", view specific certificates, assets, automation runs, or deployment plans. Times in the table are displayed in browser local time.
 
+Screenshot placeholder: Report results section showing four areas: metric cards, historical trends, group comparison, and object drill-down.
 
 ## Exporting and Archiving
 
@@ -54,6 +56,7 @@ Open the corresponding page from **Monitoring → Reports**.
 3. When export fails or has expired, first confirm time range and filters, then regenerate; do not treat failed files as official data.
 4. For reconciliation or audits, save both report execution records and CSV files together for convenient traceability of statistical criteria.
 
+Screenshot placeholder: Report export section showing "Export CSV" button, generation status, execution time, and "Download" action.
 
 ## Usage Boundaries
 

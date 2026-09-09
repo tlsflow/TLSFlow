@@ -29,3 +29,9 @@ When template verification fails, specific error information will be displayed. 
 Template sources are divided into "System Templates" and "User Imported Templates". System templates are maintained uniformly by the platform, and user imported templates are reviewed and published by the user. Templates attached to plugins can usually only be viewed and cannot be edited directly; old templates that are no longer in use should be disabled and operation records retained.
 
 Template versions are fixed when deployment plans are created. After a new version is published, existing plans still execute according to the original version; to use a new version, actively select it in the application asset or automation settings.
+
+## Page Screenshot Placeholders
+
+> [Placeholder screenshot: Workflow template list, showing name, version, source, and publish status]
+>
+> [Placeholder screenshot: Workflow template details, showing input fields, execution location, and rollback support]

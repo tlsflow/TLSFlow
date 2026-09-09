@@ -19,7 +19,7 @@ testRefs:
   - backend/src/modules/plugins/plugin-workflow-publisher.test.ts
   - backend/src/modules/plugins/plugin-form-and-presentation.test.ts
   - backend/src/modules/plugins/plugins-security.test.ts
-lastVerified: 2026-09-04
+lastVerified: 2026-08-26
 ---
 
 # Plugin Development
@@ -27,131 +27,6 @@ lastVerified: 2026-09-04
 This page covers the operational workflow from "I want to deliver a working plugin." For complete fields, permissions, and schemas of host capabilities, see [Host Plugin Capabilities Inventory](./host-plugin-capabilities.md); for workflow steps and failure recovery, see [Workflow Development Specification](./workflow-development.md).
 
 The plugin's responsibility is to describe product differences and execute target-side actions. The host's responsibility is to handle tenants, permissions, credentials, certificate artifacts, input snapshots, concurrency locks, auditing, cancellation, rollback, and lifecycle management. Plugins must not treat the host as an arbitrary script executor.
-
-## 0. Deliverable Package Format
-
-User plugins are directory packages; the host does not compile plugin source code into its process. The package root must contain `manifest.json`, and every resource index in the Manifest must point to a UTF-8 text file under that root:
-
-```text
-data/plugins/device.example/
-├── manifest.json
-├── logos/logo.svg
-├── logos/logo-square.svg
-├── workflows/connection-test.json
-├── workflows/discover.json
-├── workflows/deploy.json
-├── workflows/rollback.json
-├── forms/device.json
-├── presentations/device.json
-├── locales/zh-CN.json
-└── runtime/index.js                 # required only when plugin.action is declared
-```
-
-Resource paths must use `/`, must not be absolute, must not contain `..`, and must not escape the package through a symlink. `resources` is a map of package-relative paths, not URLs. Hashes are calculated from UTF-8 content normalized to LF. Developers may copy the directory into `data/plugins`, or submit the same content as the API `resources` object; API imports require `resources`. `packageContent` is only used for the package digest; use a stable JSON string such as `{"manifest":<Manifest>,"resources":<raw resource map>}`. Do not submit a Base64 archive or a local filesystem path.
-
-## 0.1 API Authentication, Tenant Context, and Common Rules
-
-Every control-plane request requires an access token obtained from GCAC login and must use HTTPS:
-
-```http
-Authorization: Bearer <access-token>
-Content-Type: application/json
-X-Request-Id: <client-request-id>       # optional; joins audit records
-X-Idempotency-Key: <unique-key>          # required for onboarding and retryable writes
-```
-
-The tenant context in the token controls visible plugin versions, Bindings, assets, and capabilities; callers must not forge `tenantId` in a request body. Keep the same `X-Idempotency-Key` for the same business intent within one tenant when retrying. Never place passwords, Tokens, private keys, or Cookies in the key, URL, or logs. A 2xx response means that the host accepted the request under the endpoint contract; it does not prove that a target write completed. Continue with execution records and target read-back.
-
-Errors use one JSON object (the HTTP status remains authoritative):
-
-```json
-{
-  "errorCode": "VALIDATION_FAILED",
-  "message": "Plugin request contains undeclared fields",
-  "details": { "field": "manifest.resources" },
-  "requestId": "req_01"
-}
-```
-
-Common statuses are `400` (field or Schema error), `401` (missing/expired token), `403` (tenant or business permission), `404` (not found or outside the tenant), `409` (digest or `expectedVersion` conflict), `422` (capability/compatibility/lifecycle rejection), and `500` (host failure). On `409`, GET the current record before editing. On timeout or `UNKNOWN`, never blindly replay a write.
-
-## 0.2 Copyable Lifecycle API Examples
-
-The examples use `$BASE_URL`, `$TOKEN`, `$PLUGIN_VERSION_ID`, and `$BINDING_ID` placeholders supplied by the environment or a previous response. Responses are JSON; timestamp fields are ISO 8601 for API transport only.
-
-Before development, read the host capability registry and standard-field catalog; do not guess contracts from capability names:
-
-```bash
-curl "$BASE_URL/api/v1/plugin-capabilities" -H "Authorization: Bearer $TOKEN"
-curl "$BASE_URL/api/v1/plugin-form/standard-fields" -H "Authorization: Bearer $TOKEN"
-```
-
-The capability response is `{ "items": [{ "key", "contractVersion", "actionContractId", "riskLevel", "idempotency", "permission", "inputSchemaId", "outputSchemaId", "resourceLock", "executionLocations" }] }`. Copy `contractVersion`, `actionContractId`, risk, permission, and execution locations exactly into the Manifest.
-
-Import a user package (the `manifest` and `resources` must match the package directory):
-
-```bash
-curl -X POST "$BASE_URL/api/v1/plugin-packages/import" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -H "X-Request-Id: req_import_01" \
-  -d '{"manifest":{...},"resources":{"workflows/connection-test.json":"{...}"},"packageContent":"{...}"}'
-```
-
-The successful `201` response contains:
-
-```json
-{
-  "id": "uplgv_01", "pluginVersionId": "uplgv_01",
-  "pluginId": "device.example", "version": "1.0.0",
-  "source": "USER", "status": "DISABLED",
-  "permissionApprovalStatus": "NOT_REQUIRED",
-  "packageSha256": "sha256:<64 lowercase hexadecimal characters>",
-  "manifestSha256": "sha256:<64 lowercase hexadecimal characters>",
-  "resourceSha256": {"workflows/connection-test.json":"sha256:<64 lowercase hexadecimal characters>"},
-  "validationReport": {"valid": true, "errors": [], "warnings": []}
-}
-```
-
-Only built-in packages submit permission approval; both approval and enable use the returned `pluginVersionId`:
-
-```bash
-curl -X POST "$BASE_URL/api/v1/plugin-versions/approve-permissions" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"pluginVersionId":"'$PLUGIN_VERSION_ID'","approvedPermissions":["network.http","artifact.read"]}'
-curl -X POST "$BASE_URL/api/v1/plugin-versions/enable" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"pluginVersionId":"'$PLUGIN_VERSION_ID'"}'
-```
-
-Both successful responses return a full `UnifiedPluginVersionRecord`; `status` must be `ENABLED`, and after approval `permissionApprovalStatus` is `APPROVED`. User packages skip approval but still require explicit enable.
-
-Create a Binding and assign a capability:
-
-```bash
-curl -X POST "$BASE_URL/api/v1/plugin-bindings" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"pluginVersionId":"'$PLUGIN_VERSION_ID'","mode":"MANAGED","inputBindings":{"apiVersion":"gcac.input-bindings/v1","variables":{"allowInsecureTls":false},"connections":{"management":{"host":"npm.example.test","port":443}},"credentials":{"credential":{"credentialId":"cred_01"}},"artifacts":{ }},"managedContext":{"hostId":"host_01","managedTargetId":"target_01"}}'
-```
-
-The response contains `id`, `version: 1`, `status: "ACTIVE"`, and the saved `inputBindings`; store its `id` as `$BINDING_ID`. Then assign the capability:
-
-```bash
-curl -X POST "$BASE_URL/api/v1/capability-assignments" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"ownerType":"MANAGED_TARGET","ownerId":"target_01","capabilityKey":"certificate.deploy","pluginVersionId":"'$PLUGIN_VERSION_ID'","pluginBindingId":"'$BINDING_ID'","precedence":"TARGET_OVERRIDE"}'
-```
-
-The assignment response contains `status: "ACTIVE"`, owner fields, capability key, plugin version, and Binding IDs. To resolve the effective source, call `POST /api/v1/capability-assignments/resolve` with one locator, for example `{"capabilityKey":"certificate.deploy","managedTargetId":"target_01"}`; the response is either `null` or a complete `CapabilityAssignment` record. Read the referenced PluginVersion, Binding, and compatible-plugin endpoint next to confirm the version is `ENABLED`, the Binding is `ACTIVE`, and compatibility passes.
-
-Binding updates use optimistic locking:
-
-```bash
-curl -X PATCH "$BASE_URL/api/v1/plugin-bindings" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"bindingId":"'$BINDING_ID'","expectedVersion":1,"inputBindings":{"apiVersion":"gcac.input-bindings/v1","variables":{},"connections":{},"credentials":{},"artifacts":{}},"status":"ACTIVE"}'
-```
-
-On success `version` increments. A concurrent update returns `409`; re-read with `GET /api/v1/plugin-bindings?bindingId=<id>`. UI resources are read with `GET /api/v1/plugin-versions/ui-resources?pluginVersionId=<id>&locale=en-US`, returning `{ pluginVersionId, forms, presentations, locale }`.
 
 ## 1. Pre-delivery Directory Structure
 
@@ -175,7 +50,7 @@ Currently, Manifest only accepts `AGENT_PLAN` and `WORKFLOW_DSL`. Do not carry a
 1. Select existing capabilities from the host capabilities inventory, confirming risk level, idempotency, locks, input/output Schema, and execution location.
 2. Assign a unique `actionContractId` for each capability, filling in the host-registered value exactly as-is in the Manifest.
 3. Clarify compatibility: `productFamilies`, `frameworkTypes`, `targetTypes`, `managementMethods`, `executionLocations`, and `artifactContracts`.
-4. Only request the minimum permissions needed to complete the business function. The `certificate.deploy` capability contract requires the registry permission `certificate.deploy`; a Workflow should additionally declare `secret.resolve`, `artifact.read`, `network.http`, and `audit.append` according to the Host APIs it actually calls. Do not treat `device.write` as an alias for `certificate.deploy`; Agent plans require the corresponding `agent.plan.*` permissions.
+4. Only request the minimum permissions needed to complete the business function. Device certificate updates typically require `secret.resolve`, `artifact.read`, `network.http`, `device.write`, `audit.append`; Agent plans require corresponding `agent.plan.*` permissions.
 5. Design target read-back and failure rollback for write operations. Upload success cannot serve as deployment success criteria.
 
 The host resolves plugins through capability assignments, not by adding branches for vendor strings. An application asset can ultimately override device, managed target, or default capabilities, but the resolution order and tenant boundaries are fixed by the host.
@@ -253,7 +128,7 @@ Choose the corresponding presentation protocol for devices, applications, certif
 
 Standalone device discovery capabilities must output `gcac.device-discovery/v2`, containing stable keys, true parent-child relationships, available capabilities, ManagedTargets, certificates, and certificate bindings. For Nginx, Apache, Tomcat, IIS frameworks, sites, TLS bindings, and certificate locations, Windows/Linux Full Agents produce these from actual processes, services, runtime parameters, and effective configuration trees; certificate update plugins only consume host projection results and must not establish a second discovery chain, guess default paths, or require users to fill in facts already confirmed by the Agent. For specific boundaries, see [Host Plugin Capabilities Inventory](./host-plugin-capabilities.md).
 
-Application onboarding recipes use `gcac.application-onboarding/v1`. For complete fields and validation rules, see [Host Plugin Capabilities Inventory](./host-plugin-capabilities.md#application-onboarding-recipe-schema).
+Application onboarding recipes use `gcac.application-onboarding/v1`. For complete fields and validation rules, see [Host Plugin Capabilities Inventory](./host-plugin-capabilities.md#应用接入配方-schema).
 
 Currently, Alibaba Cloud CDN does not use `gcac.application-onboarding/v2` onboarding recipes. It reuses `DeviceOnboardingWizard.vue` from `/assets`, submits plugin forms via `POST /api/v1/devices/onboarding`; the backend creates `ServiceAsset(assetKind=CLOUD_SERVICE)`, executing connection tests and resource discovery as `SERVICE_ASSET`. Discovery results are Frameworks and Sites; the plugin does not create Device/Host, is not responsible for certificate deployment, verification, or rollback, and must not implement independent modal dialogs or Provider CRUD bypasses.
 
@@ -350,17 +225,6 @@ General tests must still cover: Manifest/resource paths/logos/forms/presentation
 ## 10. Upgrade, Disable, and Retire
 
 Before upgrading, use `GET /api/v1/plugin-versions/upgrade-diff` to compare capabilities, permissions, input contracts, resource digests, and compatibility. Upgrades must import new `pluginId + version`; old versions remain immutable; existing Bindings do not automatically switch.
-
-```bash
-curl "$BASE_URL/api/v1/plugin-versions/upgrade-diff?fromVersionId=$OLD_ID&toVersionId=$PLUGIN_VERSION_ID" \
-  -H "Authorization: Bearer $TOKEN"
-curl -X POST "$BASE_URL/api/v1/plugin-versions/disable" -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" -d '{"pluginVersionId":"'$OLD_ID'"}'
-curl -X POST "$BASE_URL/api/v1/plugin-versions/retire" -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" -d '{"pluginVersionId":"'$OLD_ID'"}'
-```
-
-The diff response contains `addedCapabilities`, `removedCapabilities`, `addedPermissions`, `runtimeChanged`, `scopeChanged`, `compatibilityChanged`, `bindingRecheckRequired`, and `requiresApproval`. `disable` blocks new executions while retaining records; `retire` marks a version as no longer usable. Both return the updated version record.
 
 After confirming the new version passes applicable capability tests, create or update Bindings and reassign capabilities. Disabling a version blocks new executions; retiring a version stops continued use, but old execution records are retained. When the Runner switches versions, the host first drains old processes, then starts the new version; late-arriving results must not overwrite new version results.
 

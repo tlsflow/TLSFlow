@@ -23,14 +23,14 @@ testRefs:
   - backend/src/modules/workflow-templates/workflow-step-dispatcher.test.ts
   - backend/src/modules/executions/workflow-executor-adapter.test.ts
   - backend/src/modules/executions/execution-grant-artifact.test.ts
-lastVerified: 2026-09-04
+lastVerified: 2026-08-24
 ---
 
 # Workflow Development Specification
 
 The workflow DSL (Domain-Specific Language) is a TLSFlow proprietary protocol, not arbitrary Shell or JavaScript scripts. The current official template API version is `gcac.workflow/v1`, and templates must use the `CurlSshWorkflow` structure and pass host validation.
 
-The root object shape is as follows; root fields beyond these will be rejected by the Schema. Replace the empty `steps` array with at least one valid step before publishing; this outline is not directly publishable:
+The minimal root object is as follows; root fields beyond these will be rejected by the Schema:
 
 ```json
 {
@@ -65,61 +65,9 @@ Each template must declare a `DeploymentInputContractV1`:
 
 Fields must specify type, whether required, source, lifecycle, and binding policy. Sources can be asset facts, Binding, default values, derived values, system values, or previous step outputs. `fixed` fields do not allow user overrides; `runtime_injected` are only injected at runtime and do not enter application asset ordinary forms.
 
-Standard projection endpoints are `POST /api/v1/deployment-inputs/projection` and `POST /api/v1/managed-targets/:managedTargetId/deployment-input-projection`. Saving projections and formal submissions must reuse the same resolution rules.
+Standard projection endpoints are `POST /api/v1/deployment-inputs/projection` and `POST /api/v1/managed-targets/:managedTargetId/deployment-input-projection`. Saving projections and formal pre-checks must reuse the same resolution rules.
 
 Resolution results must be `ResolvedDeploymentInputV1`, containing `assetContext`, four input categories, `provenance` (source chain), `sensitivePaths` (sensitive paths), `issues`, `executable`, and `resolvedSha256`. When blocking Issues exist or `executable=false`, execution must not proceed to SSH, HTTP, Agent, or Gateway. Input snapshots must also pin Assignment, PluginVersion, PluginBinding, WorkflowVersion, credential version, and artifact digest; execution and retries must not re-read the "current latest" configuration.
-
-### 2.1 Minimal Executable Workflow
-
-The following file is a complete starting point for a connection test (omitted resources must be provided outside the Manifest; undeclared root fields cannot be added). <span v-pre><code>{{...}}</code></span> denotes a host template reference, not JavaScript. `connectionRef`, `credentialSlot`, and artifact names must be declared in `inputContract` first.
-
-```json
-{
-  "apiVersion": "gcac.workflow/v1",
-  "kind": "CurlSshWorkflow",
-  "metadata": { "name": "example-connection-test", "version": "1.0.0" },
-  "inputContract": {
-    "apiVersion": "gcac.deployment-input/v1",
-    "variables": {},
-    "connections": {
-      "management": {
-        "transport": "http",
-        "allowedProtocols": ["https"],
-        "host": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" },
-        "port": { "type": "number", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "default": 443, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable" },
-        "tls": {
-          "enabled": { "type": "boolean", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "default": true, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable" },
-          "verifyPeer": { "type": "boolean", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "default": true, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable" }
-        },
-        "credentialSlot": "credential"
-      }
-    },
-    "credentials": { "credential": { "allowedKinds": ["USERNAME_PASSWORD"], "required": false, "configurationMode": "advanced", "lifecycle": "pre_execution" } },
-    "artifacts": {}
-  },
-  "steps": [{
-    "name": "probe",
-    "type": "http",
-    "stage": "prepare",
-    "request": {
-      "method": "GET",
-      "connectionRef": "management",
-      "url": "/",
-      "headers": { "Accept": "application/json" },
-      "tls": { "verify": true, "allowInsecure": false },
-      "timeoutSeconds": 30,
-      "maxResponseBytes": 1048576,
-      "successStatusCodes": [200, 301, 302, 401, 403]
-    }
-  }]
-}
-```
-
-Before publishing, run Schema validation and confirm these invariants: `name` is unique within each array; `stage` is one of `prepare`, `backup`, `install`, `refresh`, or `verify`; HTTP/SSH steps have `request.connectionRef`; writes follow the capability contract's idempotency policy, with non-idempotent or unknown-state operations entering manual recovery; extraction names cannot overwrite contract fields; and `rollback` is a separate root array. Unknown fields cause import or publish failure.
-
-### 2.2 Expressions, Variables, and SecretRef
-
-Plain interpolation can read `variables.*`, non-sensitive metadata under `connections.*` and `credentials.*`, and structured output from previous steps such as `steps.login.extracted.token`. Secret values may only be injected through `formCredentialRefs`, `headerRefs`, `secret://...`, or a Host API Grant. Never expand plaintext in JSONata (JSON query expressions), URLs, logs, audits, or `externalReceipt`. `optional` means that a missing value becomes empty; it does not bypass a required contract. Expression timeouts or input/output limits fail the step closed.
 
 ## 3. Available Steps and Executors
 
@@ -178,7 +126,7 @@ Browser Steps are executed by the host Browser Runtime, allowing only three acti
 }
 ```
 
-`inputSchemaSha256` and `outputSchemaSha256` must be `sha256:<64 lowercase hex>` digests of resource content; `timeoutSeconds` is 1-3600; `idempotencyKeyRef` must be a variable reference. Runners can only read cloud services, Artifacts, Secrets, signatures, HTTPS, cancellation status, and append audits through the [Host Plugin Capabilities](./host-plugin-capabilities.md#runner-host-api-precise-contract).
+`inputSchemaSha256` and `outputSchemaSha256` must be `sha256:<64 lowercase hex>` digests of resource content; `timeoutSeconds` is 1-3600; `idempotencyKeyRef` must be a variable reference. Runners can only read cloud services, Artifacts, Secrets, signatures, HTTPS, cancellation status, and append audits through the [Host Plugin Capabilities](./host-plugin-capabilities.md#runner-host-api-精确合同).
 
 ### SSH/SFTP/SCP
 
@@ -188,7 +136,7 @@ SSH, SFTP (secure file transfer), and SCP (secure copy) use `connectionRef` and 
 
 ## 4. Failure, Cancellation, and Rollback
 
-Deployment, changes, and rollback default to fail-closed; only read-only discovery can allow partial continuation per contract. Submission and execution use the current tenant deployment task settings; plugins cannot bypass platform validation or approval on their own.
+Deployment, changes, and rollback default to fail-closed; only read-only discovery can allow partial continuation per contract. Submission and execution use the current tenant deployment task settings; plugins cannot skip Dry Run or approval on their own.
 
 Workflows should save stable identifiers and old values needed for recovery before write operations, and perform target readback after writes. Timeout or connection interruption may result in unknown external state; non-idempotent write operations must not be automatically replayed; state must converge to failed or UNKNOWN, and users must first confirm the actual target state.
 

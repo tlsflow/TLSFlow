@@ -80,6 +80,7 @@ Edit `docker/.env` and replace at least these values:
 
 The administrator password is set by the system initialization wizard on first access; do not set `GCAC_INITIAL_ADMIN_PASSWORD` in `.env`. On first startup, Backend generates the CA high-risk-operation confirmation key and encrypts it with the KEK; no extra variable is required. General approval functionality has been discontinued, so approval-related variables are not needed.
 
+> **Screenshot placeholder:** Insert a `.env` configuration screenshot here. Show variable names and redacted example values only; do not show real passwords or keys.
 
 ### 2. Prepare persistent directories
 
@@ -110,6 +111,7 @@ Web maps to host port `8085` by default. To change it, set `GCAC_PORT=8103` in `
 
 Open `http://<host-address>:<GCAC_PORT>/`. The first visit opens the system initialization wizard. Follow the prompts to create the administrator account and password, then sign in.
 
+> **Screenshot placeholder:** Insert a screenshot of the system initialization wizard here. Show the administrator-creation form and browser address bar; do not include a real password, KEK, or Token.
 
 ## Verify the deployment
 

@@ -14,28 +14,33 @@ testRefs: []
 lastVerified: 2026-09-02
 ---
 
-# Application Assets
+# Applications
 
-An application asset represents a website, API or other TLS service whose certificate needs protection or renewal. It keeps the access address, environment, certificate and deployment target together. Deployments and rollbacks use this configuration as their reference.
+Applications are business endpoints that need certificate protection or updates. They bring together business name, access address, owner, certificate version, and execution targets. All subsequent deployments start here. The page entry is fixed at `/applications`, and the backend entry is fixed at `/api/v1/applications`.
 
+> [Screenshot placeholder: Application asset list showing application name, environment, certificate status, target count, and action buttons]
 
-## Create an application asset
+## Create Application Asset
 
-1. Open **Asset Center → Applications** and select **Add Application**.
-2. Enter the application address, port and environment. Add a display name, verification URL or owner when requested.
-3. Under **Where should the certificate be updated?**, select a device, service and deployment target that have completed onboarding and discovery. If no target is available, return to Asset Center and add or discover it first.
-4. Select the certificate asset and version, then choose the format required by the target system.
-5. Enter the deployment credential and any other values requested by the page. Review the generated deployment information.
-6. On the confirmation step, verify the address, certificate version, target and execution method, then select **Save**.
+1. Go to "Asset Center → Applications" and click "Add" or "Application Onboarding".
+2. Fill in application name, access domain or IP, environment (such as production/test), and owner.
+3. Select devices, sites, or targets that have completed connection tests and discovery. If no targets are available, go to "Devices" first to onboard and discover.
+4. Select certificate asset and specific version, then choose the certificate format required by the target system.
+5. Follow the wizard to fill in verification address, port, and security credentials required for deployment, and review the auto-generated deployment inputs.
+6. On the confirmation page, verify business info, certificate, targets, and deployment method, then click "Save".
 
-**Save** records the application configuration only; it does not write to the target host. Open **Certificate Deployment**, review the page messages, submit the deployment, and wait for approval when approvals are enabled before execution.
+> [Screenshot placeholder: Application onboarding wizard steps showing business info, target selection, certificate selection, and confirmation]
+>
+> [Screenshot placeholder: Application asset confirmation page showing certificate version, targets, and certificate format]
+
+"Save" only saves the business configuration and will not write to target hosts. You must go to "Certificate Deployment" and pass pre-check and approval (if enabled) before execution.
 
 ## Modify Application Asset
 
-1. Open the application details and select **Edit**.
-2. Change the address, port, owner, target, certificate version or certificate format.
-3. When connection information changes, re-test and run discovery in Asset Center before saving the application again.
-4. Reopen Certificate Deployment after saving and confirm that the new inputs and target are available.
+1. Open application details from the list and click "Edit".
+2. Modify business address, owner, targets, certificate version, or output format.
+3. When connection information changes, go to the device page first to re-test and discover, then return to save.
+4. After saving, reopen deployment pre-check to confirm that new inputs and targets are available.
 
 Deployment plans that have already been created will still execute according to the configuration at creation time and will not automatically change due to subsequent edits.
 
@@ -45,14 +50,7 @@ Before deletion, first remove automation, pending plans, and other active bindin
 
 ## Principles for Selecting Deployment Method
 
-- Prefer targets marked **Available** in discovery results; do not guess paths or service names.
-- Select **Workflow override** only when custom steps are genuinely required. In most cases, use the target's default capability.
-- An Agent is the management program on a target host, while a Gateway is a forwarding node. SSH and HTTP are connection methods, not vendor capabilities.
-- Before saving, confirm that the application has one clear certificate source and one execution method to avoid duplicate deployments.
-
-
-## Deploy an Update Manually
-
-- After saving, return to the application card or list row and select **Deploy update** to choose the certificate version to deploy.
-- Before submitting, resolve any credential, format or connection issues shown by the page.
-- After deployment, review the execution record, target readback and snapshot. To restore the previous state, start a rollback from the application's snapshot details.
+- Prioritize targets explicitly shown as "available" in device discovery results; do not manually fill in paths or service names based on experience.
+- If the page provides a "Use workflow override" option, only use it when you truly need custom steps; otherwise, use the default capabilities provided by the device.
+- Agent (management program), Gateway (network forwarding entry), SSH, or HTTP are just execution locations or connection methods, not specific vendor capabilities.
+- Before saving, confirm that the application has only one clear certificate source and one clear execution method to avoid duplicate deployments for the same application.

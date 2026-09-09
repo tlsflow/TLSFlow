@@ -355,9 +355,8 @@ export class AcmeRenewalScheduler {
     presentation?: { applicationDisplayName?: string; applicationDomain?: string; certificateRequestName?: string },
   ): Promise<void> {
     if (!this.tasks || !isUnifiedTaskWorkerEnabled()) return;
-    // 所有没有源证书版本的 Job 都是首次签发；不能用 applicationAssetId
-    // 区分普通 ACME 证书，否则后台补偿会把同一个首次 Job 再入队为续签。
-    const taskType = !job.sourceCertificateVersionId
+    // 应用专属 ACME 首次签发使用统一签发任务；历史/续期 Job 保持原任务类型兼容。
+    const taskType = !job.sourceCertificateVersionId && job.applicationAssetId
       ? 'ACME_CERTIFICATE_ISSUE'
       : 'ACME_CERTIFICATE_RENEWAL';
     const idempotencyKey = taskType === 'ACME_CERTIFICATE_ISSUE'

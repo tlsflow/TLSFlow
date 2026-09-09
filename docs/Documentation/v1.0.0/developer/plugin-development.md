@@ -19,7 +19,7 @@ testRefs:
   - backend/src/modules/plugins/plugin-workflow-publisher.test.ts
   - backend/src/modules/plugins/plugin-form-and-presentation.test.ts
   - backend/src/modules/plugins/plugins-security.test.ts
-lastVerified: 2026-09-04
+lastVerified: 2026-08-26
 ---
 
 # 插件开发
@@ -27,131 +27,6 @@ lastVerified: 2026-09-04
 本页是从“我要交付一个可用插件”出发的操作流程。宿主能力的完整字段、权限和 Schema 见[宿主插件能力清单](./host-plugin-capabilities.md)；工作流步骤和失败恢复见[工作流开发规范](./workflow-development.md)。
 
 插件的职责是描述产品差异并执行目标侧动作，宿主的职责是处理租户、权限、凭据、证书制品、输入快照、并发锁、审计、取消、回滚和生命周期。插件不能把宿主当成任意脚本执行器。
-
-## 0. 可直接交付的包格式
-
-用户插件采用目录包，不需要把源码编译进宿主。目录名可以与 `pluginId` 相同，包根必须有 `manifest.json`，Manifest 中每一个资源索引都必须指向包根下的 UTF-8 文本文件：
-
-```text
-data/plugins/device.example/
-├── manifest.json
-├── logos/logo.svg
-├── logos/logo-square.svg
-├── workflows/connection-test.json
-├── workflows/discover.json
-├── workflows/deploy.json
-├── workflows/rollback.json
-├── forms/device.json
-├── presentations/device.json
-├── locales/zh-CN.json
-└── runtime/index.js                 # 仅声明 plugin.action 时需要
-```
-
-资源路径必须使用 `/`、不能是绝对路径、不能包含 `..`，也不能通过符号链接越出包目录。`resources` 是“包内相对路径”的映射，不是 URL；同一路径的内容按 UTF-8 和 LF 计算摘要。开发者可以把目录直接复制到 `data/plugins`，或把相同内容作为 API 的 `resources` 对象提交；API 导入时 `resources` 必填。API 的 `packageContent` 仅用于计算整包摘要，建议提交稳定 JSON 字符串：`{"manifest":<Manifest>,"resources":<资源原文映射>}`；不要提交 Base64 压缩包或本机路径。
-
-## 0.1 API 认证、租户和通用约定
-
-所有控制面请求都必须经过 GCAC 登录获得的访问令牌，并在 HTTPS 下发送：
-
-```http
-Authorization: Bearer <access-token>
-Content-Type: application/json
-X-Request-Id: <client-request-id>       # 可选；用于串联审计
-X-Idempotency-Key: <unique-key>          # 创建会话或其他可重试写操作必填
-```
-
-令牌中的租户上下文决定可见的插件版本、Binding、资产和能力；插件开发者不能通过请求体伪造 `tenantId`。`X-Idempotency-Key` 必须在同一租户内对同一业务意图保持不变，重放时复用原键；不要把密码、Token、私钥或 Cookie 放入该键、URL 或日志。HTTP 2xx 表示请求已按接口合同接受，不代表目标设备写入已完成，必须继续读取执行记录和目标回执。
-
-错误统一使用 JSON 对象（HTTP 状态码仍是首要判断）：
-
-```json
-{
-  "errorCode": "VALIDATION_FAILED",
-  "message": "插件请求包含未声明字段",
-  "details": { "field": "manifest.resources" },
-  "requestId": "req_01"
-}
-```
-
-常见状态为 `400`（字段或 Schema 错误）、`401`（令牌缺失/过期）、`403`（租户或业务权限不足）、`404`（资源不属于当前租户或不存在）、`409`（版本摘要或 `expectedVersion` 冲突）、`422`（能力/兼容性/生命周期不满足）和 `500`（宿主内部错误）。收到 `409` 时必须重新 GET 当前记录再决定是否更新；收到执行超时或 `UNKNOWN` 时禁止盲目重放写操作。
-
-## 0.2 生命周期 API 可复制示例
-
-下面的示例使用 `$BASE_URL`、`$TOKEN`、`$PLUGIN_VERSION_ID` 和 `$BINDING_ID` 占位；真实值由环境和上一步响应提供。响应均为 JSON，时间字段为 ISO 8601，仅用于 API 传输。
-
-开发前先读取宿主能力注册表和标准字段目录，不能凭能力名称猜合同：
-
-```bash
-curl "$BASE_URL/api/v1/plugin-capabilities" -H "Authorization: Bearer $TOKEN"
-curl "$BASE_URL/api/v1/plugin-form/standard-fields" -H "Authorization: Bearer $TOKEN"
-```
-
-能力响应为 `{ "items": [{ "key", "contractVersion", "actionContractId", "riskLevel", "idempotency", "permission", "inputSchemaId", "outputSchemaId", "resourceLock", "executionLocations" }] }`；Manifest 必须逐项复制 `contractVersion`、`actionContractId`、风险、权限和执行位置。
-
-导入一个用户插件（`manifest` 与 `resources` 必须与包目录内容一致）：
-
-```bash
-curl -X POST "$BASE_URL/api/v1/plugin-packages/import" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -H "X-Request-Id: req_import_01" \
-  -d '{"manifest":{...},"resources":{"workflows/connection-test.json":"{...}"},"packageContent":"{...}"}'
-```
-
-成功响应为 `201`，关键字段如下：
-
-```json
-{
-  "id": "uplgv_01", "pluginVersionId": "uplgv_01",
-  "pluginId": "device.example", "version": "1.0.0",
-  "source": "USER", "status": "DISABLED",
-  "permissionApprovalStatus": "NOT_REQUIRED",
-  "packageSha256": "sha256:<64位小写十六进制>",
-  "manifestSha256": "sha256:<64位小写十六进制>",
-  "resourceSha256": {"workflows/connection-test.json":"sha256:<64位小写十六进制>"},
-  "validationReport": {"valid": true, "errors": [], "warnings": []}
-}
-```
-
-内置包才提交权限审批；审批和启用都使用响应中的 `pluginVersionId`：
-
-```bash
-curl -X POST "$BASE_URL/api/v1/plugin-versions/approve-permissions" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"pluginVersionId":"'$PLUGIN_VERSION_ID'","approvedPermissions":["network.http","artifact.read"]}'
-curl -X POST "$BASE_URL/api/v1/plugin-versions/enable" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"pluginVersionId":"'$PLUGIN_VERSION_ID'"}'
-```
-
-两次成功响应均返回完整 `UnifiedPluginVersionRecord`，其中 `status` 应为 `ENABLED`，审批后 `permissionApprovalStatus` 为 `APPROVED`。USER 包跳过第一条审批请求，但仍必须显式调用启用。
-
-创建 Binding 和能力指派：
-
-```bash
-curl -X POST "$BASE_URL/api/v1/plugin-bindings" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"pluginVersionId":"'$PLUGIN_VERSION_ID'","mode":"MANAGED","inputBindings":{"apiVersion":"gcac.input-bindings/v1","variables":{"allowInsecureTls":false},"connections":{"management":{"host":"npm.example.test","port":443}},"credentials":{"credential":{"credentialId":"cred_01"}},"artifacts":{ }},"managedContext":{"hostId":"host_01","managedTargetId":"target_01"}}'
-```
-
-成功响应包含 `id`、`version: 1`、`status: "ACTIVE"` 和原样保存的 `inputBindings`；记录其 `id` 作为 `$BINDING_ID`。随后指派能力：
-
-```bash
-curl -X POST "$BASE_URL/api/v1/capability-assignments" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"ownerType":"MANAGED_TARGET","ownerId":"target_01","capabilityKey":"certificate.deploy","pluginVersionId":"'$PLUGIN_VERSION_ID'","pluginBindingId":"'$BINDING_ID'","precedence":"TARGET_OVERRIDE"}'
-```
-
-成功响应包含 `status: "ACTIVE"`、`ownerType/ownerId`、`capabilityKey`、`pluginVersionId` 和 `pluginBindingId`。用 `POST /api/v1/capability-assignments/resolve` 检查最终来源时，只发送一个资产定位字段，例如 `{"capabilityKey":"certificate.deploy","managedTargetId":"target_01"}`；返回 `null` 或完整的 `CapabilityAssignment` 记录。再读取该记录引用的插件版本、Binding 和受管目标兼容插件接口，确认版本为 `ENABLED`、Binding 为 `ACTIVE` 且兼容。
-
-Binding 更新必须携带乐观锁版本：
-
-```bash
-curl -X PATCH "$BASE_URL/api/v1/plugin-bindings" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"bindingId":"'$BINDING_ID'","expectedVersion":1,"inputBindings":{"apiVersion":"gcac.input-bindings/v1","variables":{},"connections":{},"credentials":{},"artifacts":{}},"status":"ACTIVE"}'
-```
-
-成功后 `version` 递增；并发更新返回 `409`，必须重新读取 `GET /api/v1/plugin-bindings?bindingId=<id>`。查询 UI 资源使用 `GET /api/v1/plugin-versions/ui-resources?pluginVersionId=<id>&locale=zh-CN`，返回 `{ pluginVersionId, forms, presentations, locale }`。
 
 ## 1. 开始前的交付目录
 
@@ -175,7 +50,7 @@ curl -X PATCH "$BASE_URL/api/v1/plugin-bindings" \
 1. 从宿主能力清单选择已有能力，确认风险等级、幂等性、锁、输入输出 Schema 和执行位置。
 2. 为每项能力指定唯一 `actionContractId`，并在 Manifest 中原样填写宿主注册值。
 3. 明确兼容性：`productFamilies`、`frameworkTypes`、`targetTypes`、`managementMethods`、`executionLocations` 和 `artifactContracts`。
-4. 只申请完成业务所需的最小权限。`certificate.deploy` 能力合同本身要求注册表中的 `certificate.deploy` 权限；Workflow 还应按实际 Host API 调用声明 `secret.resolve`、`artifact.read`、`network.http` 和 `audit.append`。不要把 `device.write` 当作 `certificate.deploy` 的替代名称；Agent 计划则需要对应的 `agent.plan.*` 权限。
+4. 只申请完成业务所需的最小权限。设备证书更新通常需要 `secret.resolve`、`artifact.read`、`network.http`、`device.write`、`audit.append`；Agent 计划则需要对应的 `agent.plan.*` 权限。
 5. 为写操作设计目标回读和失败回滚。上传成功不能作为部署成功条件。
 
 宿主通过能力指派解析插件，不按厂商字符串添加分支。一个应用资产最终可以覆盖设备、受管目标或默认能力，但解析顺序和租户边界由宿主固定。
@@ -353,17 +228,6 @@ Managed Binding 还要提供 `managedContext.hostId`、`managedContext.serviceAs
 ## 10. 升级、禁用和退休
 
 升级前用 `GET /api/v1/plugin-versions/upgrade-diff` 比较能力、权限、输入合同、资源摘要和兼容性。升级必须导入新 `pluginId + version`，旧版本保持不可变；现有 Binding 不会自动切换。
-
-```bash
-curl "$BASE_URL/api/v1/plugin-versions/upgrade-diff?fromVersionId=$OLD_ID&toVersionId=$PLUGIN_VERSION_ID" \
-  -H "Authorization: Bearer $TOKEN"
-curl -X POST "$BASE_URL/api/v1/plugin-versions/disable" -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" -d '{"pluginVersionId":"'$OLD_ID'"}'
-curl -X POST "$BASE_URL/api/v1/plugin-versions/retire" -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" -d '{"pluginVersionId":"'$OLD_ID'"}'
-```
-
-升级差异响应包含 `addedCapabilities`、`removedCapabilities`、`addedPermissions`、`runtimeChanged`、`scopeChanged`、`compatibilityChanged`、`bindingRecheckRequired` 和 `requiresApproval`。`disable` 阻止新执行但保留记录；`retire` 表示不再允许继续使用，均返回更新后的版本记录。
 
 确认新版本完成适用的能力测试后，再创建或更新 Binding 并重新指派能力。禁用版本会阻止新的执行；退休版本用于停止继续使用，旧执行记录仍保留。Runner 切换版本时由宿主先 Drain（排空）旧进程，再启动新版本，晚到结果不得覆盖新版本结果。
 

@@ -1,6 +1,6 @@
 ---
-title: Deployment parameters
-description: Reference for TLSFlow v1.0.0 Docker environment variables, ports, data directories, and secrets
+title: Deployment Parameters
+description: TLSFlow v1.0.0 Docker deployment environment variables, ports, and secrets
 docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
@@ -14,188 +14,93 @@ testRefs: []
 lastVerified: 2026-09-02
 ---
 
-# Deployment parameters
+# Deployment Parameters
 
-This page is the reference for TLSFlow Docker deployment parameters. Most users only need the “Required parameters” and “Secrets and persistence” sections. Use the later tables when you change ports, enable Browser Runtime, migrate data, or tune capacity.
+Environment variables (configuration items read at process startup) must be prepared before container startup. Variables marked "sensitive" should only be placed in permission-restricted environment files. Standard edition reads these variables through Compose; small edition passes them via `docker run -e`.
 
-Prepare environment variables before starting the containers:
+## Fixed Values for Two Topologies
 
-- **Standard** reads them from `docker/.env` through Docker Compose.
-- **Small** receives them through `docker run -e name=value`.
-- Keep keys and other sensitive values in a permission-restricted environment file or password manager.
-
-## Choose the deployment topology
-
-| Item | Standard | Small |
+| Parameter | Standard Deployment | Single-node Deployment |
 | --- | --- | --- |
-| Best for | Production, multi-tenant, multi-enterprise, or continuous background tasks | Evaluation, personal environments, home NAS, or up to 50 application assets |
-| Service shape | Multiple Docker Compose services | One Docker container |
-| Database | PostgreSQL 16 provided by the `db` service | Built-in PGlite (file-based PostgreSQL-compatible database) |
-| Persistence root | `GCAC_DATA_ROOT`, default `docker/data/` | Docker volume or host bind mounted at `/app/data` |
-| Web port | `GCAC_PORT`, default `8085` | Host mapping, default `8085:3003` |
-| Browser Runtime | Disabled by default; enable on demand | Not supported |
-| Fixed architecture | `GCAC_DEPLOYMENT_ARCHITECTURE=standard` | `GCAC_DEPLOYMENT_ARCHITECTURE=small` (built into image) |
-| Fixed persistence backend | `GCAC_PERSISTENCE_BACKEND=postgres` | `GCAC_PERSISTENCE_BACKEND=pglite` (built into image) |
+| `GCAC_DEPLOYMENT_ARCHITECTURE` | `standard` | `small` (built into image) |
+| `GCAC_PERSISTENCE_BACKEND` | `postgres` | `pglite` |
+| Database | `db` service, PostgreSQL 16, data saved in `docker/data/postgres/` | PGlite data saved in `data/pglite/` |
+| Web Port | `GCAC_PORT`, default `8085` | Host-mapped port, default `8085:3003` |
+| Browser Runtime | Disabled by default, can be enabled separately | Not supported |
 
-Standard and small cannot run at the same time or share ports or data directories. Small's PGlite data cannot be used directly as standard's PostgreSQL data.
-
-## Required parameters
-
-### Required for both editions
-
-| Parameter | Purpose | Example or default |
-| --- | --- | --- |
-| `GCAC_PUBLIC_BASE_URL` | Public URL users and Agents use to reach TLSFlow | `https://tlsflow.example.com` or `http://192.168.1.20:8085` |
-| `GCAC_SECRET_KEK` | Encryption key for Secrets, license-sensitive materials, and runtime security materials | Use a random value and keep it unchanged after initialization |
-
-`GCAC_PUBLIC_BASE_URL` must include the protocol, hostname, and port users actually use. With an HTTPS reverse proxy, enter the proxy URL, not an internal container address.
-
-### Also required for standard
-
-| Parameter | Purpose | Example or default |
-| --- | --- | --- |
-| `GCAC_RELEASE_VERSION` | Version tag used by all standard images | Default `latest`; pin a release in production |
-| `POSTGRES_PASSWORD` | PostgreSQL database password | Required; use a random value |
-| `GCAC_TOKEN_SECRET` | Login-token signing key | Required; use a random value and keep it unchanged |
-
-Standard defaults `POSTGRES_DB` and `POSTGRES_USER` to `gcac`. Most deployments do not need to change them.
-
-### Small-specific behavior
-
-Small only requires `GCAC_PUBLIC_BASE_URL` and `GCAC_SECRET_KEK` as application parameters. If `GCAC_TOKEN_SECRET` is unset, the image generates a Token signing key on first startup and saves it to `/app/data/runtime/token-secret`; restarts and upgrades reuse that file.
-
-The administrator password is set by the system initialization wizard on first console access. Do not set `GCAC_INITIAL_ADMIN_PASSWORD` for a new deployment. On first startup, TLSFlow generates the CA high-risk-operation confirmation key and encrypts it with the KEK in the runtime directory.
-
-## Secrets, runtime materials, and licenses
-
-### Runtime directory must be persistent
-
-Standard uses `GCAC_DATA_ROOT/runtime/` by default. Small uses `runtime/` inside its mounted data directory. The directory contains:
-
-- Token signing key;
-- CA high-risk-operation confirmation key;
-- Encrypted runtime materials such as policy trust roots, signing private keys, key sets, and policy packages.
-
-Deleting `runtime/` creates a new trust root and CA confirmation key. Changing `GCAC_SECRET_KEK` prevents existing materials from being decrypted and may prevent the service from starting. Keep the data directory, KEK, and Token key together during upgrades, migrations, and recovery.
-
-Never paste decrypted runtime materials into documentation, screenshots, logs, or support tickets.
-
-### License trust boundary
-
-License status, offline activation requests, license import, and quota validation are normal public-Docker functions. The license trust-root public key is built into Backend and cannot be overridden through deployment environment variables. License-signing private keys are not runtime materials; keep them in a separate private signing environment and never place them in a public repository, Docker build context, image, or container environment variable.
-
-## Database and data directories
-
-| Parameter | Edition | Default or behavior |
-| --- | --- | --- |
-| `GCAC_DATA_ROOT` | standard | Host persistence root, default `./data` (that is, `docker/data/`) |
-| `POSTGRES_DB` | standard | PostgreSQL database name, default `gcac` |
-| `POSTGRES_USER` | standard | PostgreSQL username, default `gcac` |
-| `GCAC_DATABASE_HOST` | standard | PostgreSQL host, default `db` |
-| `GCAC_DATABASE_PORT` | standard | PostgreSQL port, default `5432` |
-| `GCAC_DATABASE_NAME` | standard | Backend database name; Compose defaults to `POSTGRES_DB` |
-| `GCAC_DATABASE_USER` | standard | Backend database user; Compose defaults to `POSTGRES_USER` |
-| `GCAC_DATABASE_PASSWORD` | standard | Backend database password; Compose defaults to `POSTGRES_PASSWORD` |
-| `GCAC_DATABASE_URL` | standard | Complete PostgreSQL connection URL; takes precedence over component parameters |
-| `GCAC_PGLITE_DATA_DIR` | small | PGlite data directory. The image defaults to `/app/data/pglite`; legacy-layout compatibility may fall back to `/var/lib/gcac/pglite` |
-| `GCAC_WORKFLOW_DATA_DIR` | standard, small | User workflow directory, default `/app/data/workflows` |
-| `GCAC_RUNTIME_SECRETS_FILE` | standard, small | Encrypted runtime-material path, default `/app/data/runtime/runtime-secrets.enc` |
-| `GCAC_MIGRATIONS_DIR` | standard, small | Database migration directory, normally image-managed; do not change without a specific requirement |
-| `GCAC_WEB_ROOT` | small | Static frontend directory, normally image-managed; do not change without a specific requirement |
-
-The standard Compose file separately mounts `postgres/`, `workflows/`, `runtime/`, `tls-inspector/`, and `plugins/`. Back up the entire `GCAC_DATA_ROOT` in production; do not back up only PostgreSQL.
-
-## Ports and network boundaries
-
-| Parameter or port | Purpose | Rule |
-| --- | --- | --- |
-| `GCAC_PORT` | Standard Web host port | Default `8085`; update the public URL when changing it |
-| `8085:3003` | Small host-to-container mapping | Left side is the host port; right side `3003` is fixed |
-| `3003` | Backend or small internal Web/API port | Do not expose standard Backend `3003` directly to users |
-| `8787` | Browser Runtime internal service port | Not mapped to the host; access through Web's `/vnc/` proxy |
-| `8788` | Small TLS Inspector container port | Do not expose it to the public internet |
-
-A reverse proxy should forward user requests to the Web port. Browser Runtime and TLS Inspector are internal services; do not add public port mappings for them.
-
-## Identity, sessions, and tenants
-
-| Parameter | Default behavior | Use it when |
-| --- | --- | --- |
-| `AUTH_COOKIE_SECURE` | Enabled automatically in production | Only temporary HTTP internal testing; do not disable for HTTPS |
-| `AUTH_BROWSER_SESSION_TTL_SECONDS` | `28800` (8 hours) | You need a different browser-session lifetime, in seconds |
-| `GCAC_TENANT_MODE` | `single` | You choose a tenant mode during initialization; review the existing data before switching |
-| `GCAC_TOKEN_SECRET_FILE` | Small default `/app/data/runtime/token-secret` | You need a different writable and persistent path for the generated Token key |
-| `GCAC_INITIAL_ADMIN_PASSWORD` | Unset | Legacy automated Admin seed only; use the initialization wizard for new deployments |
-| `GCAC_ENABLE_LEGACY_ADMIN_SEED` | `false` | You need the legacy Admin seed; leave disabled for new deployments |
-| `GCAC_CA_CONFIRMATION_SECRET` | Generated and encrypted on first startup | You have a specific key-management requirement; keep it unchanged after setting it |
-| `GCAC_LICENSE_STORAGE_KEY` | Uses `GCAC_SECRET_KEK` | License-sensitive materials need a separately managed key |
-
-## Browser Runtime (optional)
-
-Browser Runtime is available only in standard and is disabled by default:
-
-| Parameter | Default | Use it when |
-| --- | --- | --- |
-| `BROWSER_RUNTIME_ENABLED` | `false` | You want Compose to pull and start the Browser Runtime image; this variable only selects the Profile and is not passed to Backend |
-| `COMPOSE_PROFILES` | `${BROWSER_RUNTIME_ENABLED}` | Keep the template value; if a deployment tool overrides it, it must include `browser-runtime` |
-| `BROWSER_RUNTIME_URL` | `http://browser-runtime:8787` | Backend needs the Browser Runtime internal address |
-| `BROWSER_RUNTIME_SHARED_SECRET` | Empty | Required when enabled; Backend and Browser Runtime must use the same value |
-| `BROWSER_RUNTIME_PUBLIC_BASE_URL` | Empty | An external reverse proxy serves `/vnc/`; leave empty otherwise |
-| `BROWSER_RUNTIME_MAX_SESSIONS` | `4` | You need a different maximum browser-session concurrency |
-
-Example:
-
-```dotenv
-BROWSER_RUNTIME_ENABLED=true
-COMPOSE_PROFILES=${BROWSER_RUNTIME_ENABLED}
-BROWSER_RUNTIME_SHARED_SECRET=your-random-browser-runtime-secret
-```
-
-After editing `.env`, run from the `docker` directory:
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-Do not map Browser Runtime CDP, RFB, or `8787` directly to the public internet.
-
-## Background tasks and capacity tuning
-
-The system also reads interval and concurrency variables for Agent offline detection, device liveness probes, monitoring, automation, CA synchronization, ACME renewal, and the task Worker, including:
-
-- `AGENT_OFFLINE_TIMEOUT_SECONDS`
-- `DEVICE_HEALTH_STALE_SECONDS`
-- `DEVICE_LIVENESS_PROBE_INTERVAL_MS`
-- `MONITOR_PROBE_SCHEDULER_INTERVAL_MS`
-- `AUTOMATION_SCHEDULER_INTERVAL_MS`
-- `GCAC_TASK_WORKER_INTERVAL_MS`
-
-Both `AGENT_OFFLINE_TIMEOUT_SECONDS` and `DEVICE_HEALTH_STALE_SECONDS` default to 60 seconds. Agent terminal-task cleanup can be tuned with:
-
-| Parameter | Default | Description |
-| --- | --- | --- |
-| `AGENT_TASK_CLEANUP_INTERVAL_MS` | 60 seconds | Cleanup check interval |
-| `AGENT_TASK_CLEANUP_BATCH_SIZE` | 100 entries | Entries removed per run |
-| `AGENT_TASK_DETERMINISTIC_RETENTION_SECONDS` | 1 hour | Retention for tasks with a known source |
-| `AGENT_TASK_UNKNOWN_RETENTION_SECONDS` | 24 hours | Retention for tasks with an unknown source |
-
-Cleanup removes only `succeeded`, `failed`, and `rejected` terminal tasks and their logs and cursors. It never removes active `queued`, `leased`, or `acked` tasks. These variables tune capacity and retention; keep the defaults unless you have measured capacity requirements.
-
-## Source-build parameters (developers only)
-
-The following parameters are not runtime deployment settings:
+## Image and Required Parameters
 
 | Parameter | Purpose |
 | --- | --- |
-| `VITE_PRODUCT_EDITION` | Selects the product edition during source builds; default `public` |
-| `DOCS_VERSION` | Docker build argument controlling the documentation version used by the frontend “User Manual” link |
-| `VITE_DOCS_VERSION` | Documentation-version variable for source builds |
+| `GCAC_RELEASE_VERSION` | Standard edition image tag; recommended to use fixed release version, default `latest` |
+| `GCAC_PUBLIC_BASE_URL` | TLSFlow Web address accessible by Agent, e.g., `http://host-address:8085` |
+| `GCAC_TOKEN_SECRET` | Login token signing key; required for standard edition, auto-generated and persisted on first startup if unset for small edition |
+| `GCAC_SECRET_KEK` | Secret (sensitive value) encryption key; required for both standard and small editions |
+| `POSTGRES_PASSWORD` | Standard edition PostgreSQL password; not needed for small edition |
 
-User deployments should use `docker/docker-compose.yml` and prebuilt Docker Hub images. Do not modify the user Compose file or place source-build parameters in a production `.env`.
+Small edition only requires two application parameters: `GCAC_PUBLIC_BASE_URL` and `GCAC_SECRET_KEK`. If `GCAC_TOKEN_SECRET` is unset, it is auto-generated on first startup and saved to `data/runtime/token-secret`, then reused on restarts; manual input overrides the auto value. PGlite database, username, password, host, and port all use image built-in defaults.
 
-## Never use these in production
+Administrator password is set by the system initialization wizard on first startup. The CA high-risk operation confirmation key is auto-generated on container first startup, encrypted with `GCAC_SECRET_KEK`, and persisted; it does not need to be configured in Compose or environment files. `BROWSER_RUNTIME_SHARED_SECRET` is only required when Browser Runtime is enabled.
 
-`NODE_TEST_CONTEXT`, `GCAC_E2E_*`, `GCAC_P2_DEV_CUTOVER`, and test signing materials are for development or testing only. They do not replace production keys and should not be written into standard or small runtime environments.
+Runtime security materials (trust roots, signing private keys, key sets, and policy packages) are auto-generated on container first startup and encrypted with `GCAC_SECRET_KEK` before being saved to `/app/data/runtime/runtime-secrets.enc`. This directory must be persisted: deleting it generates a new trust root, and changing `GCAC_SECRET_KEK` prevents the service from starting. Do not paste decrypted materials in any documentation, logs, or tickets.
 
-For step-by-step deployment instructions, see [Single-node Deployment](./single-node-deployment.md) or [Standard Deployment](./standard-deployment.md). For backup guidance, see [Backup and Recovery](../manual/backup-and-restore.md).
+License management code, license status page, offline activation requests, license import, and quota validation are normal functions of public Docker. The current built-in license `keyId` is `gcac-license-release-2026-08`, using Ed25519 256-bit keys, providing approximately 128 bits of security strength. The license trust root public key is hardcoded with Backend code, and both development and production release environments use the same built-in public key; deployment environments cannot override it via environment variables. License signing private keys are not part of runtime materials and must be kept in a separate private signing environment, never entering public repositories, Docker build contexts, images, or container environment variables.
+
+## Database and Persistence Directories
+
+| Parameter | Purpose |
+| --- | --- |
+| `GCAC_DATABASE_HOST` / `GCAC_DATABASE_PORT` | Standard edition PostgreSQL address, default host `db`, port `5432` |
+| `GCAC_DATABASE_NAME` / `GCAC_DATABASE_USER` / `GCAC_DATABASE_PASSWORD` | PostgreSQL connection components; if `GCAC_DATABASE_URL` is set, URL takes precedence |
+| `GCAC_DATABASE_URL` | Complete PostgreSQL connection URL |
+| `GCAC_PGLITE_DATA_DIR` | Small edition PGlite data directory, image default `/var/lib/gcac/pglite` |
+| `GCAC_MIGRATIONS_DIR` | Database migration directory, Compose default `/app/src/database/migrations` |
+| `GCAC_WORKFLOW_DATA_DIR` | User workflow directory, Compose default `/app/data/workflows` |
+| `GCAC_RUNTIME_SECRETS_FILE` | Encrypted runtime security materials path, Compose default `/app/data/runtime/runtime-secrets.enc` |
+| `GCAC_WEB_ROOT` | Small edition static frontend directory, image default `/app/web` |
+
+## Identity, Sessions, and Licenses
+
+| Parameter | Purpose |
+| --- | --- |
+| `AUTH_COOKIE_SECURE` | Whether to enforce secure cookies; enabled by default in production |
+| `AUTH_BROWSER_SESSION_TTL_SECONDS` | Browser session validity period (seconds) |
+| `GCAC_TENANT_MODE` | Tenant mode; pre-check in console before switching |
+| `GCAC_LICENSE_STORAGE_KEY` | License sensitive material storage key; uses `GCAC_SECRET_KEK` if unset |
+| `GCAC_ENABLE_LEGACY_ADMIN_SEED` | Whether to enable legacy fixed Admin seed; disabled by default |
+| `GCAC_INITIAL_ADMIN_PASSWORD` | Legacy automated seed Admin password; leave empty for new deployments and use initialization wizard |
+| `GCAC_CA_CONFIRMATION_SECRET` | CA high-risk operation confirmation key; auto-generated and encrypted on production container first startup, should not be manually configured |
+| `GCAC_VERSION` | Override runtime version; keep as `1.0.0` for official releases |
+
+## Browser Runtime
+
+| Parameter | Purpose |
+| --- | --- |
+| `BROWSER_RUNTIME_ENABLED` | Whether Docker Compose pulls and starts Browser Runtime image; default `false`, not passed to Backend |
+| `BROWSER_RUNTIME_URL` | Backend's internal network address for browser runtime, standard edition default `http://browser-runtime:8787` |
+| `BROWSER_RUNTIME_SHARED_SECRET` | Shared key between Backend and browser runtime; required when enabled |
+| `BROWSER_RUNTIME_PUBLIC_BASE_URL` | Public base address when external reverse proxy serves `/vnc/`; leave empty if not needed |
+| `BROWSER_RUNTIME_MAX_SESSIONS` | Maximum browser session concurrency, Compose default `4` |
+
+By default, starting standard edition does not include the `browser-runtime` service. After setting `BROWSER_RUNTIME_ENABLED=true`, the `COMPOSE_PROFILES` in the template automatically selects the Browser Runtime Profile; no additional command parameters needed. If your deployment tool overrides `COMPOSE_PROFILES`, ensure it includes `browser-runtime`.
+
+## Common Optional Parameters
+
+| Parameter | Default Value | Description |
+| --- | --- | --- |
+| `GCAC_PORT` | Standard default `8085` | Web external port; small edition adjusts via host port mapping |
+| `GCAC_DATA_ROOT` | `./data` | Host persistence data root directory; defaults to same directory as Compose file |
+| `POSTGRES_DB` | `gcac` | Database name |
+| `POSTGRES_USER` | `gcac` | Database user |
+| `BROWSER_RUNTIME_PUBLIC_BASE_URL` | Empty | Public address for browser sessions; leave empty without public network access |
+| `BROWSER_RUNTIME_MAX_SESSIONS` | `4` | Browser session limit |
+| `VITE_PRODUCT_EDITION` | `public` | Only used for source code builds, not a runtime deployment parameter |
+| `DOCS_VERSION` | `1.0.0` | Docker build argument determining frontend "User Manual" entry redirect documentation version; not a runtime deployment parameter |
+
+Source code builds can also use the semantically identical `VITE_DOCS_VERSION` (e.g., `1.0.0` or `v1.0.0`). During Docker build, pass via `--build-arg DOCS_VERSION=1.0.0`; if unset, temporarily uses `1.0.0`. This variable only controls the entry link; the documentation image still fully copies `docs/Documentation/.vitepress/dist` to preserve version switching and Chinese/English pages.
+
+The system also reads variables for Agent offline determination, device liveness probing, monitoring, automation, CA synchronization, ACME renewal, and task Worker (background task process) intervals/concurrency, such as `AGENT_OFFLINE_TIMEOUT_SECONDS`, `DEVICE_HEALTH_STALE_SECONDS`, `DEVICE_LIVENESS_PROBE_INTERVAL_MS`, `MONITOR_PROBE_SCHEDULER_INTERVAL_MS`, `AUTOMATION_SCHEDULER_INTERVAL_MS`, and `GCAC_TASK_WORKER_INTERVAL_MS`. Both `AGENT_OFFLINE_TIMEOUT_SECONDS` and `DEVICE_HEALTH_STALE_SECONDS` default to 60 seconds. Agent terminal-state task auto-cleanup can be adjusted via `AGENT_TASK_CLEANUP_INTERVAL_MS`, `AGENT_TASK_CLEANUP_BATCH_SIZE`, `AGENT_TASK_DETERMINISTIC_RETENTION_SECONDS`, and `AGENT_TASK_UNKNOWN_RETENTION_SECONDS`; defaults are 60 seconds, 100 entries, 1 hour, and 24 hours respectively. Cleanup only deletes `succeeded`, `failed`, `rejected` terminal-state tasks and their task logs/cursors, never touching `queued`, `leased`, `acked` active tasks. These variables are only for capacity tuning and retention period adjustment, not new feature toggles; keep default values without clear capacity evidence.
+
+## Variables Explicitly Not for Production
+
+`NODE_TEST_CONTEXT`, `GCAC_E2E_*`, `GCAC_P2_DEV_CUTOVER`, and test signing materials only serve development or testing. They do not replace production keys and should not be written into standard or single-node Compose environments.

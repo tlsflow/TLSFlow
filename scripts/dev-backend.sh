@@ -34,9 +34,11 @@ EOF
   esac
 done
 
-if [ ! -x node_modules/.bin/tsx ] && [ ! -f node_modules/.bin/tsx.cmd ]; then
-  echo "[backend] 依赖未安装完整，执行 npm install"
-  npm install
+if { [ ! -x node_modules/.bin/tsx ] && [ ! -f node_modules/.bin/tsx.cmd ]; } || \
+   { [ ! -x node_modules/.bin/tsc ] && [ ! -f node_modules/.bin/tsc.cmd ]; }; then
+  echo "[backend] 开发依赖未安装完整，执行 npm install --include=dev"
+  # 即使调用环境设置 NODE_ENV=production，也必须安装 tsx/tsc 等开发依赖。
+  npm install --include=dev
 fi
 
 # tsx 热重载服务仍使用生产安全边界：JSONata Worker 必须来自已编译的 dist，不能在运行期加载源码。

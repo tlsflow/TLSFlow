@@ -15,7 +15,7 @@ lastVerified: 2026-08-22
 
 # Backup and Restore
 
-The current version does not provide a one-click platform backup or restore from the console. Backups are created by the organization's approved database and file-backup systems; restores are performed by operations personnel during a maintenance window. As a user, confirm that a usable backup exists, that the latest restore drill passed, and that an incident ticket and maintenance window are ready.
+The current version does not have a platform-level backup/restore button that can be completed directly from the console. Backup and restore operations are performed by operations personnel according to the organization's backup system. Before use, confirm whether backups exist, whether restore drills have passed, and prepare related tickets and maintenance windows before making changes.
 
 ## Backup Scope
 
@@ -26,10 +26,11 @@ Please cover at least the following content:
 - Separate custody: Platform encryption key for secrets, database passwords, and license signing materials.
 - Business records: Current version number, tenant/user list, published workflow versions, certificate assets, and recent execution records.
 
+Screenshot placeholder: Backup ticket or backup system content inventory showing database, workflows, plugins, and key materials all included in plan (sensitive values redacted).
 
 Backup completion does not equal the ability to restore. Verify at least once in an isolated environment: can the platform start, read tenants and certificates, load workflows, discover application assets, and execute test deployments. Use database tools approved by the organization for backup and restore; do not directly overwrite data directories while services are running.
 
-## Restore and acceptance
+## Restore Steps
 
 When data corruption or migration incidents occur, operate in the following order:
 
@@ -39,8 +40,9 @@ When data corruption or migration incidents occur, operate in the following orde
 4. Restore workflow, runtime, TLS Inspector data directories, and user plugin directories, ensuring directory permissions match original deployment.
 5. Start services using the platform version matching the backup and the same set of key materials.
 6. After login, check database migration status, tenants, licenses, plugin status, and read-only discovery results in sequence.
-7. After confirming normal read operations, restore write operations; first perform small-scale test deployments on test targets and check the execution record and target read-back.
+7. After confirming normal read operations, restore write operations; first execute Dry Run or small-scale test deployments on test targets.
 
+Screenshot placeholder: Restore acceptance page showing platform version, tenants, licenses, plugins, and read-only discovery checklist items.
 
 ## Key and Secret Considerations
 

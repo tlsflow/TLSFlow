@@ -1,89 +1,48 @@
 ---
 title: Devices
-description: Onboard devices, review discovery results, and confirm usable targets
-docStatus: implemented
+description: Onboard devices, run discovery, and confirm deployable targets
+docStatus: in_review
 productVersion: v1.0.0
 sourceLocale: zh-CN
 locale: en-US
 specRefs: []
 codeRefs:
   - web/src/views/assets/AssetsView.vue
-  - web/src/views/devices/DeviceOnboardingWizard.vue
-  - web/src/views/devices/details/ManagedDeviceDetailModal.vue
   - backend/src/modules/devices
   - backend/src/modules/agents
 testRefs: []
-lastVerified: 2026-09-04
+lastVerified: 2026-09-02
 ---
 
-# Devices
+# Device Assets
 
-Devices are the entry point for connecting TLSFlow to servers, network appliances, and security appliances. After a device is onboarded, TLSFlow can read its system information, sites, services, and certificate locations for use by application assets and deployment tasks.
+Device assets are a category of unified assets, representing hosts or network devices that certificates will ultimately access; Agent is the management channel for devices, cloud service instances are also displayed on the unified asset page but are not disguised as devices. The page entry is fixed at `/assets`.
 
-Open **Asset Center → Assets** to manage devices. Devices and cloud service assets share the same inventory. Filter by device category and management method; an online status alone does not mean that a target is ready for deployment.
+> [Placeholder screenshot: Device list, highlighting device name, management method, address, health status, version, and action buttons]
 
+## Add and Discover Devices
 
-## Before You Start
+1. Go to "Asset Center → Assets" and click "Add".
+2. In the wizard, select the access platform and management method: install Agent or use the direct connection method provided on the page.
+3. Fill in the device name, management address, port, TLS settings, and saved credentials according to the page prompts.
+4. Submit the wizard and wait for the device record to be created; Agent access methods will display installation or registration materials.
+5. Return to the device list and confirm the health status is normal or the Agent is online.
+6. Open the device action menu, run "Connection Test" first, then run "Discovery" after success.
+7. Open the discovery results and confirm the system, sites, services, certificate locations, and available capabilities item by item.
+8. In the application asset wizard, only select targets with normal status and matching application types.
 
-Confirm the following:
+Connection test only verifies that the current address and login information are usable; discovery actually reads sites, services, and certificate locations. Successful discovery does not mean certificates have been deployed.
 
-- The management address and port are reachable from the TLSFlow network.
-- A matching credential exists under **System Settings → Credentials**. Passwords, private keys, and tokens are never shown in the device list.
-- You know the target product and the planned maintenance window. Use a test device for the first connection when possible.
-- For Agent onboarding, the target host can reach the TLSFlow Agent endpoint and you have permission to install services.
+## View and Maintain
 
-## Add a Device
+- Use category, management method, and health status filters to quickly locate abnormal devices.
+- Click the device name to view overview, framework, sites, certificates, and operation records.
+- Before deleting a device, confirm that no application assets or deployment plans continue to use it.
+- When an "Upgradeable" prompt appears, first check the current version and target version, confirm the maintenance window, then execute the upgrade.
 
-1. Open **Asset Center → Assets** and click **Add asset**.
-2. Select the target platform or an enabled device plugin. The wizard shows the support status; only supported platforms can be submitted.
-3. Enter the device name, management address, port, connection protocol, TLS verification settings, and credential reference. Plugin platforms may show additional fields.
-4. Review the values and submit.
+## Common Issues
 
-### Onboard with an Agent
-
-When you select an Agent platform, the wizard generates a one-time installation command and an expiry time. Copy the command and run it on the target host with an account that can install the Agent. Do not post the command or registration material in tickets, screenshots, or chat channels. Return to the inventory after installation and wait for the Agent to come online.
-
-
-### Use a Direct Connection or Plugin
-
-After you enter the requested connection details, TLSFlow verifies the address, credentials, and product identity during submission. The result page shows whether the connection succeeded and, when applicable, an error code. Connection testing is read-only and does not change the target.
-
-
-## Run Discovery
-
-After the device is online or the connection test succeeds, open the device actions menu, choose **View details**, and click **Rediscover**. Discovery reads the frameworks, sites, services, certificates, and capabilities that actually exist on the target.
-
-Review these sections in the details window:
-
-- **Overview**: product, operating system, management method, and last contact;
-- **Frameworks and sites**: addresses, ports, protocols, and associated products;
-- **Certificates**: certificates detected on the target, validity, and fingerprints;
-- **Logs**: connection, discovery, and other device operation results.
-
-
-A successful discovery means that TLSFlow read the target information; it does not mean a certificate was deployed. When creating an application asset, choose a discovered target that is available and matches the application type. Deployment still requires the page validation and result verification.
-
-## Maintain Devices
-
-- Filter by category, management method, and health status. Address devices marked unreachable, degraded, or unknown first.
-- If the address, port, or credential changes, edit the device and run connection testing and discovery again before starting deployment.
-- **Rediscover** refreshes asset facts only. It does not replace certificates or change the target configuration.
-- When an upgrade action is available, confirm the current version, target version, and maintenance window. Afterward, verify that the Agent is online and discovery is current.
-- Before deleting a device, confirm that no application asset, workflow, or automation references it. Deletion affects future target selection and cannot be recovered from the inventory.
-
-## Troubleshooting
-
-**Connection test fails**
-Check the management address, port, TLS verification, and credential status. For private networks, make sure TLSFlow or a Gateway can reach the target network.
-
-**The Agent is installed but remains offline**
-Check that the installation command has not expired, the host can reach the Agent endpoint, and the Agent service is running. Generate a new command when it expires; do not reuse old registration material.
-
-**Discovery is empty or contains warnings**
-Resolve the connection error and run discovery again. The details page only shows resources the target plugin can actually read; entering guessed paths does not create discovery facts.
-
-**The device is online but cannot be selected for deployment**
-Online means only that recent communication succeeded. Check compatibility, discovery results, and the required capabilities before selecting the target in the application wizard.
-
-**How should a Gateway be used?**
-A Gateway forwards traffic across networks; it is not the certificate deployment target. You still need a target device that can perform the certificate operation.
+- **Connection test fails**: Check address, port, TLS verification, and credentials, correct and retest.
+- **Discovery has warnings**: Complete site or certificate location information according to the warning content, then re-discover.
+- **Device online but not deployable**: Check target compatibility and capability status; do not rely solely on "online" status.
+- **Gateway devices**: Gateway only handles cross-network forwarding; you still need target devices that can execute certificate operations.

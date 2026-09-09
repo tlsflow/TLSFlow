@@ -1,6 +1,6 @@
 ---
 title: Automation
-description: Create certificate update plans that run automatically on new versions or schedules
+description: Create deployment automation triggered by new certificate versions, scheduled, and manual triggers
 docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
@@ -15,7 +15,7 @@ lastVerified: 2026-09-02
 
 # Automation
 
-Automation creates plans that run repeatable certificate updates according to rules. It processes application assets that are onboarded, have a certificate binding and have a usable deployment target; it does not install a certificate for the first time or add applications. To update one application immediately, return to **Asset Center → Applications** and select that application's **Deploy update** button instead of starting here.
+Automation is used to hand over repetitive certificate update work to the system to execute according to rules. It only processes application assets that have been managed and have certificate bindings established, and is not responsible for first-time certificate installation or adding new applications.
 
 ## Create Automation
 
@@ -23,10 +23,10 @@ Before starting, please confirm: certificates have been imported and have availa
 
 ### Step 1: Select Trigger Method
 
-1. In **Trigger**, choose a certificate-version, one-time, recurring, on-demand or API trigger.
-2. Enter the run time, recurrence or certificate-event sources requested by the page.
-3. Select **Next**.
+1. In the "Trigger" dropdown box, select "On-Demand Execution".
+2. Click "Next".
 
+Screenshot placeholder: Automation creation window "Trigger" step, highlighting trigger method dropdown box and step progress.
 
 ### Step 2: Determine Update Scope
 
@@ -35,6 +35,7 @@ Before starting, please confirm: certificates have been imported and have availa
 3. If scope adjustment is needed, check targets in "Selected Assets" and click "Remove", or click "Clear" to reselect. When selecting specified assets, keep at least one target.
 4. View the execution capability prompt at the bottom of the page, confirm these targets have available deployment methods, then click "Next".
 
+Screenshot placeholder: Automation "Executor" step, showing certificate domain selector, all associated targets/specified targets options, and left-right asset selection areas.
 
 ### Step 3: Set Execution Safety Controls
 
@@ -44,6 +45,7 @@ Before starting, please confirm: certificates have been imported and have availa
 4. Decide whether to check "Approval required before execution" according to organizational processes. Keeping approval for production environments is recommended.
 5. Read "Configuration Summary", confirm trigger method, domains, and target scope are correct, then click "Save".
 
+Screenshot placeholder: Automation "Execution Safety Controls" step, showing name, concurrency, failure threshold, approval switch, and configuration summary.
 
 ## Manage Automation
 
@@ -53,9 +55,21 @@ After saving, the following operations can be performed in the list:
 - "Edit": Modify rules; a new configuration version is generated after saving.
 - "Copy": Create a new rule based on existing rules, suitable for creating test environment copies.
 - "Enable/Disable": Control whether the rule can continue to be run.
+- "Execute Now": Immediately open manual execution window.
 - "Run History": View overall progress of each run and processing results for each target.
 - "Delete": Delete rules no longer in use. Before deletion, confirm there are no pending maintenance tasks.
 
+Screenshot placeholder: Automation list showing status, trigger method, target scope, last run time, and row operation menu.
+
+## Manual Execution and Preview
+
+1. Click "Execute Now" in automation row operations.
+2. Select the certificate version to deploy. The system will resolve associated application assets according to the certificate this version belongs to.
+3. First check "Asset Impact Preview", focusing on confirming match count, executable count, exclusion count, and prompts such as "Validity Period Shortening Risk" and "Current Certificate Missing".
+4. When you want to stop subsequent processing if one target fails, check "Error interrupts workflow"; after confirming executable targets exist in preview, click "Start Execution".
+5. After execution starts, go to "Run History" to view progress. When there are no executable targets, do not repeatedly click execute; instead, first correct certificate binding, target status, or permissions according to exclusion reasons.
+
+Screenshot placeholder: Manual execution window showing certificate version dropdown, impact preview statistics, exclusion reasons, and "Error interrupts workflow" option.
 
 ## View Run Results
 
@@ -63,6 +77,7 @@ After opening a specific run, you can see trigger source, actually used certific
 
 After resuming from approval pause, the system continues using targets and certificate version already determined for this run and will not automatically use versions added later. Notification delivery failure and certificate deployment results are recorded separately; notification failure will not revoke completed deployments.
 
+Screenshot placeholder: Automation run history details showing run status, success/failure progress, failure stage, target details, and "View Deployment Plan/Execution Record" buttons.
 
 ## Notes for Use
 

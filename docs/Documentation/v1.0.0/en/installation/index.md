@@ -45,7 +45,7 @@ Use this sequence for either deployment option:
 2. Open [Standard Deployment](./standard-deployment.md) or [Single-node Deployment](./single-node-deployment.md) and start the selected deployment.
 3. Use [Deployment Parameters](./deployment-parameters.md) to review environment variables. Secret values must remain unchanged after first initialization.
 4. Open [First Login](./first-login.md), create the administrator account, and complete the security initialization.
-5. After signing in, confirm the license status (if a license is provided), create daily-use accounts, store credentials, connect a test device, import a test certificate, and perform a small-scale test deployment. Check the execution record and target read-back.
+5. After signing in, confirm the license status (if a license is provided), create daily-use accounts, store credentials, connect a test device, import a test certificate, and run a Dry Run (read-only rehearsal).
 
 This order separates the checks into clear stages: host and container health, account and permission setup, target connectivity, and actual certificate deployment.
 
@@ -54,7 +54,7 @@ This order separates the checks into clear stages: host and container health, ac
 - Containers are `running`, database migrations have completed, and the Web console opens successfully.
 - An administrator account exists, daily work uses separate accounts, and permissions follow least privilege.
 - Production deployments have persistent storage and backups for the database, workflows, and runtime security materials.
-- A test device passes connection and read-only discovery, and a test certificate completes a small-scale test deployment with a target read-back in the execution record.
+- A test device passes connection and read-only discovery, and a test certificate completes a Dry Run.
 - Treat execution records, target read-back, monitoring, and audit logs as the final evidence. A successful form submission does not prove that a certificate was deployed.
 
 ## Related Documentation

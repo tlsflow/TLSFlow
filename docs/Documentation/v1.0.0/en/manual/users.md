@@ -1,6 +1,6 @@
 ---
 title: Users
-description: Create, authorize, and disable users and groups in the current tenant
+description: Create and maintain TLSFlow tenant users
 docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
@@ -10,45 +10,43 @@ codeRefs:
   - web/src/views/settings/UsersView.vue
   - backend/src/modules/security
 testRefs: []
-lastVerified: 2026-09-04
+lastVerified: 2026-08-22
 ---
 
 # Users
 
-Use **System Settings → Users** to manage people and groups that can sign in to the current tenant. The page shows account source, status, email, roles, and tenant. Roles themselves are defined on the **Roles** page.
+The "Users" page is used to maintain personnel accounts that can log into the current tenant and view account source, status, tenant affiliation, and roles.
 
-## Create a local user
+## Creating Local Users
 
-1. Select the **Users** tab and click **Create User**.
-2. Set the creation method to **Local User**, then enter the username, display name, email, and initial password.
-3. Assign a role that matches the person's responsibilities. When the scope is not yet clear, start with a read-only role and adjust it after confirming the work scope.
-4. Click **Create User** and confirm the account status in the list. Send the initial sign-in details through a secure channel and require the person to change the password after the first login.
+1. Navigate to "System Settings → Users", confirm the "Users" tab is selected, and click "Create User".
+2. In "Creation Method", select "Local User".
+3. Fill in username, display name, email, and initial password; display name is used for identifying personnel on pages and in operation records.
+4. In the "Role" dropdown, select the role corresponding to their responsibilities. When temporarily uncertain about permissions, first select read-only role and adjust later.
+5. Click "Create User", return to the list, and confirm status is "Enabled". Deliver username and initial password to the individual through secure channels and remind them to change password after first login.
 
+> [Screenshot placeholder: User list page highlighting "Create User" button, user/group tabs, and main information columns]
 
-## Add a user from an identity source
+## Adding Users from Identity Sources
 
-When an administrator has configured an identity source, such as an enterprise directory, select **Identity Source User** in the creation dialog:
+If administrators have already configured identity sources (such as enterprise directory), you can select "Identity Source User" in the creation dialog:
 
-1. Select the identity source and enter the directory username.
-2. Click **Retrieve User** and verify the returned name and email to make sure it is the correct person.
-3. Select a role and save. The person will sign in with the identity-source account, and TLSFlow will retain the association.
+1. Select identity source and enter directory username.
+2. Click "Retrieve User", verify returned name, email, and other information to confirm correct person.
+3. Select role and save. The system will retain this person's association with the identity source; subsequent logins use enterprise directory accounts.
 
-If the user cannot be retrieved, check the identity-source status and username spelling, then contact the identity-source administrator. Do not create a duplicate local account to bypass the lookup.
+When user cannot be retrieved, first confirm identity source is available and username spelling is correct, then contact identity source administrator; do not create duplicate local accounts to bypass retrieval.
 
-## Manage user groups
+## Managing User Groups
 
-On the **Groups** tab, click **Add Group**:
+Switch to "Groups" tab to view user groups. After clicking "Add Group", you can select "Local Group" to fill in group name and code, or select "Identity Source Group" and retrieve directory groups. Groups can receive permissions in bulk on the "Roles" page, suitable for managing access scope by team.
 
-- **Local Group:** Enter a group name and code.
-- **Identity Source Group:** Select the identity source, enter the directory group name, retrieve it, verify the returned details, and save.
+> [Screenshot placeholder: Add group dialog highlighting local group/identity source group selection and "Retrieve Group" button]
 
-You can grant a role to the group on the **Roles** page. This is useful for maintaining permissions for a team.
+## Editing, Disabling, and Deleting
 
+- Click "Edit" in user row to modify display name, email, role, and status. Changing status to "Disabled" will prevent new logins but retain historical operation records, suitable for resignation or long-term suspension scenarios.
+- Before deletion, first confirm the user has no pending approvals, deployment responsibilities, or other handover matters. Deletion will remove account-associated local credentials and role assignments; deletion operation requires re-entering `DELETE` for confirmation.
+- Multiple users can be checked and batch deleted. Built-in administrator account cannot be checked for deletion; please only use it for management work, not as daily deployment account.
 
-## Edit, disable, or delete
-
-- Select **Edit** in a user row to change the display name, email, role, or status. **Disabled** prevents new logins while retaining historical operation records, which is appropriate when someone leaves or is inactive for a long period.
-- Before deleting, confirm that the user has no pending approvals, deployment responsibilities, or handover tasks. Deletion requires entering `DELETE` again; multiple users can be selected for batch deletion.
-- The built-in administrator account cannot be selected for deletion. Use it for initialization and emergency administration, not for daily deployment work.
-
-When responsibilities change, use this order: adjust roles or group membership, disable the account, then review **Audit Logs**. Deletion is irreversible; prefer disabling the account when possible.
+When personnel responsibilities change, it's recommended to first adjust roles and group memberships, then disable accounts, and finally go to "Audit Logs" to confirm changes have been recorded.

@@ -16,12 +16,13 @@ lastVerified: 2026-08-22
 
 # Troubleshooting
 
-When a problem occurs, preserve evidence first and then narrow it down by impact. Do not begin by changing configuration, repeatedly clicking, or recreating tasks: those actions can hide the cause or apply a change twice.
+When encountering problems, first record facts, then locate in sequence. Do not start by changing configurations, repeatedly clicking, or recreating tasks, as this may mask the real cause.
 
 ## Step 1: Record Traceable Information
 
 In tickets or handover records, write down tenant, operator, current page, occurrence time, task ID, and run ID. When taking screenshots, redact passwords, tokens, private keys, and complete webhook addresses.
 
+Screenshot placeholder: Problem page error prompt highlighting request ID, task ID, or plan ID with sensitive information redacted.
 
 ## Step 2: Check by Object Category
 
@@ -39,11 +40,12 @@ In tickets or handover records, write down tenant, operator, current page, occur
 
 ### Certificate Deployment Anomalies
 
-1. Open execution records to confirm whether failure occurred in target selection, plan creation, approval, execution, verification, rollback, or notification stage.
-2. Check whether the certificate version, target binding, and credential authorization match this task, and read the error returned by the page.
+1. Open execution records to confirm whether failure occurred in target selection, plan creation, pre-check, approval, execution, verification, rollback, or notification stage.
+2. Check whether certificate version, target binding, credential authorization, and dry run summary match this task.
 3. Cross-reference plan ID and run ID with operation records in "Audit Logs" to confirm operator and time.
 4. When external write timeout or displays "result unknown", first read back the actual certificate and service status of the target site; do not automatically replay before confirmation to avoid repeated changes.
 
+Screenshot placeholder: Execution record details showing step status, failure stage, error summary, and plan/run IDs.
 
 ## Step 3: Safe Recovery
 

@@ -43,7 +43,7 @@ testRefs:
   - backend/src/modules/application-onboarding/recipe/application-onboarding-recipe.test.ts
   - backend/src/modules/application-onboarding/controller/application-onboarding.controller.test.ts
   - backend/src/modules/agents/security/agent-security.contract.test.ts
-lastVerified: 2026-09-04
+lastVerified: 2026-08-26
 ---
 
 # 宿主插件能力清单
@@ -105,8 +105,6 @@ Manifest 能力声明
 | `ca.certificate.issue` | 签发新证书 | HIGH / 幂等写 | `ca.certificate.manage` | `gcac.ca-certificate-issue-input/v1` → `gcac.ca-certificate-issue-result/v1` | 无 | Agent、控制面、Gateway |
 | `ca.certificate.renew` | 续期证书 | HIGH / 幂等写 | `ca.certificate.manage` | `gcac.ca-certificate-renew-input/v1` → `gcac.ca-certificate-renew-result/v1` | 无 | Agent、控制面、Gateway |
 | `ca.certificate.revoke` | 吊销证书 | HIGH / 幂等写 | `ca.certificate.manage` | `gcac.ca-certificate-revoke-input/v1` → `gcac.ca-certificate-revoke-result/v1` | 无 | Agent、控制面、Gateway |
-| `ca.certificate.query` | 查询 CA 证书及其状态 | MEDIUM / 只读 | `ca.operations.read` | `gcac.ca-certificate-query-input/v1` → `gcac.ca-certificate-query-result/v1` | 无 | Agent、控制面、Gateway |
-| `ca.revocation.evidence` | 查询证书吊销证据 | MEDIUM / 只读 | `ca.operations.read` | `gcac.ca-revocation-evidence-input/v1` → `gcac.ca-revocation-evidence-result/v1` | 无 | Agent、控制面、Gateway |
 | `credential.acquire` | 在浏览器登录页面获取临时凭据 | HIGH / 只读 | `credential.create` | `gcac.credential-acquire-input/v1` → `gcac.credential-output/v1` | 无 | 控制面 |
 
 幂等只代表宿主可以按相同幂等键安全处理重复请求，不代表可以忽略目标回读。非幂等或外部状态未知的写操作必须停止自动重放，交由执行记录和人工确认。
@@ -332,146 +330,6 @@ Tomcat `KEYSTORE` 插件的 `keystorePassword` 是可选 Credential Slot，只�
 | `PUT /api/v1/application-assets/:applicationAssetId/managed-target` | 保存应用资产受管目标和插件覆盖 |
 | `POST /api/v1/plugin-promotions/preview`、`confirm`、`revoke`；`GET /api/v1/plugin-promotions` | 预览、确认、撤销 Standalone 目标归集 |
 | `GET /api/v1/plugin-runtime/metrics` | 查看 Runner 运行指标 |
-
-### 9.1 环境、认证和通用请求约定
-
-将 `https://<gcac-host>` 替换为实际控制面地址。控制面 API 使用 JSON；除 Logo 下载外，请求必须带 `Content-Type: application/json`。先用本地用户登录取得短期 Bearer Token：
-
-```bash
-curl -sS -X POST "$GCAC_URL/api/v1/auth/login" \
-  -H 'Content-Type: application/json' \
-  -H 'X-Request-Id: req-plugin-login' \
-  -d '{"username":"<operator>","password":"<password>"}'
-```
-
-响应为 `{ "token": "…", "user": { … }, "permissions": [ … ] }`。后续请求使用 `Authorization: Bearer <token>`；多租户用户还必须把当前租户放在 `X-Tenant-Id`（只能选择 `/api/v1/tenants/accessible` 返回的租户），不能用伪造的租户头越权。`X-Actor-Id` 仅用于兼容测试夹具，生产调用以 Token 身份为准。
-
-推荐请求头：
-
-| 请求头 | 何时必填 | 规则 |
-| --- | --- | --- |
-| `Authorization` | 除登录和公开接口外 | `Bearer <token>`；Token 过期返回 `401 AUTH_UNAUTHENTICATED` |
-| `X-Tenant-Id` | 当前 Token 可访问多个租户时 | 必须是可访问租户；缺失或过期返回 `403 TENANT_CONTEXT_INVALID`/`409 TENANT_CONTEXT_STALE` |
-| `X-Request-Id` | 推荐 | 1-128 个字母、数字、`.`, `_`, `:`, `-`；响应会原样返回，便于审计关联 |
-| `X-Trace-Id` | 可选 | 调用链追踪标识；响应会原样返回或由宿主生成 |
-| `X-Idempotency-Key` | 创建会话、异步/外部写操作 | 同一租户和接口内必须稳定且不复用不同请求；重复相同请求返回原结果，内容不同返回 `409 IDEMPOTENCY_CONFLICT` |
-
-所有时间字段在接口中使用 ISO 8601；前端展示时转换为浏览器本地时间。分页响应统一为 `{ items, page, pageSize, total }`。不要把 Token、Secret、Cookie、私钥或 Artifact 内容放进 URL、日志或普通变量。
-
-### 9.2 插件版本生命周期：请求和响应字段
-
-1. 查询能力合同，确认 `key`、`contractVersion`、权限、输入/输出 Schema 和执行位置：
-
-```bash
-curl -sS "$GCAC_URL/api/v1/plugin-capabilities" \
-  -H "Authorization: Bearer $TOKEN" -H "X-Tenant-Id: $TENANT_ID"
-```
-
-2. 导入版本。`manifest` 是 JSON 对象，`resources` 必须提供（键为包内相对路径、值为文本/JSON），`packageContent` 是可选的整包摘要稳定 JSON 字符串。`packageContent` 不是 Base64 压缩包，也不能包含本机路径；资源映射始终以 `resources` 为准。下面只突出接口字段，`manifest` 的完整必填字段和 Workflow 资源必须替换为通过 Schema 校验的真实内容，不能直接提交占位字符串：
-
-```bash
-curl -sS -X POST "$GCAC_URL/api/v1/plugin-packages/import" \
-  -H "Authorization: Bearer $TOKEN" -H "X-Tenant-Id: $TENANT_ID" \
-  -H 'Content-Type: application/json' -H 'X-Request-Id: req-plugin-import' \
-  -d '{
-    "manifest": {
-      "apiVersion": "gcac.plugin-manifest/v1", "kind": "GcacPlugin",
-      "pluginId": "example.edge", "version": "1.0.0", "runtime": "WORKFLOW_DSL",
-      "source": "USER", "scope": "MANAGED", "publisher": "Example",
-      "capabilities": [{"key":"device.connection.test","contractVersion":"v1","actionContractId":"device.connection.test.v1","riskLevel":"LOW","executionLocations":["CONTROL_PLANE"]}],
-      "permissions": ["device.read"], "resources": {"workflows":{"device.connection.test":"workflows/test.json"}}
-    },
-    "resources": {"workflows/test.json":"{\"apiVersion\":\"gcac.workflow/v1\"}"}
-  }'
-```
-
-成功响应为 HTTP `201`，正文是 PluginVersion（至少包含 `id`、`pluginId`、`version`、`status`、`packageSha256`、`manifestSha256`、`resourceSha256`、`capabilities`）。保存返回的 `id`，后续只使用该 `pluginVersionId`。USER 插件导入后为 `DISABLED + NOT_REQUIRED`，不调用权限审批；BUILTIN 或需要审批的版本先审批声明权限：
-
-```bash
-curl -sS -X POST "$GCAC_URL/api/v1/plugin-versions/approve-permissions" \
-  -H "Authorization: Bearer $TOKEN" -H "X-Tenant-Id: $TENANT_ID" -H 'Content-Type: application/json' \
-  -d '{"pluginVersionId":"<pluginVersionId>","approvedPermissions":["device.read"]}'
-```
-
-启用、禁用、退休使用相同的请求体 `{ "pluginVersionId": "…" }`，分别调用 `/api/v1/plugin-versions/enable`、`disable`、`retire`。成功响应返回更新后的 PluginVersion；`enable` 只允许状态转换到 `ENABLED`，`retire` 是终态，不能重新启用。导入、审批或启用失败时先读取 `GET /api/v1/plugin-version-management/:pluginVersionId` 的 `validationReport`，不要重复提交相同版本。
-
-### 9.3 Binding 和 Capability Assignment
-
-Binding 保存输入引用和受管上下文，不保存明文 Secret。创建时 `inputBindings` 必须包含四个对象（没有值也传 `{}`）：
-
-```bash
-curl -sS -X POST "$GCAC_URL/api/v1/plugin-bindings" \
-  -H "Authorization: Bearer $TOKEN" -H "X-Tenant-Id: $TENANT_ID" -H 'Content-Type: application/json' \
-  -d '{
-    "pluginVersionId":"<pluginVersionId>", "mode":"MANAGED",
-    "inputBindings": {"apiVersion":"gcac.input-bindings/v1","variables":{},"connections":{},"credentials":{},"artifacts":{}},
-    "managedContext": {"hostId":"<hostId>","managedTargetId":"<managedTargetId>"}
-  }'
-```
-
-HTTP `200` 响应包含 `{ id, tenantId, pluginVersionId, mode, inputBindings, managedContext, status, version, createdAt, updatedAt }`。查询使用 `GET /api/v1/plugin-bindings?bindingId=<id>`。更新必须携带乐观锁版本：
-
-```json
-{
-  "bindingId": "<bindingId>", "expectedVersion": 1,
-  "inputBindings": {"apiVersion":"gcac.input-bindings/v1","variables":{},"connections":{},"credentials":{},"artifacts":{}},
-  "status": "ACTIVE"
-}
-```
-
-通过 `PATCH /api/v1/plugin-bindings` 提交；版本不匹配返回 `409 RESOURCE_VERSION_CONFLICT`，客户端必须重新读取后合并，禁止覆盖写。
-
-将能力分配给目标时，`ownerType` 与 `ownerId` 必须指向当前租户可见对象，且 Binding 和 PluginVersion 必须属于同一租户/版本：
-
-```bash
-curl -sS -X POST "$GCAC_URL/api/v1/capability-assignments" \
-  -H "Authorization: Bearer $TOKEN" -H "X-Tenant-Id: $TENANT_ID" -H 'Content-Type: application/json' \
-  -d '{"ownerType":"MANAGED_TARGET","ownerId":"<managedTargetId>","capabilityKey":"certificate.deploy","pluginVersionId":"<pluginVersionId>","pluginBindingId":"<bindingId>","precedence":"TARGET_OVERRIDE"}'
-```
-
-成功响应包含 `id`、`status`、时间戳及上述输入字段。优先级只允许 `DEVICE_DEFAULT`、`TARGET_OVERRIDE`、`ASSET_OVERRIDE`；云服务必须使用 `SERVICE_ASSET`。解析最终来源时：
-
-```bash
-curl -sS -X POST "$GCAC_URL/api/v1/capability-assignments/resolve" \
-  -H "Authorization: Bearer $TOKEN" -H "X-Tenant-Id: $TENANT_ID" -H 'Content-Type: application/json' \
-  -d '{"capabilityKey":"certificate.deploy","managedTargetId":"<managedTargetId>"}'
-```
-
-返回 `null` 表示没有生效能力；非空结果是 `CapabilityAssignment` 记录，包含 `id`、所有者、`capabilityKey`、`pluginVersionId`、`pluginBindingId`、优先级、状态和时间戳。客户端应继续读取对应 PluginVersion 管理详情、Binding 和受管目标兼容插件接口，确认 PluginVersion 为 `ENABLED`、Binding 为 `ACTIVE`、执行位置和兼容性满足要求。
-
-### 9.4 统一错误、状态码和重试
-
-HTTP 错误正文统一为：
-
-```json
-{
-  "errorCode":"RESOURCE_VERSION_CONFLICT",
-  "message":"资源版本冲突",
-  "details":{"expectedVersion":1,"actualVersion":2},
-  "requestId":"req-plugin-1", "traceId":"trace-1", "timestamp":"2026-08-26T08:00:00Z"
-}
-```
-
-常见状态码：`400 VALIDATION_FAILED`（字段不合法）、`401 AUTH_UNAUTHENTICATED`（缺 Token/过期）、`403 AUTH_FORBIDDEN` 或 `SEC_PERMISSION_DENIED`（无权限/对象越权）、`404 RESOURCE_NOT_FOUND`、`409 RESOURCE_ALREADY_EXISTS`/`RESOURCE_VERSION_CONFLICT`/`IDEMPOTENCY_CONFLICT`（冲突）、`422 PLUGIN_CONTRACT_INVALID`（合同或资源不合法）、`429`（限流，由部署网关产生）、`500 SYSTEM_INTERNAL_ERROR`、`502 PLUGIN_OPERATION_FAILED`、`503`（目标或 Runner 不可用）、`504 EXECUTION_TIMEOUT`。错误中的 `details` 已脱敏，不能依赖其中的 Secret。
-
-只对网络断开前未产生外部写入、且错误明确标记可重试的只读请求自动重试；幂等写请求使用同一 `X-Idempotency-Key`。`UNKNOWN`、`202` 或 `mayBeUnknown=true` 表示外部状态可能已改变，必须先查询执行记录/目标回读，禁止换新幂等键盲目重放。
-
-### 9.5 Runner IPC v2 最小实现
-
-Runner 是宿主以固定绝对路径启动的子进程；stdin/stdout 使用 UTF-8 JSON Lines（每行一个 JSON 对象，禁止日志写 stdout；调试日志写 stderr）。每个对象都必须有 `protocolVersion: "gcac.plugin-runner/v2"`、`messageType`、唯一 `requestId`、`sentAt`。除 `hello` 外的消息必须复用宿主固定的 `pluginVersionId`、租户、Action 摘要和三份资源哈希。
-
-最小握手和执行序列：
-
-```json
-{"protocolVersion":"gcac.plugin-runner/v2","messageType":"hello","requestId":"hello-1","sentAt":"2026-08-26T08:00:00Z","tenantId":"tenant-1","pluginVersionId":"pv-1","pluginId":"example.edge","pluginVersion":"1.0.0","runner":{"pid":1234,"sdkVersion":"1","runnerVersion":"1"},"capabilities":["device.connection.test"],"permissions":["device.read"],"packageHash":"sha256:<64hex>","manifestHash":"sha256:<64hex>","resourceHash":"sha256:<64hex>"}
-{"protocolVersion":"gcac.plugin-runner/v2","messageType":"hello_result","requestId":"hello-1","sentAt":"2026-08-26T08:00:00Z","pluginVersionId":"pv-1","accepted":true,"pluginId":"example.edge","pluginVersion":"1.0.0","runnerVersion":"1","sdkVersion":"1","capabilities":["device.connection.test"],"permissions":["device.read"],"packageHash":"sha256:<64hex>","manifestHash":"sha256:<64hex>","resourceHash":"sha256:<64hex>"}
-{"protocolVersion":"gcac.plugin-runner/v2","messageType":"execute","requestId":"exec-1","sentAt":"2026-08-26T08:00:01Z","pluginVersionId":"pv-1","tenantId":"tenant-1","executionId":"ex-1","executionStepId":"step-1","workflowVersionId":"wf-1","pluginId":"example.edge","capability":"device.connection.test","actionId":"device.connection.test","actionContractVersion":"v1","inputSchemaSha256":"sha256:<64hex>","outputSchemaSha256":"sha256:<64hex>","packageHash":"sha256:<64hex>","manifestHash":"sha256:<64hex>","resourceHash":"sha256:<64hex>","planDigest":"<64hex>","writeEffect":false,"grantRefs":["grant-1"],"idempotencyKey":"idem-1","deadlineAt":"2026-08-26T08:01:00Z","input":{"connectionRef":"conn-1"}}
-{"protocolVersion":"gcac.plugin-runner/v2","messageType":"execute_result","requestId":"exec-1","sentAt":"2026-08-26T08:00:02Z","pluginVersionId":"pv-1","tenantId":"tenant-1","executionId":"ex-1","executionStepId":"step-1","workflowVersionId":"wf-1","pluginId":"example.edge","capability":"device.connection.test","actionId":"device.connection.test","actionContractVersion":"v1","inputSchemaSha256":"sha256:<64hex>","outputSchemaSha256":"sha256:<64hex>","packageHash":"sha256:<64hex>","manifestHash":"sha256:<64hex>","resourceHash":"sha256:<64hex>","planDigest":"<64hex>","writeEffect":false,"success":true,"status":"SUCCESS","output":{"reachable":true},"warnings":[]}
-```
-
-Runner 发起 Host API 时发送 `host_call`，字段除上述 Action 绑定外还必须有 `method`、`input`、至少一个 `grantRefs`、`idempotencyKey`、`deadlineAt`、`timeoutMs`（1-120000）；宿主以相同 `requestId` 返回 `host_result`，成功为 `{ "ok": true, "output": { … } }`，失败为 `{ "ok": false, "error": { "code", "message", "retryable", "mayBeUnknown", "secretRedacted": true } }`。Runner 只能调用 8 个已注册方法，不能扩展方法名。取消使用 `cancel.targetRequestId`，宿主回复 `cancel_result`；健康检查使用 `ping/pong`，排空使用 `shutdown/shutdown_result`。
-
-以下字段必须原样比对，任一不一致宿主拒绝握手或执行：`pluginVersionId`、`pluginId`、`pluginVersion`、`capabilities`、`permissions`、`packageHash`、`manifestHash`、`resourceHash`、Action Contract 版本和输入/输出 Schema 摘要。Runner 不得并行执行两个 Action；超时、崩溃、取消或晚到结果由宿主收敛为 `FAILED`、`UNKNOWN` 或 `CANCELLED`。
 
 浏览器凭据会话接口见 [`credential.acquire` 合同](#credentialacquire-manifest-合同)；它们使用 `credential.create` / `credential.read` RBAC，不属于插件 Runner Host API。
 
@@ -847,35 +705,6 @@ Artifact 是宿主生成并授权的不可变制品，不是插件自己拼接�
 私钥、PFX 密码、Secret 和 Token 不能写入 Plan、Receipt、普通变量、Manifest、Binding 或日志；Tomcat 的
 `keystorePassword` 只在执行期短暂注入，不进入发现事实或普通快照。Runner 读取 Artifact 必须拥有
 `artifact.read` Grant，读取 Secret 必须拥有用途明确的 `secret.resolve` Grant。
-
-### 12.5 Agent 授权接口顺序
-
-插件不直接签发 Token、Policy Decision 或本地策略。控制面在获得用户的 `deployment.plan.execute` 权限后，按以下顺序调用 Agent 接口；插件只提供 Manifest 中的计划和已计算的 `planDigest`：
-
-1. **生成授权材料**：`POST /api/v1/agents/:agentId/policy-provisioning`。请求体必须包含 `pluginId`、`pluginVersionId`、`capability`、`planDigest`、`policyRef`、`policyVersion`、`actions`、`allowedPaths`、`allowedServices`、`commandRules`、`artifactDigests`、`lifetimeSeconds` 和完整 `compiledPlan`，可选 `approvalRef`。`lifetimeSeconds` 应尽可能短，且不能超过计划截止时间。成功返回 HTTP `201`，正文包含 Policy Authority 签发的 Token、Decision、Agent Local Policy、KeySet 和一次性 Nonce；这些对象只用于本次执行，不得持久化到插件。
-2. **投递执行任务**：`POST /api/v1/agents/tasks`。请求体为 `agentId`、`executionRunId`、`executionStepId`、稳定 `idempotencyKey` 和 `payload`。`payload.actionType` 必须为 `agent.plan.validate` 或 `agent.plan.execute`，并携带同一 `planDigest` 的 `agentPlan`、`token`、`policyDecision`、`localPolicy`、`keySet`、`nonce` 和 Artifact 摘要。验证阶段 `writeEffect=false`，正式执行阶段 `writeEffect=true`。成功返回 HTTP `201` 的任务对象；不要自行修改任务状态。
-3. **读取和回收**：通过 `GET /api/v1/agents/tasks?agentId=<id>` 或执行记录查询任务状态；Agent 通过 `POST /api/v1/agents/tasks/result` 回传签名 Receipt。Receipt 的 `planDigest`、`tokenId`、`nonce`、`agentId` 和每个 `operationId` 必须与原计划一致。`nonceConsumed=true` 后不得再次提交同一计划；失败、过期、撤销或签名不一致应收敛为 `FAILED`/`UNKNOWN`。
-
-最小任务投递示例（授权对象使用上一步响应，以下值均为占位）：
-
-```json
-{
-  "agentId":"agent-1",
-  "executionRunId":"run-1",
-  "executionStepId":"step-1",
-  "idempotencyKey":"agent.plan.execute:run-1:step-1",
-  "payload": {
-    "actionType":"agent.plan.execute",
-    "planDigest":"1111111111111111111111111111111111111111111111111111111111111111",
-    "agentPlan": {"planId":"plan-1","planDigest":"1111111111111111111111111111111111111111111111111111111111111111"},
-    "token": {"tokenId":"token-1","planDigest":"1111111111111111111111111111111111111111111111111111111111111111"},
-    "policyDecision": {"decisionId":"decision-1","allowed":true,"planDigest":"1111111111111111111111111111111111111111111111111111111111111111"},
-    "nonce":"nonce-1"
-  }
-}
-```
-
-Agent 接口的认证、租户和 `X-Request-Id` 约定与本节 9.1 相同；Agent mTLS 会话和注册令牌是 Agent 安装/心跳协议，插件不得复用或代管。
 
 ## 13. 完整 JSON Schema 与权威源码索引
 

@@ -134,7 +134,7 @@ docker run -d --name tlsflow-small --restart unless-stopped -p 8085:3003 -e GCAC
 | `GCAC_RUNTIME_SECRETS_FILE` | `/app/data/runtime/runtime-secrets.enc` | 自定义加密运行时材料路径；必须位于持久化且可写的目录 |
 | `AUTH_COOKIE_SECURE` | 生产环境自动开启 | 仅可在 HTTP 内网测试时临时设为 `false`；HTTPS 部署不要关闭 |
 | `AUTH_BROWSER_SESSION_TTL_SECONDS` | `28800`（8 小时） | 浏览器会话有效期，单位为秒 |
-| `GCAC_TENANT_MODE` | `single` | 初始化时选择租户模式；已有数据切换前先在控制台核对现状 |
+| `GCAC_TENANT_MODE` | `single` | 初始化时选择租户模式；已有数据切换前先在控制台预检查 |
 | `LOG_LEVEL` | `info` | 日志级别，可设为 `debug`、`info`、`warn` 或 `error` |
 | `GCAC_VERSION` | 使用镜像内置版本 | 仅用于受控兼容性测试；正式部署不要覆盖 |
 

@@ -29,7 +29,6 @@ const actionPending = ref(false)
 const formError = ref('')
 const status = ref<AcmeStatus>('UNKNOWN')
 const providerName = ref('')
-const hostProviderId = ref('')
 const providers = ref<AcmeProvider[]>([])
 const dnsProviders = ref<InternalCaRecord[]>([])
 const termsOpen = ref(false)
@@ -67,14 +66,6 @@ const canSubmit = computed(() => {
   return draft.challengeType !== 'dns-01' || Boolean(draft.dnsProvider && draft.dnsCredentialId)
 })
 
-// Provider 列表是异步加载的，始终把表单值对齐到当前可选项，避免原生 required
-// 在选项已经渲染但 v-model 仍为空时拦截提交。
-watch(activeProviders, (available) => {
-  const current = text(draft.providerId)
-  if (current && available.some((item) => text(item.id) === current)) return
-  draft.providerId = text((available.find((item) => providerConfig(item).isDefault === true) ?? available[0])?.id, hostProviderId.value)
-}, { immediate: true })
-
 watch(
   () => props.open,
   (open) => {
@@ -87,7 +78,7 @@ async function prepareCreate(): Promise<void> {
   resetDraft()
   formError.value = ''
   await loadRequestContext()
-  draft.providerId = text(defaultProvider.value?.id, hostProviderId.value)
+  draft.providerId = text(defaultProvider.value?.id)
 }
 
 async function loadRequestContext(): Promise<void> {
@@ -112,10 +103,7 @@ async function loadRequestContextOnce(): Promise<void> {
   if (statusResult.status === 'fulfilled') {
     const statusData = statusResult.value.data ?? {}
     status.value = normalizeStatus(statusData.status)
-    const hostProvider = recordValue(statusData.provider)
-    hostProviderId.value = text(hostProvider.id)
-    providerName.value = text(hostProvider.name, t('acme.issuer.letsencrypt'))
-    if (hostProviderId.value) draft.providerId = hostProviderId.value
+    providerName.value = text((statusData.provider as InternalCaRecord | undefined)?.name, t('acme.issuer.letsencrypt'))
   } else {
     status.value = 'UNKNOWN'
   }
@@ -177,7 +165,7 @@ async function submitCreate(): Promise<void> {
   try {
     await internalCaApi.createAcmeCertificate({
       name: draft.name.trim() || undefined,
-      providerId: text(selectedProvider.value?.id, text(draft.providerId, hostProviderId.value)) || undefined,
+      providerId: text(selectedProvider.value?.id) || undefined,
       domains: normalizeDomains(draft.domains),
       contactEmail: draft.contactEmail.trim(),
       challengeType: draft.challengeType,
@@ -243,7 +231,7 @@ function readRecords(value: unknown): InternalCaRecord[] {
         <span>{{ t('acme.fields.issuer') }}</span>
         <select v-model="draft.providerId" required>
           <option v-for="provider in activeProviders" :key="text(provider.id)" :value="text(provider.id)">{{ text(provider.name, text(provider.id)) }}</option>
-          <option v-if="!activeProviders.length" :value="hostProviderId">{{ providerName || t('acme.issuer.letsencrypt') }}</option>
+          <option v-if="!activeProviders.length" value="">{{ providerName || t('acme.issuer.letsencrypt') }}</option>
         </select>
       </label>
       <label class="gc-form-field"><span>{{ t('acme.fields.name') }}</span><input v-model="draft.name" :placeholder="t('acme.placeholders.name')" /></label>

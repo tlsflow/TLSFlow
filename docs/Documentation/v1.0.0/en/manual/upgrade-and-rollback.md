@@ -26,17 +26,19 @@ Platform upgrade, agent upgrade, and certificate deployment rollback are three d
 3. First verify the target version in test environment or on low-risk targets to confirm licenses, plugins, and read-only discovery are normal.
 4. Notify relevant business owners to suspend automation runs and certificate changes that may conflict with the upgrade.
 
+Screenshot placeholder: Pre-upgrade checklist showing current version, backup completion, running tasks, and maintenance window confirmation items.
 
 ## Platform Upgrade
 
 1. Prepare platform images and configurations according to target version, with version tags following the version provided in the release package.
 2. During maintenance window, start platform services according to operations plan and wait for page or operations records to confirm upgrade completion.
 3. Log into console to check version information, license status, plugin marketplace, and read-only discovery.
-4. Perform a small-scale test deployment on a test target. Confirm the inputs, permissions, execution channels, execution record and target read-back before restoring production write operations.
+4. Execute one dry run on a test target; after confirming input, permissions, and execution channels are all available, restore production write operations.
 5. Observe login, monitoring, notifications, and execution records for a period to confirm no new anomalies.
 
 When upgrade fails, immediately stop continuing the upgrade and retain upgrade records and original backups. Do not switch back to old version before confirming compatibility.
 
+Screenshot placeholder: Post-upgrade system settings/version information and test dry run results.
 
 ## Platform Rollback
 
@@ -45,8 +47,9 @@ The current version does not have a universal "one-click platform rollback" butt
 1. Stop the new version and retain logs, backups, and original `data/` directory.
 2. After confirming backup is compatible with target old version, restore corresponding database, workflows, runtime, TLS Inspector, and plugin directories.
 3. Start using images matching the old version and original keys, and check migration, tenants, licenses, and read-only discovery.
-4. Complete read and small-scale test deployment verification on test targets before restoring production write operations.
+4. Complete read and dry run verification on test targets before restoring production write operations.
 
+Screenshot placeholder: Platform rollback acceptance record showing old version startup, data recovery, and test verification results.
 
 ## Agent Upgrade
 
@@ -56,6 +59,7 @@ The current version does not have a universal "one-click platform rollback" butt
 4. View transmission, installation, and restart status according to transaction ID; do not repeatedly submit upgrades for the same device during upgrade process.
 5. After completion, refresh device details to confirm agent is online, version is updated, and heartbeat is normal before resuming automation tasks.
 
+Screenshot placeholder: Agent upgrade confirmation dialog showing target device, current version, target version, and upgrade notes.
 
 Whether automatic rollback is supported depends on that agent release package; do not assume any historical version can be directly rolled back.
 

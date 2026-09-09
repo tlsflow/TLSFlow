@@ -29,8 +29,6 @@
 
 ---
 
-<p align="center">커뮤니티: <a href="https://github.com/tlsflow/TLSFlow/issues">GitHub</a> · <a href="https://docs.tlsflow.com">Docs</a> · <a href="https://t.me/tlsflow">Telegram</a> · <a href="https://discord.gg/KXyhGGRkJ">Discord</a> · QQ 그룹: <code>239991420</code></p>
-
 ## 제품 소개
 
 ### 인증서 만료로 비즈니스가 멈추지 않도록
