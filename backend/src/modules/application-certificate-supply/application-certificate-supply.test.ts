@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
@@ -675,7 +677,12 @@ describe('应用证书供应策略', () => {
     };
     const service = new ApplicationCertificateSupplyApplicationService(repository as never, undefined, undefined, issuance as never, undefined, tasks as never);
 
-    const task = await service.enqueueDedicatedDeployment({ tenantId: tenantA, applicationAssetId: 'app-deploy-existing-parent', actorId: 'operator' });
+    const task = await service.enqueueDedicatedDeployment({
+      tenantId: tenantA,
+      applicationAssetId: 'app-deploy-existing-parent',
+      actorId: 'operator',
+      idempotencyKey: 'random-http-request-key',
+    });
 
     assert.equal(task.id, 'parent-existing');
     assert.equal(enqueueCalls, 0);
@@ -814,7 +821,7 @@ describe('应用证书供应策略', () => {
     assert.equal(task.id, 'task-issued');
     assert.equal(enqueued.length, 1);
     assert.equal(enqueued[0]?.taskType, 'APPLICATION_CERTIFICATE_SUPPLY');
-    assert.equal(enqueued[0]?.idempotencyKey, 'application-certificate-supply:v2:app-deploy-issued:version-deploy-issued:deploy-session-1');
+    assert.equal(enqueued[0]?.idempotencyKey, 'application-certificate-supply:v1:app-deploy-issued:version-deploy-issued');
     assert.equal(enqueued[0]?.payload?.applicationAssetId, 'app-deploy-issued');
     assert.equal(enqueued[0]?.resourceSummary?.certificateVersionId, 'version-issued');
     assert.equal(enqueued[0]?.resourceSummary?.certificateRequestId, 'request-issued');
@@ -884,8 +891,9 @@ describe('应用证书供应策略', () => {
     assert.match(calls[2]?.input.idempotencyKey, /certificate-version-dedicated:parent-supply:execution$/);
   });
 
-  it('不同部署会话不复用历史专属处理任务和标准执行任务', async () => {
+  it('有无 HTTP 幂等键都复用同一个 V1 父任务', async () => {
     const parentKeys: string[] = [];
+    const parents = new Map<string, any>();
     const repository = {
       getApplication: async () => ({ id: 'app-session-boundary', displayName: '会话边界应用', primaryDomain: 'session.example.test' }),
       getPolicy: async () => ({
@@ -895,18 +903,30 @@ describe('应用证书供应策略', () => {
     };
     const issuance = { listRequests: async () => [{ id: 'request-session', applicationCertificatePolicyVersionId: 'version-session-boundary', certificateVersionId: 'version-session', status: 'issued' }] };
     const tasks = {
-      enqueue: async (input: any) => { parentKeys.push(input.idempotencyKey); return { id: `parent-${parentKeys.length}`, status: 'QUEUED', ...input }; },
-      findByIdempotencyKey: async () => undefined,
+      enqueue: async (input: any) => {
+        parentKeys.push(input.idempotencyKey);
+        const parent = { id: `parent-${parentKeys.length}`, status: 'QUEUED', ...input };
+        parents.set(input.idempotencyKey, parent);
+        return parent;
+      },
+      findByIdempotencyKey: async (_tenant: string, _taskType: string, key: string) => parents.get(key),
     };
     const service = new ApplicationCertificateSupplyApplicationService(repository as never, undefined, undefined, issuance as never, undefined, tasks as never);
 
-    await service.enqueueDedicatedDeployment({ tenantId: tenantA, applicationAssetId: 'app-session-boundary', actorId: 'operator', idempotencyKey: 'session-a' });
-    await service.enqueueDedicatedDeployment({ tenantId: tenantA, applicationAssetId: 'app-session-boundary', actorId: 'operator', idempotencyKey: 'session-b' });
+    const first = await service.enqueueDedicatedDeployment({ tenantId: tenantA, applicationAssetId: 'app-session-boundary', actorId: 'operator' });
+    const second = await service.enqueueDedicatedDeployment({ tenantId: tenantA, applicationAssetId: 'app-session-boundary', actorId: 'operator', idempotencyKey: 'session-a' });
+    const replay = await service.enqueueDedicatedDeployment({ tenantId: tenantA, applicationAssetId: 'app-session-boundary', actorId: 'operator', idempotencyKey: 'session-b' });
 
-    assert.equal(parentKeys.length, 2);
-    assert.notEqual(parentKeys[0], parentKeys[1]);
-    assert.match(parentKeys[0], /:session-a$/);
-    assert.match(parentKeys[1], /:session-b$/);
+    assert.equal(parentKeys.length, 1);
+    assert.equal(parentKeys[0], 'application-certificate-supply:v1:app-session-boundary:version-session-boundary');
+    assert.equal(first.id, second.id);
+    assert.equal(second.id, replay.id);
+  });
+
+  it('生产代码禁止重新引入专属证书供应 V2 任务键', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/modules/application-certificate-supply/application/application-certificate-supply.application-service.ts'), 'utf8');
+    assert.doesNotMatch(source, /application-certificate-supply:v2:/);
+    assert.doesNotMatch(source, /randomUUID\(\)/);
   });
 
 });

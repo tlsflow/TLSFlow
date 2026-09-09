@@ -174,11 +174,14 @@ export class CertificateLifecycleService {
     return { requestId: request.id, status: request.status, taskId: task.id, idempotencyKey: task.idempotencyKey };
   }
 
-  /** 签发成功后生成同一申请的 certificate.install_issued Agent 任务。 */
+  /** 普通本机持钥申请签发成功后生成 certificate.install_issued Agent 任务。 */
   async enqueueIssuedCertificateInstall(input: { tenantId: string; request: import('../schema/internal-ca.schema.js').CertificateRequestEntity; actorId: string }): Promise<Record<string, unknown> | undefined> {
     if (!input.request.applicationAssetId || !input.request.certificateVersionId) return undefined;
     // CA 已返回可验证证书；应用策略先进入 issued，待 Agent 公开回执后再进入 deployed。
     await this.updateApplicationPolicyStatus(input.tenantId, input.request.applicationAssetId, 'issued', input.request.certificateVersionId);
+    // 应用专属证书由 APPLICATION_CERTIFICATE_SUPPLY 父任务统一创建标准部署计划。
+    // 这里不能再生成 certificate.install_issued，否则同一张证书会同时进入两条安装链。
+    if (input.request.applicationCertificatePolicyVersionId) return undefined;
     if (!this.agentKeyCustody || input.request.keyReferenceId === undefined || !input.request.agentContext) return undefined;
     const key = await this.dependencies.repository.getKeyReference(input.tenantId, input.request.keyReferenceId);
     if (!key?.opaqueReference) return undefined;

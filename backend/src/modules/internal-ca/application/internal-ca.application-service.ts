@@ -3117,6 +3117,9 @@ export class InternalCaApplicationService {
       keyCustodyMode: keyReference.custodyMode,
       activationState: provider.type === 'acme' ? 'staged' : 'promoted',
       sourceType: provider.type === 'acme' ? 'acme' : 'internal_ca',
+      // 应用专属手动签发由 APPLICATION_CERTIFICATE_SUPPLY 父任务统一部署；
+      // 后续自动签发逻辑需显式改为 true 才能进入自动化事件链。
+      publishAutomationEvent: request.applicationCertificatePolicyVersionId ? false : undefined,
       name: request.subjectCommonName,
       tags: ['internal-ca', authority.securityDomain],
       createdBy: actorId,

@@ -62,7 +62,7 @@ test('应用证书供应策略接口拒绝不支持的供应方式', async () =>
   }));
 });
 
-test('专属证书部署把每次请求的幂等键传给新会话任务', async () => {
+test('专属证书部署兼容传递 HTTP 幂等键，但不把它当作任务生命周期键', async () => {
   let received: Record<string, unknown> | undefined;
   const router = new Router();
   new ApplicationCertificateSupplyController(undefined, {

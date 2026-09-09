@@ -1,6 +1,5 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import { structuredLogger } from '../../../common/logging/structured-logger.js';
-import { randomUUID } from 'node:crypto';
 import type { InternalCaApplicationService } from '../../internal-ca/application/internal-ca.application-service.js';
 import type { AcmeRenewalPolicyService } from '../../internal-ca/application/acme-renewal-policy.service.js';
 import type { AcmeRepository } from '../../internal-ca/repository/acme.repository.js';
@@ -78,20 +77,14 @@ export class ApplicationCertificateSupplyApplicationService {
     if (!request) {
       throw new AppError('CERTIFICATE_VERSION_NOT_READY', '专属证书签发申请尚未创建，不能启动申请任务', { applicationAssetId: input.applicationAssetId, policyVersionId: version.id });
     }
-    // provisioning 保存阶段已经创建了固定 v1 父任务。部署入口必须先复用它，
-    // 否则一次申请会同时留下 v1 和随机 v2 两条“专属证书处理”记录。
-    const initialParentKey = `application-certificate-supply:v1:${input.applicationAssetId}:${version.id}`;
-    const initialParent = !input.idempotencyKey?.trim()
-      ? await this.tasks.findByIdempotencyKey?.(input.tenantId, 'APPLICATION_CERTIFICATE_SUPPLY', initialParentKey)
-      : undefined;
-    // 没有 v1 父任务的历史数据仍保留 v2 会话语义；显式幂等键也继续创建独立会话。
-    const sessionKey = input.idempotencyKey?.trim() || randomUUID();
-    const parentKey = initialParent
-      ? initialParentKey
-      : `application-certificate-supply:v2:${input.applicationAssetId}:${version.id}:${sessionKey}`;
-    const parent = initialParent
-      ?? await this.tasks.findByIdempotencyKey?.(input.tenantId, 'APPLICATION_CERTIFICATE_SUPPLY', parentKey)
-      ?? await this.tasks.enqueue({
+    // provisioning 保存阶段和显式部署入口必须共享同一个父任务生命周期。
+    // HTTP 幂等键只属于请求边界，不能改变专属证书处理任务的幂等代次。
+    const parentKey = `application-certificate-supply:v1:${input.applicationAssetId}:${version.id}`;
+    const parent = await this.tasks.findByIdempotencyKey?.(
+      input.tenantId,
+      'APPLICATION_CERTIFICATE_SUPPLY',
+      parentKey,
+    ) ?? await this.tasks.enqueue({
         tenantId: input.tenantId,
         taskType: 'APPLICATION_CERTIFICATE_SUPPLY',
         requestedBy: input.actorId,
@@ -110,9 +103,7 @@ export class ApplicationCertificateSupplyApplicationService {
         return this.tasks.retry(input.tenantId, parent.id, input.actorId);
       }
     }
-    // 同一策略版本的部署失败后，部署按钮是恢复入口。固定幂等键仍然复用
-    // 原父任务，但必须把失败任务重新置为 QUEUED；直接返回 FAILED 会让前端
-    // 弹出“已开始”而后台没有任何活动任务。
+    // 历史父任务失败时只恢复这个固定 v1 任务，不创建新的父任务。
     if (['FAILED', 'CANCELLED'].includes(parent.status)) {
       if (!this.tasks.retry) {
         throw new AppError('TASK_NOT_RETRYABLE', '历史专属证书部署任务已失败，当前任务服务不支持重试', {
@@ -125,7 +116,7 @@ export class ApplicationCertificateSupplyApplicationService {
     return parent;
   }
 
-  /** 中文说明：部署按钮是失败申请的唯一恢复入口时，先重试签发子任务，再重试父编排。 */
+  /** 中文说明：部署按钮是失败申请的恢复入口时，先重试签发子任务，再恢复固定父任务。 */
   private async retryFailedDedicatedIssuance(
     input: { tenantId: string; applicationAssetId: string; actorId: string },
     application: { displayName?: string; primaryDomain: string },

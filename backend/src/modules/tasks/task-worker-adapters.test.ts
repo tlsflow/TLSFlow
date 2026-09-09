@@ -122,6 +122,31 @@ test('专属证书申请父任务在签发成功后创建标准部署任务', as
   assert.equal((result.detail as { certificateVersionId?: string }).certificateVersionId, 'version-fixed');
 });
 
+test('专属证书父任务已有部署子任务但尚未回写进度时不会再次创建部署链路', async () => {
+  let plans = 0;
+  const parent = task('APPLICATION_CERTIFICATE_SUPPLY', { applicationAssetId: 'app-1', certificateRequestId: 'request-1', certificateVersionId: 'version-fixed' });
+  const child = { ...task('CERTIFICATE_DEPLOY', { applicationAssetId: 'app-1' }), id: 'child-deploy-1', parentTaskId: parent.id, status: 'RUNNING' as const };
+  const registry = createTaskExecutorRegistry({
+    applicationCertificateSupply: {
+      createDedicatedDeploymentPlan: async () => { plans += 1; return { planId: 'plan-unexpected', jobId: 'child-unexpected' }; },
+    } as never,
+    taskControl: {
+      detail: async (_tenantId: string, taskId: string) => taskId === parent.id
+        ? { task: parent, attempts: [], events: [], childTasks: [child], resourceRefs: [], auditEvents: [] }
+        : { task: child, attempts: [], events: [], childTasks: [], resourceRefs: [], auditEvents: [] },
+      list: async () => { throw new Error('已有部署子任务时不应再次查询签发任务'); },
+    } as never,
+  });
+
+  const result = await registry.get('application.certificate-supply')(parent, attempt);
+
+  assert.equal(result.success, false);
+  assert.equal(result.waitingStatus, 'WAITING_RESULT');
+  assert.equal(result.errorCode, 'CERTIFICATE_DEPLOY_PENDING');
+  assert.equal((result.detail as { deploymentTaskId?: string }).deploymentTaskId, child.id);
+  assert.equal(plans, 0);
+});
+
 test('专属证书签发任务未完成时继续等待，不创建部署任务', async () => {
   let plans = 0;
   const registry = createTaskExecutorRegistry({

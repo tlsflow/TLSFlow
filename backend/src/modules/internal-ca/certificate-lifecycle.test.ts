@@ -252,6 +252,40 @@ test('本机持钥控制面贯通 pending_key、CSR 回执、签发和证书安�
   }
 });
 
+test('应用专属本机持钥签发只回写已签发事实，不生成第二条直装任务', async () => {
+  const { db, lifecycle } = await fixture();
+  try {
+    const tenantId = 'tenant-dedicated-agent-single-deploy';
+    const agent = createLifecycleAgentStub();
+    lifecycle.setAgentKeyCustody(agent.adapter);
+    const policyUpdates: Array<Record<string, unknown>> = [];
+    lifecycle.setApplicationPolicyStatusUpdater(async (updatedTenantId, applicationAssetId, status, certificateVersionId) => {
+      policyUpdates.push({ tenantId: updatedTenantId, applicationAssetId, status, certificateVersionId });
+    });
+    await lifecycle.enqueueIssuedCertificateInstall({
+      tenantId,
+      actorId: 'admin',
+      request: {
+        id: 'dedicated-request',
+        applicationAssetId: 'dedicated-agent-app',
+        certificateAssetId: 'dedicated-certificate-asset',
+        applicationCertificatePolicyVersionId: 'dedicated-policy-version',
+        certificateVersionId: 'dedicated-certificate-version',
+      } as never,
+    });
+
+    assert.deepEqual(policyUpdates, [{
+      tenantId,
+      applicationAssetId: 'dedicated-agent-app',
+      status: 'issued',
+      certificateVersionId: 'dedicated-certificate-version',
+    }]);
+    assert.deepEqual(agent.tasks, []);
+  } finally {
+    await db.close();
+  }
+});
+
 test('轮换计划固定使用新证书版本，执行未知或失败会回写轮换状态', async () => {
   const { db, internalCa, lifecycle } = await fixture();
   try {
