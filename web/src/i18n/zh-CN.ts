@@ -2363,10 +2363,47 @@ export default {
       errors: { loadFailed: '加载部署任务参数失败。', saveFailed: '保存部署任务参数失败。' }
     },
     version: {
+      eyebrow: '版本治理',
       title: '版本信息',
-      description: '查看当前运行的 GCAC 版本。',
-      currentVersion: '当前版本',
-      product: '产品'
+      description: '选择检查通道并获取宿主机手动更新指引。',
+      currentVersion: '当前运行版本',
+      product: '产品',
+      channelLabel: '更新通道',
+      channelDescription: '网页只检查版本，不会执行 Docker、升级或回滚。',
+      readonly: '当前账号只有查看权限。',
+      channels: {
+        stable: '稳定版',
+        stableDescription: '适合生产环境，优先选择经过验证的版本。',
+        dev: '开发版',
+        devDescription: '用于提前验证最新开发构建，不建议直接用于生产。'
+      },
+      checkTitle: '检查更新',
+      checkDescription: '检查所选通道对应的具体版本，并生成可复制的宿主机命令。',
+      checkEmpty: '尚未检查更新。',
+      lastChecked: '检查时间：{time}',
+      targetVersion: '目标版本',
+      publishedAt: '发布时间',
+      releaseNotes: '更新说明',
+      manualTitle: '手动更新指引',
+      manualDescription: '请在部署主机上执行以下任一方式。网页不会替你执行这些命令。',
+      installScriptCommand: 'install.sh',
+      composeCommand: 'Docker Compose',
+      relations: {
+        current: '当前已是所选通道版本',
+        upgrade: '发现可用升级',
+        downgrade: '目标版本低于当前版本',
+        channel_switch: '已切换检查通道'
+      },
+      status: { current: '当前已是最新版本' },
+      actions: { save: '保存通道', saving: '保存中…', check: '检查更新', checking: '检查中…' },
+      messages: { channelSaved: '更新通道已保存。' },
+      errors: {
+        emptySettings: '后端未返回更新通道设置。',
+        emptyCheck: '后端未返回检查结果。',
+        loadFailed: '加载更新通道失败。',
+        saveFailed: '保存更新通道失败。',
+        checkFailed: '检查更新失败。'
+      }
     },
     permissionPolicies: {
       resourceName: '权限策略',

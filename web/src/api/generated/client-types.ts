@@ -417,6 +417,8 @@ export const apiContractMetadata: ApiContractMetadata = {
     "/api/v1/system/tenant-mode/enable",
     "/api/v1/system/tenant-mode/preflight",
     "/api/v1/system/tenant-mode/rollback",
+    "/api/v1/system/update-channel",
+    "/api/v1/system/update-check",
     "/api/v1/tasks",
     "/api/v1/tasks/:id",
     "/api/v1/tasks/:id/cancel",
