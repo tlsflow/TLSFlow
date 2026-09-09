@@ -88,6 +88,13 @@ interface CertificateSupplyData {
   readonly primaryDomain?: string
   readonly policy?: ApiRecord
   readonly currentVersion?: ApiRecord
+  readonly issuance?: {
+    requestId?: string
+    status?: string
+    certificateVersionId?: string
+    failureCode?: string
+    failureMessage?: string
+  }
   readonly certificateCandidates?: ApiRecord[]
   readonly providers?: {
     ca?: ApiRecord[]
@@ -708,11 +715,10 @@ const deploymentCertificateSupplyMode = computed<ApplicationCertificateSupplyMod
 
 const deploymentDedicatedVersion = computed<ApiRecord | null>(() => {
   const currentId = deploymentCurrentCertificateVersionId.value
-  if (currentId) {
-    const current = deploymentCertificateVersions.value.find((item) => firstAssetText(item, ['id', 'certificateVersionId']) === currentId)
-    if (current) return current
-  }
-  return deploymentCertificateVersions.value.find((item) => item.deployable !== false) ?? deploymentCertificateVersions.value[0] ?? null
+  if (!currentId) return null
+  return deploymentCertificateVersions.value.find((item) =>
+    firstAssetText(item, ['id', 'certificateVersionId']) === currentId && item.deployable !== false,
+  ) ?? null
 })
 
 const deploymentDedicatedDetails = computed(() => {
@@ -728,15 +734,20 @@ const deploymentDedicatedDetails = computed(() => {
     || firstAssetText(current ?? {}, ['createdAt'])
   const expiry = expiresAt ? new Date(expiresAt).getTime() : NaN
   const remainingDays = Number.isFinite(expiry) ? Math.ceil((expiry - Date.now()) / (24 * 60 * 60 * 1000)) : null
+  const issuance = deploymentCertificateSupplyData.value?.issuance
   return {
     providerType,
     providerName: authority?.name ? String(authority.name) : provider?.name ? String(provider.name) : firstAssetText(current ?? {}, ['providerId']),
     providerStatus: authority?.status ? String(authority.status) : provider?.status ? String(provider.status) : undefined,
-    custodyMode: firstAssetText(current ?? {}, ['custodyMode']) || deploymentCertificateSupplyData.value?.capability?.custodyMode,
+    // 目标能力是当前事实，优先于历史策略快照，避免 Windows Agent 被旧值误显示为平台托管。
+    custodyMode: deploymentCertificateSupplyData.value?.capability?.custodyMode || firstAssetText(current ?? {}, ['custodyMode']),
     hasCertificate: Boolean(version || firstAssetText(current ?? {}, ['certificateVersionId'])),
     issuedAt,
     expiresAt,
     remainingDays,
+    issuanceStatus: issuance?.status,
+    issuanceFailureCode: issuance?.failureCode,
+    issuanceFailureMessage: issuance?.failureMessage,
     certificateVersionId: version && version.deployable !== false
       ? firstAssetText(version, ['id', 'certificateVersionId'])
       : '',
@@ -756,7 +767,9 @@ const deploymentDialogDescription = computed(() => bulkCertificateUpdateMode.val
 
 const deploymentSubmitLabel = computed(() => bulkCertificateUpdateMode.value
   ? t('assets.selection.actions.bulkUpdateCertificate')
-  : t('assets.deployment.deployThisVersion'))
+  : deploymentCertificateSupplyMode.value === 'dedicated'
+    ? ''
+    : t('assets.deployment.deployThisVersion'))
 
 const deploymentSiteName = computed(() => firstAssetText(
   deploymentApplicationAsset.value ?? {},
@@ -1681,7 +1694,15 @@ async function saveCertificateSupplyPolicy(applicationAssetId: string): Promise<
   certificateSupplySaving.value = true
   try {
     const result = await saveApplicationCertificateSupplyPolicy(applicationAssetId, certificateSupplyPayload())
-    applyCertificateSupplyData((result.data ?? {}) as CertificateSupplyData)
+    const data = (result.data ?? {}) as CertificateSupplyData
+    applyCertificateSupplyData(data)
+    const issuance = data.issuance
+    if (issuance && ['issue_failed', 'rejected', 'cancelled'].includes(String(issuance.status ?? '').toLowerCase())) {
+      const message = issuance.failureMessage?.trim()
+      const code = issuance.failureCode?.trim()
+      const failure = message && code ? `${message}（${code}）` : message || code
+      throw new Error(failure || t('assets.deployment.dedicated.issuanceFailed'))
+    }
   } finally {
     certificateSupplySaving.value = false
   }

@@ -328,6 +328,70 @@ describe('TaskDrawer ACME 任务展示', () => {
     wrapper.unmount()
   })
 
+  it('专属证书父任务使用流程协调文案，不与签发任务重复', async () => {
+    const task = {
+      id: 'task-dedicated-supply-1',
+      tenantId: 'tenant-1',
+      taskType: 'APPLICATION_CERTIFICATE_SUPPLY',
+      definitionVersion: 1,
+      category: 'SYSTEM' as const,
+      status: 'FAILED' as const,
+      requestedBy: 'user_admin',
+      triggerSource: 'application.certificate-supply.provision',
+      payload: { applicationAssetId: 'app-1', certificateRequestId: 'request-1' },
+      resourceSummary: { displayName: '订单系统', applicationDisplayName: '订单系统', applicationDomain: 'app.example.com', certificateRequestName: '订单系统专属证书申请', applicationAssetId: 'app-1' },
+      lastErrorMessage: '部署结果确认失败',
+      createdAt: '2026-08-14T04:04:00.000Z',
+      finishedAt: '2026-08-14T04:04:20.000Z',
+    }
+    const activity = { activeTasks: [], recentTasks: [task], activeCount: 0, hasActive: false, connected: true }
+    taskEventMocks.currentTaskActivity.mockReturnValue(activity)
+    taskEventMocks.subscribeTaskActivity.mockImplementation((listener) => {
+      listener(activity)
+      return () => undefined
+    })
+    taskApiMocks.getTask.mockResolvedValue({
+      data: {
+        task,
+        attempts: [],
+        events: [
+          { id: 'event-created', eventType: 'CREATED', createdAt: task.createdAt },
+          { id: 'event-failed', eventType: 'FAILED', createdAt: task.finishedAt, eventData: { errorMessage: task.lastErrorMessage } },
+        ],
+        childTasks: [],
+        resourceRefs: [],
+        auditEvents: [],
+      },
+    })
+
+    const wrapper = mount(TaskDrawer, {
+      props: { open: true },
+      global: {
+        stubs: {
+          GcButton: ButtonStub,
+          GcEmptyState: SlotStub,
+          GcModal: SlotStub,
+          GcProgressBar: SlotStub,
+          GcStatusTag: StatusTagStub,
+          GcTabs: SlotStub,
+        },
+      },
+    })
+
+    await flushAsyncWork()
+    expect(wrapper.get('.task-drawer__item-type').text()).toBe('专属证书处理')
+    expect(wrapper.get('.task-drawer__item-title').text()).toContain('专属证书处理')
+    expect(wrapper.get('.task-drawer__item-title').text()).not.toContain('专属证书签发')
+    await wrapper.get('.task-drawer__item-open').trigger('click')
+    await flushAsyncWork()
+
+    const detailText = wrapper.get('.task-drawer__dedicated-detail').text()
+    expect(detailText).toContain('系统正在协调专属证书签发、部署和结果确认。')
+    expect(detailText).not.toContain('系统正在为该应用签发专属证书。')
+    expect(detailText).toContain('部署结果确认失败')
+    wrapper.unmount()
+  })
+
   it('专属 ACME 首次签发不再归类为其他任务，并显示申请名称和应用域名', async () => {
     const task = {
       id: 'task-dedicated-acme-issue-1',

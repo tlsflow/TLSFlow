@@ -496,7 +496,7 @@ export default {
     },
     relatedNames: { pluginCatalog: 'プラグインカタログ', deploymentPlan: '配備計画', acmeRenewal: 'ACME Provider（{provider}）- {certificate} 証明書更新' },
     dedicated: {
-      description: { issue: 'このアプリケーションの専用証明書を発行しています。', deploy: '専用証明書をこのアプリケーションに配備しています。' },
+      description: { supply: 'システムが専用証明書の発行、配備、結果確認を調整しています。', issue: 'このアプリケーションの専用証明書を発行しています。', deploy: '専用証明書をこのアプリケーションに配備しています。' },
       fields: { target: '対象アプリケーション', certificateAsset: '証明書アセット', certificateRequest: '証明書申請名', policyVersion: 'ポリシーバージョン' },
       timelineTitle: '処理状況', childrenTitle: '次のステップ', emptyTimeline: '処理履歴はありません', technicalDetails: '技術詳細を表示', failureTitle: '処理未完了',
       events: { created: 'タスクを作成', claimed: 'タスクを取得', started: '処理を開始', progress: '進捗を更新', retry_scheduled: '再試行を予約', waiting_result: '発行結果を待機中', awaiting_confirmation: '結果確認を待機中', cancel_requested: 'キャンセルを要求', succeeded: '処理成功', failed: '処理失敗', cancelled: 'タスクをキャンセル' }
@@ -512,6 +512,7 @@ export default {
     typeLabels: {
       CERTIFICATE_DRY_RUN: '証明書Dry-run',
       CERTIFICATE_DEPLOY: '証明書配備',
+      APPLICATION_CERTIFICATE_SUPPLY: '専用証明書の処理',
       APPLICATION_CERTIFICATE_DEPLOY: '専用証明書の配備',
       applicationCertificate: '専用証明書',
       applicationCertificateIssue: '専用証明書の発行',
@@ -3135,7 +3136,7 @@ export default {
       targetLocked: '更新対象を固定', latestVersionPointer: '現在の証明書の最新バージョンを自動適用',
       noCertificateAsset: 'デプロイ可能な証明書アセットがありません',
       title: '証明書デプロイ', description: 'このアプリケーション資産の証明書バージョンを選択します。システムはデプロイスナップショットを作成し、必要な事前確認を行ってデプロイを開始します。', dialogTitle: '証明書デプロイ', dialogDescription: '現在のアプリケーション資産だけに適用されます。デプロイプランはバックエンドのスナップショットと実行の境界として保持されます。', deployThisVersion: 'この証明書バージョンをデプロイ', loadingRecords: 'デプロイ記録を読み込み中...', emptyRecords: 'このアプリケーション資産にはデプロイ記録がありません。', preflightAvailable: '{count} 件の事前確認が返されました', preflightUnavailable: '事前確認は未実行です', rollbackUnavailable: 'ロールバックは要求されていません', fields: { status: 'デプロイ状態', latestRun: '最新実行', preflight: '事前確認', rollback: 'ロールバック', updatedAt: '更新日時' }, feedback: { preflightRunning: '事前確認の完了を待っています。', executionStarted: '事前確認が完了し、デプロイ実行を開始しました。' }, errors: { missingApplicationAssetId: '証明書デプロイを作成するにはアプリケーション資産 ID が必要です。', missingCertificateVersion: '現在の証明書供給ポリシーにはデプロイ可能な証明書バージョンがありません。', loadOptionsFailed: 'デプロイ可能な証明書バージョンを読み込めませんでした。', createPlanMissingId: 'デプロイスナップショットの作成後にプラン ID が返されませんでした。', deployFailed: '証明書デプロイに失敗しました。', preflightFailed: '証明書デプロイの事前確認に失敗しました。', preflightTimeout: '証明書デプロイの事前確認がタイムアウトしました。', loadRecordsFailed: 'アプリケーション資産のデプロイ記録を読み込めませんでした。' },
-      dedicated: { kicker: '専用証明書', title: 'アプリ専用証明書', providerTypes: { acme: 'ACME', internalCa: '管理 CA' }, fields: { providerType: '発行方式', ca: '指定 CA', caStatus: 'CA 状態', custodyMode: '秘密鍵管理', certificate: '証明書状態', issuedAt: '申請日時', expiresAt: '有効期限', remainingDays: '残り日数' }, status: { available: '利用可能', unavailable: '利用不可', unknown: '不明' }, custody: { agentLocal: 'Agent ローカル管理', managedSecret: 'プラットフォーム管理' }, certificate: { exists: '発行済み', missing: '未発行' }, remainingDays: '残り {days} 日', reapply: '証明書を再申請', reapplyHint: 'デプロイ時に専用ドメイン証明書を再申請します。', deployCurrentHint: '現在発行済みの専用ドメイン証明書をデプロイします。', issuancePending: '専用証明書の申請を送信しました。発行完了後にデプロイしてください。' }
+      dedicated: { kicker: '専用証明書', title: 'アプリ専用証明書', providerTypes: { acme: 'ACME', internalCa: '管理 CA' }, fields: { providerType: '発行方式', ca: '指定 CA', caStatus: 'CA 状態', custodyMode: '秘密鍵管理', certificate: '証明書状態', issuedAt: '申請日時', expiresAt: '有効期限', remainingDays: '残り日数' }, status: { available: '利用可能', unavailable: '利用不可', unknown: '不明' }, custody: { agentLocal: 'Agent ローカル管理', managedSecret: 'プラットフォーム管理' }, certificate: { exists: '発行済み', missing: '未発行', failed: '発行失敗' }, remainingDays: '残り {days} 日', reapply: '証明書を再申請', reapplyHint: 'デプロイ時に専用ドメイン証明書を再申請します。', deployCurrentHint: '現在発行済みの専用ドメイン証明書をデプロイします。', issuancePending: '専用証明書の申請を送信しました。発行完了後にデプロイしてください。', issuanceFailed: '専用証明書の発行に失敗しました。タスクの詳細を確認して再試行してください。', issuanceFailedWithCode: '専用証明書の発行に失敗しました: {message} ({code})' }
     },
     compatibilityModes: {
       unified: '統一プラグインバインド',

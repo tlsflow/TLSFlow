@@ -496,7 +496,7 @@ export default {
     },
     relatedNames: { pluginCatalog: 'Каталог плагинов', deploymentPlan: 'План развёртывания', acmeRenewal: 'ACME Provider ({provider}) - продление сертификата {certificate}' },
     dedicated: {
-      description: { issue: 'Для этого приложения выпускается выделенный сертификат.', deploy: 'Выделенный сертификат развёртывается в этом приложении.' },
+      description: { supply: 'Система координирует выпуск, развёртывание и подтверждение результата выделенного сертификата.', issue: 'Для этого приложения выпускается выделенный сертификат.', deploy: 'Выделенный сертификат развёртывается в этом приложении.' },
       fields: { target: 'Целевое приложение', certificateAsset: 'Актив сертификата', certificateRequest: 'Название запроса сертификата', policyVersion: 'Версия политики' },
       timelineTitle: 'Ход обработки', childrenTitle: 'Следующие шаги', emptyTimeline: 'Нет записей о ходе обработки', technicalDetails: 'Показать технические сведения', failureTitle: 'Обработка не завершена',
       events: { created: 'Задача создана', claimed: 'Задача принята', started: 'Обработка начата', progress: 'Прогресс обновлён', retry_scheduled: 'Повтор запланирован', waiting_result: 'Ожидание результата выпуска', awaiting_confirmation: 'Ожидание подтверждения результата', cancel_requested: 'Запрошена отмена', succeeded: 'Обработка завершена', failed: 'Ошибка обработки', cancelled: 'Задача отменена' }
@@ -512,6 +512,7 @@ export default {
     typeLabels: {
       CERTIFICATE_DRY_RUN: 'Dry-run сертификата',
       CERTIFICATE_DEPLOY: 'Развёртывание сертификата',
+      APPLICATION_CERTIFICATE_SUPPLY: 'Обработка выделенного сертификата',
       APPLICATION_CERTIFICATE_DEPLOY: 'Развёртывание выделенного сертификата',
       applicationCertificate: 'Выделенный сертификат',
       applicationCertificateIssue: 'Выдача выделенного сертификата',
@@ -3126,7 +3127,7 @@ export default {
       fields: { status: 'Статус развертывания', latestRun: 'Последний запуск', preflight: 'Предпроверка', rollback: 'Откат', updatedAt: 'Обновлено' },
       feedback: { preflightRunning: 'Ожидание завершения предпроверки.', executionStarted: 'Предпроверка завершена; выполнение запущено.' },
       errors: { missingApplicationAssetId: 'Требуется идентификатор актива приложения.', missingCertificateVersion: 'В текущей политике нет доступной версии сертификата.', loadOptionsFailed: 'Не удалось загрузить доступные версии сертификата.', createPlanMissingId: 'Созданный снимок не вернул идентификатор плана.', deployFailed: 'Не удалось развернуть сертификат.', preflightFailed: 'Предпроверка развертывания не пройдена.', preflightTimeout: 'Предпроверка развертывания завершилась по тайм-ауту.', loadRecordsFailed: 'Не удалось загрузить записи развертывания.' },
-      dedicated: { kicker: 'Выделенный сертификат', title: 'Выделенный сертификат приложения', providerTypes: { acme: 'ACME', internalCa: 'Управляемый CA' }, fields: { providerType: 'Способ выпуска', ca: 'Выбранный CA', caStatus: 'Статус CA', custodyMode: 'Управление закрытым ключом', certificate: 'Статус сертификата', issuedAt: 'Запрошен', expiresAt: 'Истекает', remainingDays: 'Осталось дней' }, status: { available: 'Доступен', unavailable: 'Недоступен', unknown: 'Неизвестно' }, custody: { agentLocal: 'Управляется Agent', managedSecret: 'Управляется платформой' }, certificate: { exists: 'Выпущен', missing: 'Не выпущен' }, remainingDays: 'Осталось {days} дн.', reapply: 'Запросить новый сертификат', reapplyHint: 'Перед развертыванием будет запрошен новый выделенный сертификат.', deployCurrentHint: 'Развернуть текущий выделенный сертификат.', issuancePending: 'Запрос выделенного сертификата отправлен. Разверните после выпуска.' }
+      dedicated: { kicker: 'Выделенный сертификат', title: 'Выделенный сертификат приложения', providerTypes: { acme: 'ACME', internalCa: 'Управляемый CA' }, fields: { providerType: 'Способ выпуска', ca: 'Выбранный CA', caStatus: 'Статус CA', custodyMode: 'Управление закрытым ключом', certificate: 'Статус сертификата', issuedAt: 'Запрошен', expiresAt: 'Истекает', remainingDays: 'Осталось дней' }, status: { available: 'Доступен', unavailable: 'Недоступен', unknown: 'Неизвестно' }, custody: { agentLocal: 'Управляется Agent', managedSecret: 'Управляется платформой' }, certificate: { exists: 'Выпущен', missing: 'Не выпущен', failed: 'Ошибка выпуска' }, remainingDays: 'Осталось {days} дн.', reapply: 'Запросить новый сертификат', reapplyHint: 'Перед развертыванием будет запрошен новый выделенный сертификат.', deployCurrentHint: 'Развернуть текущий выделенный сертификат.', issuancePending: 'Запрос выделенного сертификата отправлен. Разверните после выпуска.', issuanceFailed: 'Не удалось выпустить выделенный сертификат. Проверьте детали задачи и повторите попытку.', issuanceFailedWithCode: 'Ошибка выпуска выделенного сертификата: {message} ({code})' }
     },
     compatibilityModes: {
       unified: 'Единая привязка плагина',

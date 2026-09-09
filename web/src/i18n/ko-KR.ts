@@ -496,7 +496,7 @@ export default {
     },
     relatedNames: { pluginCatalog: '플러그인 카탈로그', deploymentPlan: '배포 계획', acmeRenewal: 'ACME Provider({provider}) - {certificate} 인증서 갱신' },
     dedicated: {
-      description: { issue: '이 애플리케이션의 전용 인증서를 발급하고 있습니다.', deploy: '전용 인증서를 이 애플리케이션에 배포하고 있습니다.' },
+      description: { supply: '시스템이 전용 인증서 발급, 배포 및 결과 확인을 조정하고 있습니다.', issue: '이 애플리케이션의 전용 인증서를 발급하고 있습니다.', deploy: '전용 인증서를 이 애플리케이션에 배포하고 있습니다.' },
       fields: { target: '대상 애플리케이션', certificateAsset: '인증서 자산', certificateRequest: '인증서 신청 이름', policyVersion: '정책 버전' },
       timelineTitle: '처리 진행', childrenTitle: '다음 단계', emptyTimeline: '진행 기록이 없습니다', technicalDetails: '기술 세부 정보 보기', failureTitle: '처리 미완료',
       events: { created: '작업 생성', claimed: '작업 수신', started: '처리 시작', progress: '진행률 업데이트', retry_scheduled: '재시도 예약', waiting_result: '발급 결과 대기 중', awaiting_confirmation: '결과 확인 대기 중', cancel_requested: '취소 요청', succeeded: '처리 성공', failed: '처리 실패', cancelled: '작업 취소됨' }
@@ -512,6 +512,7 @@ export default {
     typeLabels: {
       CERTIFICATE_DRY_RUN: '인증서 Dry-run',
       CERTIFICATE_DEPLOY: '인증서 배포',
+      APPLICATION_CERTIFICATE_SUPPLY: '전용 인증서 처리',
       APPLICATION_CERTIFICATE_DEPLOY: '전용 인증서 배포',
       applicationCertificate: '전용 인증서',
       applicationCertificateIssue: '전용 인증서 발급',
@@ -3113,7 +3114,7 @@ export default {
       noCertificateAsset: '배포 가능한 인증서 자산이 없습니다',
       targetLocked: '업데이트 대상 고정',
       title: '인증서 배포', description: '이 애플리케이션 자산에 적용할 인증서 버전을 선택합니다. 시스템은 배포 스냅샷 생성, 사전 점검 및 실행을 수행합니다.', dialogTitle: '인증서 배포', dialogDescription: '현재 애플리케이션 자산에만 적용됩니다. 배포 계획은 백엔드의 스냅샷 및 실행 경계로 유지됩니다.', latestVersionPointer: '현재 인증서의 최신 버전 자동 적용', deployThisVersion: '이 인증서 버전 배포', loadingRecords: '배포 기록을 불러오는 중...', emptyRecords: '이 애플리케이션 자산에는 배포 기록이 없습니다.', preflightAvailable: '사전 점검 {count}개 반환됨', preflightUnavailable: '사전 점검이 아직 실행되지 않았습니다', rollbackUnavailable: '롤백이 요청되지 않았습니다', fields: { status: '배포 상태', latestRun: '최근 실행', preflight: '사전 점검', rollback: '롤백', updatedAt: '업데이트 시간' }, feedback: { preflightRunning: '사전 점검 실행이 완료되기를 기다리는 중입니다.', executionStarted: '사전 점검이 완료되어 배포 실행이 시작되었습니다.' }, errors: { missingApplicationAssetId: '인증서 배포를 만들려면 애플리케이션 자산 ID가 필요합니다.', missingCertificateVersion: '현재 인증서 공급 정책에 배포 가능한 인증서 버전이 없습니다.', loadOptionsFailed: '배포 가능한 인증서 버전을 불러오지 못했습니다.', createPlanMissingId: '배포 스냅샷 생성 후 계획 ID가 반환되지 않았습니다.', deployFailed: '인증서 배포에 실패했습니다.', preflightFailed: '인증서 배포 사전 점검을 통과하지 못했습니다.', preflightTimeout: '인증서 배포 사전 점검 시간이 초과되었습니다.', loadRecordsFailed: '애플리케이션 자산 배포 기록을 불러오지 못했습니다.' },
-      dedicated: { kicker: '전용 인증서', title: '애플리케이션 전용 인증서', providerTypes: { acme: 'ACME', internalCa: '관리형 CA' }, fields: { providerType: '발급 방식', ca: '선택한 CA', caStatus: 'CA 상태', custodyMode: '개인 키 관리', certificate: '인증서 상태', issuedAt: '신청 시간', expiresAt: '만료 시간', remainingDays: '남은 일수' }, status: { available: '사용 가능', unavailable: '사용 불가', unknown: '알 수 없음' }, custody: { agentLocal: 'Agent 로컬 관리', managedSecret: '플랫폼 관리' }, certificate: { exists: '발급됨', missing: '미발급' }, remainingDays: '{days}일 남음', reapply: '인증서 재신청', reapplyHint: '배포 전에 전용 도메인 인증서를 다시 신청합니다.', deployCurrentHint: '현재 전용 도메인 인증서를 배포합니다.', issuancePending: '전용 인증서 신청이 제출되었습니다. 발급 후 배포하세요.' }
+      dedicated: { kicker: '전용 인증서', title: '애플리케이션 전용 인증서', providerTypes: { acme: 'ACME', internalCa: '관리형 CA' }, fields: { providerType: '발급 방식', ca: '선택한 CA', caStatus: 'CA 상태', custodyMode: '개인 키 관리', certificate: '인증서 상태', issuedAt: '신청 시간', expiresAt: '만료 시간', remainingDays: '남은 일수' }, status: { available: '사용 가능', unavailable: '사용 불가', unknown: '알 수 없음' }, custody: { agentLocal: 'Agent 로컬 관리', managedSecret: '플랫폼 관리' }, certificate: { exists: '발급됨', missing: '미발급', failed: '발급 실패' }, remainingDays: '{days}일 남음', reapply: '인증서 재신청', reapplyHint: '배포 전에 전용 도메인 인증서를 다시 신청합니다.', deployCurrentHint: '현재 전용 도메인 인증서를 배포합니다.', issuancePending: '전용 인증서 신청이 제출되었습니다. 발급 후 배포하세요.', issuanceFailed: '전용 인증서 발급에 실패했습니다. 작업 상세를 확인한 후 다시 시도하세요.', issuanceFailedWithCode: '전용 인증서 발급 실패: {message} ({code})' }
     },
     compatibilityModes: {
       unified: '통합 플러그인 바인딩',

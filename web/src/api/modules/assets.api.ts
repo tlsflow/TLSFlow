@@ -89,9 +89,9 @@ export function previewApplicationCertificateSupplyPolicy(applicationAssetId: st
   return apiClient.post<ApiRecord>(toClientPath(`${APPLICATION_CERTIFICATE_SUPPLY_POLICY_PATH}/${encodeURIComponent(applicationAssetId)}/certificate-supply-policy/preview`), payload)
 }
 
-/** 创建专属证书部署父任务；签发与标准部署由后端统一编排。 */
+/** 创建专属证书申请或部署任务；reapply 用于私钥轮换并申请新的证书版本。 */
 export function enqueueApplicationCertificateDeployment(applicationAssetId: string, reapply = false): Promise<ApiRecordResult> {
-  return apiClient.post<ApiRecord>(toClientPath(`${APPLICATION_CERTIFICATE_SUPPLY_POLICY_PATH}/${encodeURIComponent(applicationAssetId)}/certificate-supply-policy/deploy`), { reapply }, {
+  return apiClient.post<ApiRecord>(toClientPath(`${APPLICATION_CERTIFICATE_SUPPLY_POLICY_PATH}/${encodeURIComponent(applicationAssetId)}/certificate-supply-policy/deploy`), reapply ? { reapply: true } : {}, {
     idempotencyKey: createIdempotencyKey('application_certificate_deployment'),
   })
 }

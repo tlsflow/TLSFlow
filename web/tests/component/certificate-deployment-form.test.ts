@@ -124,7 +124,7 @@ describe('GcCertificateDeploymentForm', () => {
     expect(wrapper.get('pre').text()).toContain('"errorCode": "RESOURCE_NOT_FOUND"')
   })
 
-  it('专属 ACME 模式显示证书状态并提交重新申请意图', async () => {
+  it('专属 ACME 模式显示证书状态并提交当前固定版本', async () => {
     const wrapper = mount(GcCertificateDeploymentForm, {
       global: { plugins: [i18n] },
       props: {
@@ -149,11 +149,17 @@ describe('GcCertificateDeploymentForm', () => {
     expect(wrapper.text()).toContain('ACME')
     expect(wrapper.text()).toContain('已存在')
     expect(wrapper.text()).toContain('100 天')
-    await wrapper.find('input[type="checkbox"]').setValue(true)
+    expect(wrapper.find('button[type="submit"]').text()).toContain('部署此证书版本')
     await wrapper.get('form').trigger('submit')
     expect(wrapper.emitted('submit')).toEqual([[
-      { certificateAssetId: 'cert-1', selectionMode: 'EXPLICIT', certificateVersionId: 'version-1', reapply: true },
+      { certificateAssetId: 'cert-1', selectionMode: 'EXPLICIT', certificateVersionId: 'version-1' },
     ]])
+    await wrapper.find('input[type="checkbox"]').setValue(true)
+    expect(wrapper.find('button[type="submit"]').text()).toContain('重新申请证书')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.emitted('submit')?.[1]).toEqual([{
+      certificateAssetId: 'cert-1', selectionMode: 'EXPLICIT', certificateVersionId: 'version-1', reapply: true,
+    }])
   })
 
   it('专属内部 CA 模式显示 CA 状态和私钥管理方式', async () => {
@@ -180,7 +186,37 @@ describe('GcCertificateDeploymentForm', () => {
     expect(wrapper.text()).toContain('平台托管')
     expect(wrapper.text()).toContain('尚未签发')
     expect(wrapper.find('input[type="checkbox"]').exists()).toBe(true)
+    expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('专属证书签发失败时显示失败原因并允许重新发起签发', async () => {
+    const wrapper = mount(GcCertificateDeploymentForm, {
+      global: { plugins: [i18n] },
+      props: {
+        applicationAsset: { id: 'asset-1', displayName: '支付网关' },
+        certificate: null,
+        certificateVersions: [],
+        supplyMode: 'dedicated',
+        dedicatedDetails: {
+          providerType: 'internal_ca',
+          providerName: '企业根 CA',
+          providerStatus: 'active',
+          custodyMode: 'managed_secret',
+          hasCertificate: false,
+          issuanceStatus: 'issue_failed',
+          issuanceFailureCode: 'TASK_EXECUTOR_THROWN',
+          issuanceFailureMessage: 'CA Provider 返回错误',
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('签发失败')
+    expect(wrapper.text()).toContain('CA Provider 返回错误')
+    expect(wrapper.text()).toContain('TASK_EXECUTOR_THROWN')
+    expect(wrapper.text()).not.toContain('专属证书申请已提交')
+    expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeDefined()
     await wrapper.find('input[type="checkbox"]').setValue(true)
+    expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeUndefined()
     await wrapper.get('form').trigger('submit')
     expect(wrapper.emitted('submit')).toEqual([[
       { certificateAssetId: '', selectionMode: 'EXPLICIT', certificateVersionId: '', reapply: true },

@@ -40,6 +40,7 @@ const SYSTEM_TASK_TYPES: ReadonlySet<string> = new Set([
   'ACME_CERTIFICATE_ISSUE',
   'ACME_CERTIFICATE_RENEWAL',
   'APPLICATION_CERTIFICATE_DEPLOY',
+  'APPLICATION_CERTIFICATE_SUPPLY',
   'CERTIFICATE_REVOCATION',
   'CRL_PUBLISH',
   'TRUST_DISTRIBUTION',
@@ -926,12 +927,11 @@ function taskStatusLabel(task: TaskRun): string {
 }
 
 function taskTypeLabel(task: TaskRun): string {
+  if (task.taskType === 'APPLICATION_CERTIFICATE_SUPPLY') return t('tasks.typeLabels.APPLICATION_CERTIFICATE_SUPPLY')
   if (['CERTIFICATE_ISSUE', 'ACME_CERTIFICATE_ISSUE'].includes(task.taskType) && isDedicatedCertificateTask(task)) {
     return t('tasks.typeLabels.applicationCertificate')
   }
-  if (task.taskType === 'APPLICATION_CERTIFICATE_DEPLOY') {
-    return t('tasks.typeLabels.applicationCertificate')
-  }
+  if (task.taskType === 'APPLICATION_CERTIFICATE_DEPLOY') return t('tasks.typeLabels.applicationCertificate')
   const key = `tasks.typeLabels.${task.taskType}`
   const label = t(key)
   return label === key ? t('tasks.typeLabels.OTHER') : label
@@ -946,6 +946,7 @@ function dedicatedTaskActionLabel(task: TaskRun): string {
 function isDedicatedCertificateTask(task: TaskRun | null | undefined): boolean {
   if (!task) return false
   if (task.taskType === 'APPLICATION_CERTIFICATE_DEPLOY') return true
+  if (task.taskType === 'APPLICATION_CERTIFICATE_SUPPLY') return true
   if (!['CERTIFICATE_ISSUE', 'ACME_CERTIFICATE_ISSUE'].includes(task.taskType)) return false
   return Boolean(
     firstNonEmptyString(
@@ -958,6 +959,7 @@ function isDedicatedCertificateTask(task: TaskRun | null | undefined): boolean {
 }
 
 function dedicatedTaskDescription(task: TaskRun): string {
+  if (task.taskType === 'APPLICATION_CERTIFICATE_SUPPLY') return t('tasks.dedicated.description.supply')
   return t(task.taskType === 'APPLICATION_CERTIFICATE_DEPLOY'
     ? 'tasks.dedicated.description.deploy'
     : 'tasks.dedicated.description.issue')

@@ -495,7 +495,7 @@ export default {
     },
     relatedNames: { pluginCatalog: "外掛目錄", deploymentPlan: "部署計畫", acmeRenewal: "ACME Provider（{provider}）— {certificate} 憑證續期" },
     dedicated: {
-      description: { issue: "正在為此應用程式簽發專屬憑證。", deploy: "正在將專屬憑證部署至此應用程式。" },
+      description: { supply: "系統正在協調專屬憑證簽發、部署與結果確認。", issue: "正在為此應用程式簽發專屬憑證。", deploy: "正在將專屬憑證部署至此應用程式。" },
       fields: { target: "目標應用程式", certificateAsset: "憑證資產", certificateRequest: "憑證申請名稱", policyVersion: "原則版本" },
       timelineTitle: "處理進度", childrenTitle: "後續步驟", emptyTimeline: "暫無進度記錄", technicalDetails: "檢視技術詳細資料", failureTitle: "處理未完成",
       events: { created: "工作已建立", claimed: "工作已接收", started: "開始處理", progress: "進度已更新", retry_scheduled: "已安排重試", waiting_result: "等待簽發結果", awaiting_confirmation: "等待結果確認", cancel_requested: "已要求取消", succeeded: "處理成功", failed: "處理失敗", cancelled: "工作已取消" }
@@ -511,6 +511,7 @@ export default {
     typeLabels: {
       CERTIFICATE_DRY_RUN: "證書Dry-run",
       CERTIFICATE_DEPLOY: "證書部署",
+      APPLICATION_CERTIFICATE_SUPPLY: "專屬憑證處理",
       APPLICATION_CERTIFICATE_DEPLOY: "專屬證書部署",
       applicationCertificate: "專屬證書",
       applicationCertificateIssue: "專屬證書簽發",
@@ -3138,7 +3139,7 @@ export default {
       targetLocked: "已鎖定更新目標",
       noCertificateAsset: "沒有可部署的憑證資產",
       title: "憑證部署", description: "為此應用資產選擇一個憑證版本。系統會建立部署快照並執行必要預檢，然後開始部署。", dialogTitle: "憑證部署", dialogDescription: "此操作只套用到目前應用資產。部署計畫仍保留作為後端快照和執行邊界。", latestVersionPointer: "自動套用目前憑證的最新版本", deployThisVersion: "部署此憑證版本", loadingRecords: "正在載入部署記錄...", emptyRecords: "此應用資產尚無部署記錄。", preflightAvailable: "已返回 {count} 項預檢", preflightUnavailable: "尚未執行預檢", rollbackUnavailable: "尚未發起回滾", fields: { status: "部署狀態", latestRun: "最新執行", preflight: "預檢", rollback: "回滾", updatedAt: "更新時間" }, feedback: { preflightRunning: "正在等待預檢執行完成。", executionStarted: "預檢完成，部署執行已開始。" }, errors: { missingApplicationAssetId: "缺少應用資產 ID，無法建立憑證部署。", missingCertificateVersion: "目前憑證供應策略沒有可部署的憑證版本。", loadOptionsFailed: "載入可部署憑證版本失敗。", createPlanMissingId: "建立部署快照後未返回計畫 ID。", deployFailed: "憑證部署操作失敗。", preflightFailed: "憑證部署預檢未通過。", preflightTimeout: "憑證部署預檢等待逾時。", loadRecordsFailed: "載入應用資產部署記錄失敗。" },
-      dedicated: { kicker: '專屬憑證', title: '應用程式專屬憑證', providerTypes: { acme: 'ACME', internalCa: '受管 CA' }, fields: { providerType: '憑證生成方式', ca: '指定 CA', caStatus: 'CA 狀態', custodyMode: '私鑰管理方式', certificate: '憑證狀態', issuedAt: '申請時間', expiresAt: '到期時間', remainingDays: '剩餘天數' }, status: { available: '可用', unavailable: '不可用', unknown: '未知' }, custody: { agentLocal: 'Agent 本機管理', managedSecret: '平台代管' }, certificate: { exists: '已存在', missing: '尚未生成' }, remainingDays: '剩餘 {days} 天', reapply: '重新申請憑證', reapplyHint: '部署時會重新申請專屬網域憑證。', deployCurrentHint: '部署目前已生成的專屬網域憑證。', issuancePending: '專屬憑證申請已提交，待簽發完成後再部署。' }
+      dedicated: { kicker: '專屬憑證', title: '應用程式專屬憑證', providerTypes: { acme: 'ACME', internalCa: '受管 CA' }, fields: { providerType: '憑證生成方式', ca: '指定 CA', caStatus: 'CA 狀態', custodyMode: '私鑰管理方式', certificate: '憑證狀態', issuedAt: '申請時間', expiresAt: '到期時間', remainingDays: '剩餘天數' }, status: { available: '可用', unavailable: '不可用', unknown: '未知' }, custody: { agentLocal: 'Agent 本機管理', managedSecret: '平台代管' }, certificate: { exists: '已存在', missing: '尚未生成', failed: '簽發失敗' }, remainingDays: '剩餘 {days} 天', reapply: '重新申請憑證', reapplyHint: '部署時會重新申請專屬網域憑證。', deployCurrentHint: '部署目前已生成的專屬網域憑證。', issuancePending: '專屬憑證申請已提交，待簽發完成後再部署。', issuanceFailed: '專屬憑證簽發失敗，請查看全域任務中的失敗詳情後重試。', issuanceFailedWithCode: '專屬憑證簽發失敗：{message}（{code}）' }
     },
     compatibilityModes: {
       unified: "統一外掛繫結",

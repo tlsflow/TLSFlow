@@ -492,7 +492,7 @@ export default {
     },
     relatedNames: { pluginCatalog: 'Catalogue de plugins', deploymentPlan: 'Plan de déploiement', acmeRenewal: 'Fournisseur ACME ({provider}) - renouvellement du certificat {certificate}' },
     dedicated: {
-      description: { issue: 'Le certificat dédié est émis pour cette application.', deploy: 'Le certificat dédié est déployé sur cette application.' },
+      description: { supply: 'Le système coordonne l’émission, le déploiement et la confirmation du certificat dédié.', issue: 'Le certificat dédié est émis pour cette application.', deploy: 'Le certificat dédié est déployé sur cette application.' },
       fields: { target: 'Application cible', certificateAsset: 'Actif certificat', certificateRequest: 'Nom de la demande de certificat', policyVersion: 'Version de stratégie' },
       timelineTitle: 'Progression', childrenTitle: 'Étapes suivantes', emptyTimeline: 'Aucun suivi disponible', technicalDetails: 'Voir les détails techniques', failureTitle: 'Traitement incomplet',
       events: { created: 'Tâche créée', claimed: 'Tâche prise en charge', started: 'Traitement démarré', progress: 'Progression mise à jour', retry_scheduled: 'Nouvel essai planifié', waiting_result: 'En attente du résultat d’émission', awaiting_confirmation: 'En attente de confirmation', cancel_requested: 'Annulation demandée', succeeded: 'Traitement réussi', failed: 'Échec du traitement', cancelled: 'Tâche annulée' }
@@ -508,6 +508,7 @@ export default {
     typeLabels: {
       CERTIFICATE_DRY_RUN: 'Dry-run du certificat',
       CERTIFICATE_DEPLOY: 'Déploiement du certificat',
+      APPLICATION_CERTIFICATE_SUPPLY: 'Traitement du certificat dédié',
       APPLICATION_CERTIFICATE_DEPLOY: 'Déploiement de certificat dédié',
       applicationCertificate: 'Certificat dédié',
       applicationCertificateIssue: 'Émission de certificat dédié',
@@ -3193,7 +3194,7 @@ export default {
       fields: { status: 'État du déploiement', latestRun: 'Dernière exécution', preflight: 'Pré-vérification', rollback: 'Retour arrière', updatedAt: 'Mis à jour' },
       feedback: { preflightRunning: 'Attente de la fin de la pré-vérification.', executionStarted: 'Pré-vérification terminée ; l’exécution a démarré.' },
       errors: { missingApplicationAssetId: 'L’identifiant de l’actif applicatif est requis.', missingCertificateVersion: 'La stratégie actuelle ne contient aucune version de certificat déployable.', loadOptionsFailed: 'Impossible de charger les versions déployables.', createPlanMissingId: 'Le snapshot créé ne contient aucun identifiant de plan.', deployFailed: 'Échec du déploiement du certificat.', preflightFailed: 'La pré-vérification du déploiement a échoué.', preflightTimeout: 'La pré-vérification du déploiement a expiré.', loadRecordsFailed: 'Impossible de charger les enregistrements de déploiement.' },
-      dedicated: { kicker: 'Certificat dédié', title: 'Certificat dédié à l’application', providerTypes: { acme: 'ACME', internalCa: 'CA gérée' }, fields: { providerType: 'Méthode de génération', ca: 'CA sélectionnée', caStatus: 'État de la CA', custodyMode: 'Gestion de la clé privée', certificate: 'État du certificat', issuedAt: 'Demandé le', expiresAt: 'Expire le', remainingDays: 'Jours restants' }, status: { available: 'Disponible', unavailable: 'Indisponible', unknown: 'Inconnu' }, custody: { agentLocal: 'Gérée par Agent', managedSecret: 'Gérée par la plateforme' }, certificate: { exists: 'Disponible', missing: 'Non émis' }, remainingDays: '{days} jours restants', reapply: 'Demander un nouveau certificat', reapplyHint: 'Un certificat de domaine dédié sera redemandé avant le déploiement.', deployCurrentHint: 'Déployer le certificat de domaine dédié actuel.', issuancePending: 'La demande de certificat dédié a été envoyée. Déployez après son émission.' }
+      dedicated: { kicker: 'Certificat dédié', title: 'Certificat dédié à l’application', providerTypes: { acme: 'ACME', internalCa: 'CA gérée' }, fields: { providerType: 'Méthode de génération', ca: 'CA sélectionnée', caStatus: 'État de la CA', custodyMode: 'Gestion de la clé privée', certificate: 'État du certificat', issuedAt: 'Demandé le', expiresAt: 'Expire le', remainingDays: 'Jours restants' }, status: { available: 'Disponible', unavailable: 'Indisponible', unknown: 'Inconnu' }, custody: { agentLocal: 'Gérée par Agent', managedSecret: 'Gérée par la plateforme' }, certificate: { exists: 'Disponible', missing: 'Non émis', failed: 'Émission échouée' }, remainingDays: '{days} jours restants', reapply: 'Demander un nouveau certificat', reapplyHint: 'Un certificat de domaine dédié sera redemandé avant le déploiement.', deployCurrentHint: 'Déployer le certificat de domaine dédié actuel.', issuancePending: 'La demande de certificat dédié a été envoyée. Déployez après son émission.', issuanceFailed: 'Échec de l’émission du certificat dédié. Consultez les détails de la tâche et réessayez.', issuanceFailedWithCode: 'Échec de l’émission du certificat dédié : {message} ({code})' }
     },
     compatibilityModes: {
       unified: 'Liaison de plug-in unifiée',

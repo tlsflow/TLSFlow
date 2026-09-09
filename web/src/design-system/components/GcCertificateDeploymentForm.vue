@@ -23,6 +23,9 @@ const props = withDefaults(defineProps<{
     expiresAt?: string
     remainingDays?: number | null
     certificateVersionId?: string
+    issuanceStatus?: string
+    issuanceFailureCode?: string
+    issuanceFailureMessage?: string
   } | null
   preflightChecks?: readonly ApiRecord[]
   loading?: boolean
@@ -60,9 +63,12 @@ const selectedVersion = computed(() => selectedVersionId.value === LATEST_VERSIO
   ? latestVersion.value
   : selectedCertificateVersions.value.find((item) => versionId(item) === selectedVersionId.value) ?? null)
 const dedicatedVersionId = computed(() => String(props.dedicatedDetails?.certificateVersionId ?? '').trim())
+const issuanceFailed = computed(() => ['issue_failed', 'rejected', 'cancelled'].includes(
+  String(props.dedicatedDetails?.issuanceStatus ?? '').trim().toLowerCase(),
+))
 const canSubmit = computed(() => {
   if (isDedicated.value) {
-    return !props.loading && Boolean(reapplyDedicatedCertificate.value || dedicatedVersionId.value)
+    return !props.loading && (reapplyDedicatedCertificate.value || (!issuanceFailed.value && Boolean(dedicatedVersionId.value)))
   }
   return Boolean(selectedCertificateAssetId.value && selectedVersionId.value)
     && (selectedVersionId.value !== LATEST_VERSION_MARKER || Boolean(versionId(latestVersion.value)))
@@ -90,7 +96,7 @@ function submit(): void {
       certificateAssetId: selectedCertificateAssetId.value,
       selectionMode: 'EXPLICIT',
       certificateVersionId: dedicatedVersionId.value,
-      reapply: reapplyDedicatedCertificate.value,
+      ...(reapplyDedicatedCertificate.value ? { reapply: true } : {}),
     })
     return
   }
@@ -162,12 +168,21 @@ function statusLabel(value: string | undefined): string {
 function custodyModeLabel(value: string | undefined): string {
   const mode = String(value ?? '').trim().toLowerCase()
   if (mode === 'agent_local' || mode === 'local_agent') return t('assets.deployment.dedicated.custody.agentLocal')
+  if (mode === 'device_local') return t('internalCa.custodyModes.deviceLocal')
   if (mode === 'managed_secret') return t('assets.deployment.dedicated.custody.managedSecret')
   return value || t('common.notAvailable')
 }
 
 function certificatePresenceLabel(value: boolean | undefined): string {
+  if (issuanceFailed.value) return t('assets.deployment.dedicated.certificate.failed')
   return value ? t('assets.deployment.dedicated.certificate.exists') : t('assets.deployment.dedicated.certificate.missing')
+}
+
+function issuanceFailureText(): string {
+  const message = String(props.dedicatedDetails?.issuanceFailureMessage ?? '').trim()
+  const code = String(props.dedicatedDetails?.issuanceFailureCode ?? '').trim()
+  if (message && code) return t('assets.deployment.dedicated.issuanceFailedWithCode', { message, code })
+  return message || code || t('assets.deployment.dedicated.issuanceFailed')
 }
 
 function remainingDaysLabel(value: number | null | undefined): string {
@@ -197,8 +212,8 @@ function readString(record: ApiRecord | null | undefined, candidates: readonly s
         <span class="gc-certificate-deployment-form__eyebrow">{{ t('assets.deployment.targetLocked') }}</span>
         <p>{{ applicationLabel() }}</p>
       </div>
-      <span class="gc-certificate-deployment-form__ready" :class="{ 'is-loading': loading }">
-        {{ loading ? t('common.loading') : t('designSystem.deploymentWizard.panelState.operable') }}
+      <span class="gc-certificate-deployment-form__ready" :class="{ 'is-loading': loading, 'is-failed': issuanceFailed }">
+        {{ loading ? t('common.loading') : issuanceFailed ? t('assets.deployment.dedicated.certificate.failed') : t('designSystem.deploymentWizard.panelState.operable') }}
       </span>
     </div>
 
@@ -296,8 +311,8 @@ function readString(record: ApiRecord | null | undefined, candidates: readonly s
         <input v-model="reapplyDedicatedCertificate" type="checkbox" :disabled="loading">
         <span>{{ t('assets.deployment.dedicated.reapply') }}</span>
       </label>
-      <p class="gc-certificate-deployment-form__hint">
-        {{ reapplyDedicatedCertificate ? t('assets.deployment.dedicated.reapplyHint') : t('assets.deployment.dedicated.deployCurrentHint') }}
+      <p class="gc-certificate-deployment-form__hint" :class="{ 'is-failed': issuanceFailed }">
+        {{ issuanceFailed ? issuanceFailureText() : t('assets.deployment.dedicated.reapplyHint') }}
       </p>
     </section>
 
@@ -310,7 +325,7 @@ function readString(record: ApiRecord | null | undefined, candidates: readonly s
         {{ t('designSystem.deploymentWizard.actions.cancel') }}
       </button>
       <button class="gc-button gc-button--primary" type="submit" :disabled="!canSubmit">
-        {{ loading ? t('assets.actions.creating') : (submitLabel || t('assets.deployment.deployThisVersion')) }}
+        {{ loading ? t('assets.actions.creating') : (isDedicated && reapplyDedicatedCertificate ? t('assets.deployment.dedicated.reapply') : (submitLabel || t('assets.deployment.deployThisVersion'))) }}
       </button>
     </footer>
   </form>
@@ -364,6 +379,15 @@ function readString(record: ApiRecord | null | undefined, candidates: readonly s
 .gc-certificate-deployment-form__ready.is-loading {
   color: var(--gc-color-info);
   background: var(--gc-color-info-bg);
+}
+
+.gc-certificate-deployment-form__ready.is-failed {
+  color: var(--gc-color-danger);
+  background: var(--gc-color-danger-bg);
+}
+
+.gc-certificate-deployment-form__hint.is-failed {
+  color: var(--gc-color-danger);
 }
 
 .gc-certificate-deployment-form__section {

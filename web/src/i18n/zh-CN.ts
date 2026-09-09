@@ -514,7 +514,7 @@ export default {
     },
     relatedNames: { pluginCatalog: '插件目录', deploymentPlan: '部署计划', acmeRenewal: '{certificate}（{provider}）证书续签' },
     dedicated: {
-      description: { issue: '系统正在为该应用签发专属证书。', deploy: '系统正在将专属证书部署到该应用。' },
+      description: { supply: '系统正在协调专属证书签发、部署和结果确认。', issue: '系统正在为该应用签发专属证书。', deploy: '系统正在将专属证书部署到该应用。' },
       fields: { target: '目标应用', certificateAsset: '证书资产', certificateRequest: '证书申请名称', policyVersion: '策略版本' },
       timelineTitle: '处理进度', childrenTitle: '后续步骤', emptyTimeline: '暂无进度记录', technicalDetails: '查看技术明细', failureTitle: '处理未完成',
       events: { created: '任务已创建', claimed: '任务已接收', started: '开始处理', progress: '进度更新', retry_scheduled: '已安排重试', waiting_result: '等待签发结果', awaiting_confirmation: '等待结果确认', cancel_requested: '已请求取消', succeeded: '处理成功', failed: '处理失败', cancelled: '任务已取消' }
@@ -530,6 +530,7 @@ export default {
     typeLabels: {
       CERTIFICATE_DRY_RUN: '证书Dry-run',
       CERTIFICATE_DEPLOY: '证书部署',
+      APPLICATION_CERTIFICATE_SUPPLY: '专属证书处理',
       APPLICATION_CERTIFICATE_DEPLOY: '专属证书部署',
       applicationCertificate: '专属证书',
       applicationCertificateIssue: '专属证书签发',
@@ -3352,7 +3353,7 @@ export default {
       },
       errors: {
         missingApplicationAssetId: '缺少应用资产 ID，无法创建证书部署。',
-        missingCertificateVersion: '当前证书供应策略没有可部署的证书版本。',
+        missingCertificateVersion: '当前证书配置没有可部署的证书版本。',
         loadOptionsFailed: '加载可部署证书版本失败。',
         createPlanMissingId: '创建部署快照后未返回计划 ID。', createTaskMissingId: '创建专属证书部署任务后未返回任务 ID。',
         deployFailed: '证书部署操作失败。',
@@ -3376,12 +3377,14 @@ export default {
         },
         status: { available: '可用', unavailable: '不可用', unknown: '未知' },
         custody: { agentLocal: 'Agent 本地管理', managedSecret: '平台托管' },
-        certificate: { exists: '已存在', missing: '尚未签发' },
+        certificate: { exists: '已存在', missing: '尚未签发', failed: '签发失败' },
         remainingDays: '剩余 {days} 天',
         reapply: '重新申请证书',
-        reapplyHint: '部署时将重新生成专属域名证书。',
+        reapplyHint: '申请新的专属证书。用于证书私钥轮换',
         deployCurrentHint: '部署当前已生成的专属域名证书。',
-        issuancePending: '专属证书申请已提交，等待签发完成后再部署。'
+        issuancePending: '专属证书申请已提交，等待签发完成后再部署。',
+        issuanceFailed: '专属证书签发失败，请查看全局任务中的失败详情后重试。',
+        issuanceFailedWithCode: '专属证书签发失败：{message}（{code}）'
       }
     },
     compatibilityModes: {
@@ -3602,9 +3605,9 @@ export default {
       unknownStatus: '未知状态'
     },
     certificateSupply: {
-      title: '证书供应策略',
-      description: '应用证书只能在此配置手动证书或应用专属证书，策略版本会保留历史记录。',
-      modeLabel: '证书供应方式',
+      title: '证书配置',
+      description: '在这里配置手动证书或应用专属证书，历史配置会保留。',
+      modeLabel: '证书配置方式',
       manual: '手动选择证书',
       dedicated: '使用专属证书',
       certificateVersion: '证书版本',
@@ -3631,7 +3634,7 @@ export default {
       canIssue: '可签发',
       canDeploy: '可部署',
       lifecycle: '生命周期状态',
-      errors: { loadFailed: '加载证书供应策略失败。', previewFailed: '预览证书供应策略失败。' }
+      errors: { loadFailed: '加载证书配置失败。', previewFailed: '预览证书配置失败。' }
     },
     common: {
       required: '必填',
@@ -5234,7 +5237,7 @@ export default {
     platforms: { customManual: '自定义手动创建', manualHint: '使用传统手动创建流程', pluginHint: '由平台插件提供固定流程', capabilityVersion: '接入能力版本', compatibility: '支持的平台版本', requiredInformation: '接入前需提供', inReview: '正在进行能力验证，暂不可接入', searchLabel: '搜索平台', searchPlaceholder: '搜索应用名称、平台版本或接入信息', pluginCenterPrompt: '没有找到想要的应用？', pluginCenterAction: '来插件中心看看' },
     device: { title: '连接业务平台', existing: '使用已有设备', new: '新增设备', deviceId: '设备 ID', selectPlaceholder: '请选择设备', noExisting: '没有可用于该平台的健康设备。', existingLoading: '正在加载兼容设备。', refreshExisting: '刷新设备', newDescription: '将打开统一设备接入向导，完成 Agent 注册或设备接入后返回本向导。', newAction: '打开设备接入向导', username: '用户名', password: '密码', host: '地址', port: '端口' },
     resource: { title: '选择平台资源', refresh: '刷新资源', loading: '正在加载可用资源。', empty: '暂无可用的平台资源。' },
-    target: { title: '选择业务站点', siteName: '站点名称', selectedSite: '已选站点', accessDomain: '访问域名', verifyUrl: '验证 URL', accessDomainPlaceholder: '例如 ikuai.jacksonz.cn', verifyUrlPlaceholder: '例如 https://ikuai.jacksonz.cn:443', domainHint: '管理端点可以是 IP，但访问域名和验证 URL 必须使用同一 DNS 域名。', invalidConfiguration: '请填写有效的 DNS 访问域名和同域验证 URL。', listenAddress: '监听地址', listenPort: '监听端口', protocol: '协议', selectable: '可选择的受管目标', notSelectable: '不可选择', unavailableReason: '不可选择原因', missingValue: '未提供', reasons: { managedTargetInactive: '这个受管目标已经停用。', workflowCapabilityMissing: '这个目标不具备当前平台所需的工作流执行能力。', targetEndpointMissing: '这个目标缺少完整的监听地址、端口或协议。', unknown: '这个目标当前不符合选择条件。' } }, certificate: { title: '配置证书', modeLabel: '证书配置方式', manual: '手动选择证书', manualDescription: '从证书库选择已签发版本。', dedicated: '选择专属证书', dedicatedDescription: '为此应用单独申请和续期证书。', testPhase: '测试阶段', provider: '证书签发方式', internalCa: '内部 CA', acme: 'ACME', dedicatedHint: '专属证书将在应用创建后保存为供应策略草稿，可在应用设置中补充完整签发参数。', asset: '证书资产', version: '证书版本', latest: '始终使用最新版本', requiredFormat: '该平台需要 {formats} 格式证书', noMatchingAssets: '没有找到与域名“{domain}”匹配的证书资产。' },
+    target: { title: '选择业务站点', siteName: '站点名称', selectedSite: '已选站点', accessDomain: '访问域名', verifyUrl: '验证 URL', accessDomainPlaceholder: '例如 ikuai.jacksonz.cn', verifyUrlPlaceholder: '例如 https://ikuai.jacksonz.cn:443', domainHint: '管理端点可以是 IP，但访问域名和验证 URL 必须使用同一 DNS 域名。', invalidConfiguration: '请填写有效的 DNS 访问域名和同域验证 URL。', listenAddress: '监听地址', listenPort: '监听端口', protocol: '协议', selectable: '可选择的受管目标', notSelectable: '不可选择', unavailableReason: '不可选择原因', missingValue: '未提供', reasons: { managedTargetInactive: '这个受管目标已经停用。', workflowCapabilityMissing: '这个目标不具备当前平台所需的工作流执行能力。', targetEndpointMissing: '这个目标缺少完整的监听地址、端口或协议。', unknown: '这个目标当前不符合选择条件。' } }, certificate: { title: '配置证书', modeLabel: '证书配置方式', manual: '手动选择证书', manualDescription: '从证书库选择已签发版本。', dedicated: '选择专属证书', dedicatedDescription: '为此应用单独申请和续期证书。', testPhase: '测试阶段', provider: '证书签发方式', internalCa: '内部 CA', acme: 'ACME', dedicatedHint: '专属证书将在应用创建后保存为证书配置草稿，可在应用设置中补充完整签发参数。', asset: '证书资产', version: '证书版本', latest: '始终使用最新版本', requiredFormat: '该平台需要 {formats} 格式证书', noMatchingAssets: '没有找到与域名“{domain}”匹配的证书资产。' },
     automation: { title: '证书更新自动化', triggerLabel: '触发条件', none: '暂不设置', noneDescription: '先创建应用，稍后在应用设置中配置。', certificateVersionCreated: '证书产生新版本时自动更新', certificateVersionCreatedDescription: '证书库出现新版本后，自动为此应用创建更新任务。', once: '指定时间执行一次', onceDescription: '只执行一次，适合上线前或维护窗口。', schedule: '按固定周期自动更新', scheduleDescription: '每天、每周或每月在指定时间检查并更新。', runAt: '执行时间', onceHint: '时间按当前浏览器的本地时间执行。', frequency: '执行频率', daily: '每天', weekly: '每周', monthly: '每月', scheduleDay: '执行日', scheduleTime: '执行时间', scheduleHint: '时间按当前浏览器的本地时间执行。', monday: '周一', tuesday: '周二', wednesday: '周三', thursday: '周四', friday: '周五', saturday: '周六', sunday: '周日', cron: 'Cron 表达式', defaultName: '应用证书自动更新', defaultDescription: '由应用接入向导创建的证书更新自动化。' },
     complete: { title: '接入已完成', description: '请核对前四步设置，确认后创建应用及关联任务。', progressAria: '创建进度', viewSummary: '查看配置摘要', stages: { application: '创建应用', certificate: '关联证书', automation: '创建自动计划' }, status: { pending: '等待中', running: '进行中', success: '已完成', failed: '失败' } },
     actions: { customManual: '传统手动创建', openWizard: '使用接入向导', previous: '上一步', continue: '继续', refresh: '刷新站点', review: '查看摘要', complete: '确认并创建', close: '关闭', cancel: '取消向导' },
