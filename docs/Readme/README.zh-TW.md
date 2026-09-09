@@ -31,6 +31,8 @@
 
 ---
 
+<p align="center">社群交流：<a href="https://github.com/tlsflow/TLSFlow/issues">GitHub</a> · <a href="https://docs.tlsflow.com">官方文件</a> · <a href="https://t.me/tlsflow">Telegram</a> · <a href="https://discord.gg/KXyhGGRkJ">Discord</a> · QQ 群：<code>239991420</code></p>
+
 ## 產品介紹
 
 ### 別讓憑證過期，拖垮你的業務

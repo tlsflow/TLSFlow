@@ -1,6 +1,6 @@
 ---
 title: Certificate Deployment
-description: Certificate Deployment top-level menu and operation map for automation, workflow templates, and execution records
+description: Approve, execute, and verify certificate changes on target systems
 docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
@@ -11,50 +11,44 @@ codeRefs:
   - web/src/router/modules/business.ts
   - backend/src/modules/deployment-plans
 testRefs: []
-lastVerified: 2026-09-02
+lastVerified: 2026-09-04
 ---
 
 # Certificate Deployment
 
-"Certificate Deployment" is the operation area for installing prepared certificates to target systems, including three pages: "Automation", "Workflow Templates", and "Execution Records".
+“Certificate Deployment” installs the certificate selected in an application asset on a target system and records the operation for audit. It contains “Automation”, “Workflow Templates”, and “Execution Records”.
 
-> [Screenshot placeholder: Certificate Deployment menu and entries for Automation, Workflow Templates, and Execution Records]
 
-## Complete Process for Manual Deployment
+## Start a One-Time Deployment from an Application
 
-1. Initiate deployment from "Automation" or application asset entry, select application, target device, and certificate version to use.
-2. Select deployment method or workflow, and fill in connection information, credentials, and output format required by the page.
-3. Click "Pre-check/Dry Run" to first check permissions, target availability, certificate matching, and input completeness.
-4. If the system has approval enabled, wait for approver to approve after submission; when approval is not enabled, you can execute directly.
-5. Enter execution process and wait for backup, installation, service refresh, and verification to all complete.
-6. Open execution record to confirm target read-back result, certificate fingerprint, and final status.
+1. Open **Asset Center → Applications** and find the application in the cards or list.
+2. Select the application's **Deploy update** button to open its certificate-update dialog.
+3. Select the certificate version to deploy. Confirm that the target, connection credentials, certificate format and other inputs shown on the page are correct; complete missing information in the application asset first.
+4. Select **Deploy this certificate version** to submit the update. TLSFlow creates a deployment plan for this update and starts execution; when approval is enabled, the task remains pending until an approver approves it, and only then connects to the target.
+5. During execution, follow the backup, installation, service refresh, and target verification stages.
+6. Open the execution record and confirm the target read-back fingerprint and final status.
 
-> [Screenshot placeholder: Deployment plan wizard highlighting application, certificate version, targets, and pre-check button]
 
-Do not directly modify execution records that have already been generated. When changes are needed, return to application asset, credentials, workflow, or automation rules to modify, then create a new deployment plan.
+“Save” stores the plan; “Execute” changes the target. Do not edit a generated execution record. Update the application asset, credentials, format, or workflow, then create a new plan.
 
-## Using Automated Deployment
+## Create an Automatic Update Plan
 
-1. Go to "Certificate Deployment → Automation" and click "New Automation".
-2. Select trigger method: manual run, scheduled run, or automatic run when certificate generates new version.
-3. Select application assets to deploy, and narrow the scope by domain, environment, tag, or owner.
-4. Set concurrency count, failure threshold, whether to execute pre-check first, and whether approval is required.
-5. After saving, click "Run", or wait for the set time/event to trigger.
-6. Go to "Execution Records" to view execution results for each application and reasons for exclusion.
+**Certificate Deployment → Automation** is for creating plans that run certificate updates automatically; it is not the entry point for a one-time manual deployment. Plans can run when a new certificate version is created, at a specified time, or under another trigger provided by the page.
 
-Automation triggered by new certificate versions will use the version at trigger time. Even if another new version is generated during approval, the version will not be automatically changed.
+1. Choose the trigger and the application assets it covers.
+2. Set concurrency, failure threshold, and whether approval is required.
+3. Save the automation plan and wait for its configured time or event.
+4. Review each application’s success, failure, or exclusion reason in Run History and Execution Records.
 
-## Selecting and Managing Workflow Templates
+Automation triggered by a new certificate version fixes the version selected at trigger time. A newer version created during approval does not replace the version in the current task.
 
-1. Go to "Certificate Deployment → Workflow Templates" and filter by name, applicable platform, or status.
-2. Open template details and confirm the target systems it supports, required inputs, and whether it supports rollback.
-3. Select the appropriate template version in application asset or deployment plan.
-4. After template updates, existing plans still use the version selected at creation time; only new plans will see the new version.
+## Choose a Workflow Template
 
-## How to Determine Success at Deployment Stage
+Workflow templates describe the steps executed on a target. Open template details before selecting one and confirm supported platforms, required inputs, rollback support, and version. Updating a template does not change existing plans; new plans use the new version.
 
-Deployment typically completes preparation, backup, installation, service refresh, and target verification in sequence. Only when "Target Read-back Verification" passes is deployment truly successful; just seeing "Upload Complete" does not mean the service is using the new certificate.
+## Determine Whether It Really Succeeded
 
-> [Screenshot placeholder: Step progress and target verification results in execution record]
+Only a passed “Target Read-back Verification” confirms that the service is using the new certificate. Upload or installation completion only proves that files were written.
 
-If execution times out or status shows "Result Unknown", first log into the target system or access the business address to confirm the current certificate, then decide whether to retry or rollback, avoiding repeated writes. When rollback is supported, operate via the rollback entry provided in the execution record, and confirm target verification results again.
+
+If a task times out or shows “Result Unknown”, verify the current certificate through the business endpoint or target system before retrying or rolling back. When rollback is supported, use the rollback action in the execution record and run target verification again.

@@ -1,6 +1,6 @@
 ---
 title: Certificate Management
-description: Certificate Management top-level menu and operation map for its secondary menus
+description: Understand the Certificate Management menu and choose the right preparation path
 docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
@@ -10,42 +10,44 @@ codeRefs:
   - web/src/router/menu.ts
   - web/src/router/modules/business.ts
 testRefs: []
-lastVerified: 2026-09-02
+lastVerified: 2026-09-04
 ---
 
 # Certificate Management
 
-"Certificate Management" is the entry point for preparing certificates, maintaining certificate sources, and setting deployment file formats. You can prepare certificates first, then go to "Asset Center" to select applications and devices.
+“Certificate Management” is where you prepare certificates, maintain issuance sources, and define the output formats required for deployment. These pages prepare materials; they do not write a certificate to a server by themselves.
 
-| Page | Purpose |
+| Page | Use it to |
 | --- | --- |
-| Certificate Assets | Import, view, delete certificate versions, and view usage relationships |
-| ACME Automation | Configure ACME providers, accounts, and application/renewal tasks |
-| CA Operations | View CA hierarchy, synchronization objects, and internal CA |
-| Certificate Format Configuration | Define deployment output formats such as PEM, PFX/P12, JKS |
+| Certificate Assets | Import certificates, review versions, fingerprints, and usage relationships |
+| ACME Automation | Configure ACME providers, request certificates, and manage renewals |
+| CA Operations | Review CA observations, synchronization records, and CA status |
+| Certificate Format Configuration | Prepare deployment output in PEM, PFX, JKS, P7B, or DER |
 
-## Complete Usage Process
 
-1. Import existing certificates in "Certificate Assets", or automatically apply for certificates from ACME.
-2. If certificates are managed by enterprise CA, confirm CA and synchronization status are normal in "CA Operations".
-3. Pre-prepare formats such as PEM, PFX/P12, JKS required by target systems in "Certificate Format Configuration".
-4. Open "Asset Center → Application Assets", select business, certificate version, and executable targets.
-5. Enter deployment process and first check pre-check results; complete approval after submission when approval is required.
+## Recommended Workflow
 
-> [Screenshot placeholder: Certificate Management menu highlighting Certificate Assets, ACME Automation, CA Operations, and Certificate Format Configuration]
+1. Import an existing certificate in “Certificate Assets”, or create a request in “ACME Automation”.
+2. If an enterprise CA is involved, confirm its status and synchronization result in “CA Operations”.
+3. In the certificate version details, create the output format required by the target and confirm that password credentials are available.
+4. Go to “Asset Center → Application Assets” and bind the certificate version to the business and executable target.
+5. Review the page messages in “Certificate Deployment” and submit the deployment; when approval is enabled, execute only after approval.
+6. Confirm target read-back in “Execution Records”, then use Monitoring and Audit Logs for operational verification.
 
-## Page Entries and Completion Indicators
+Each step has its own completion signal: a successful import does not mean deployable, a submitted plan does not mean the service has switched, and an uploaded file does not prove that the target is serving the new certificate.
 
-| Page | What to Do | Completion Indicator |
-| --- | --- | --- |
-| Certificate Assets | Import certificates, view versions and usage relationships | List shows domain, status, and expiration time |
-| ACME Automation | Automatically apply, renew, and track tasks | Provider is available, task has most recent result |
-| CA Operations | View CA hierarchy, objects, and synchronization records | CA status is normal, synchronization record shows success |
-| Certificate Format Configuration | Set output method for deployment files | Configuration can be selected in application assets |
+## Which Page Should I Use?
 
-## Key Points for Use
+- Already have a certificate file: start with “Certificate Assets”.
+- Need automatic issuance or renewal: start with “ACME Automation”.
+- Need AD CS or internal CA observations and objects: open “CA Operations”.
+- Need a target-specific file format: open “Format Configuration” from certificate version details.
 
-- The same domain may have multiple versions; before deployment, verify domain, expiration time, and version fingerprint together.
-- Format configuration only determines what type of files to generate and will not write files to servers alone.
-- Before deletion or disabling, first check whether applications, automation tasks, and pending deployments are still in use.
-- Page times are displayed in browser local time; "Expiring Soon" and "Expired" are prompts requiring priority handling.
+Format configuration describes how deployment material is generated. Target selection, page validation, approvals, and installation remain part of the Certificate Deployment flow.
+
+## Keep in Mind
+
+- A domain can have multiple versions. Always verify domain, validity, and SHA-256 fingerprint before deployment.
+- Private-key exports read saved security credentials. Never share private keys or passwords in tickets, chats, or screenshots.
+- Check usage relationships and pending tasks before disabling a provider or CA, or deleting a certificate.
+- Times in the UI use the browser’s local time; “Expiring Soon” and “Expired” require prompt attention.

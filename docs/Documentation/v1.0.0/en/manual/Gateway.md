@@ -15,17 +15,16 @@ lastVerified: 2026-09-02
 
 # Gateway
 
-Gateway is a forwarding node deployed in isolated networks. It helps the platform access devices that cannot be directly connected, but it does not install certificates and cannot replace the Agent on the target host.
+A Gateway is a forwarding node deployed in an isolated network. It relays connections when the control plane cannot reach a target directly. It does not install certificates and cannot replace the Agent on the target host.
 
-## Install Gateway
+## Install a Gateway
 
-1. Go to "Asset Center → Gateway" and click "Add Gateway Agent".
+1. Go to **Asset Center → Gateway** and select **Add Gateway Agent**.
 2. Select the runtime platform (Linux or Windows).
-3. Fill in the service region; if you need to restrict the forwarding scope, also fill in the allowed target addresses and ports.
+3. Enter the service region. To restrict forwarding, also enter the allowed target addresses and ports.
 4. Click "Generate Installation Materials" and complete the installation on the target host according to the instructions in the popup.
-5. After installation, return to the list and wait for the status to become online, confirming that the last heartbeat time is normal.
+5. After installation, return to the list and wait for the status to become **Online**. Confirm that the last heartbeat is updating normally.
 
-> [Placeholder screenshot: Gateway installation material popup, highlighting platform, region, allowed targets/ports, and generate button]
 
 ## View Status and Use for Connection
 
@@ -34,6 +33,4 @@ Gateway is a forwarding node deployed in isolated networks. It helps the platfor
 3. Run a connection test first, then perform discovery; confirm the target is reachable before creating application assets or submitting deployment.
 4. You can quickly access associated application assets and execution records from the details.
 
-When the Gateway is offline, connections, discoveries, and deployments that depend on it may fail or wait. Restore the Gateway first, then confirm the target device status and retry. The current version does not provide automatic failover or cluster capabilities.
-
-> [Placeholder screenshot: Gateway detail popup, highlighting online status, region, load, capacity, success rate, and last heartbeat]
+When a Gateway is offline, dependent connections, discoveries and deployments may fail or remain pending. Restore the Gateway first, confirm the target device status, and retry. The current version does not provide automatic failover or clustering.

@@ -16,8 +16,9 @@ if [ ! -d "$DOCS_DIR/node_modules" ]; then
   npm --prefix "$DOCS_DIR" install
 fi
 
+# CodingNS/PM2 可能注入 NODE_ENV=production；Vite 和 VitePress 调试必须显式使用 development。
 echo "[docs] 启动 VitePress 实时文档服务：http://127.0.0.1:${DOCS_PORT}"
-npm --prefix "$DOCS_DIR" run docs:dev -- --host 127.0.0.1 --port "$DOCS_PORT" --strictPort &
+NODE_ENV=development npm --prefix "$DOCS_DIR" run docs:dev -- --host 127.0.0.1 --port "$DOCS_PORT" --strictPort &
 DOCS_PID=$!
 
 cleanup() {
@@ -26,4 +27,4 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "[web] 启动 Vite 热重载服务：http://0.0.0.0:5172（/docs 代理到实时文档）"
-VITE_DOCS_DEV_PORT="$DOCS_PORT" npm run dev
+NODE_ENV=development VITE_DOCS_DEV_PORT="$DOCS_PORT" npm run dev

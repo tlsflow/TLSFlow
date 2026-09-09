@@ -133,7 +133,7 @@ Pass any of the following variables with an additional `-e name=value` option. S
 | `GCAC_RUNTIME_SECRETS_FILE` | `/app/data/runtime/runtime-secrets.enc` | You need a custom path for encrypted runtime materials; it must be persistent and writable |
 | `AUTH_COOKIE_SECURE` | Enabled automatically in production | Only for temporary HTTP-only internal testing; do not disable it for HTTPS |
 | `AUTH_BROWSER_SESSION_TTL_SECONDS` | `28800` (8 hours) | You need a different browser-session lifetime, in seconds |
-| `GCAC_TENANT_MODE` | `single` | You choose the tenant mode during initialization; pre-check existing data before switching |
+| `GCAC_TENANT_MODE` | `single` | You choose the tenant mode during initialization; review the existing data before switching |
 | `LOG_LEVEL` | `info` | You need `debug`, `info`, `warn`, or `error` logging |
 | `GCAC_VERSION` | Uses the version bundled in the image | Controlled compatibility testing only; do not override in production |
 

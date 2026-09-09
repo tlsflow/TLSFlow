@@ -23,14 +23,14 @@ testRefs:
   - backend/src/modules/workflow-templates/workflow-step-dispatcher.test.ts
   - backend/src/modules/executions/workflow-executor-adapter.test.ts
   - backend/src/modules/executions/execution-grant-artifact.test.ts
-lastVerified: 2026-08-24
+lastVerified: 2026-09-04
 ---
 
 # 工作流开发规范
 
 工作流 DSL（领域专用语言）是 TLSFlow 私有协议，不是任意 Shell 或 JavaScript 脚本。当前正式模板 API 版本为 `gcac.workflow/v1`，模板必须使用 `CurlSshWorkflow` 结构并通过宿主校验。
 
-最小根对象如下，除此之外的根字段会被 Schema 拒绝：
+根对象结构轮廓如下，除此之外的根字段会被 Schema 拒绝；`steps` 必须替换为至少一个合法步骤，不能直接发布此空数组示例：
 
 ```json
 {
@@ -65,9 +65,61 @@ lastVerified: 2026-08-24
 
 字段必须说明类型、是否必填、来源、生命周期和绑定策略。来源可为资产事实、Binding、默认值、派生值、系统值或前置步骤输出。`fixed` 字段不允许用户覆盖；`runtime_injected` 只在运行时注入，不进入应用资产普通表单。
 
-标准投影入口是 `POST /api/v1/deployment-inputs/projection` 和 `POST /api/v1/managed-targets/:managedTargetId/deployment-input-projection`。保存投影与正式预检必须复用同一解析规则。
+标准投影入口是 `POST /api/v1/deployment-inputs/projection` 和 `POST /api/v1/managed-targets/:managedTargetId/deployment-input-projection`。保存投影与正式提交必须复用同一解析规则。
 
 解析结果必须是 `ResolvedDeploymentInputV1`，包含 `assetContext`、四类输入、`provenance`（来源链）、`sensitivePaths`（敏感路径）、`issues`、`executable` 和 `resolvedSha256`。存在阻断 Issue 或 `executable=false` 时，不得进入 SSH、HTTP、Agent 或 Gateway。输入快照还要固定 Assignment、PluginVersion、PluginBinding、WorkflowVersion、凭据版本和制品摘要；执行与重试不能重新读取“当前最新”配置。
+
+### 2.1 最小可执行 Workflow
+
+以下文件可作为连接测试的完整起点（省略的资源只允许在 Manifest 之外提供，不能添加未知根字段）。步骤中的 <span v-pre><code>{{...}}</code></span> 是宿主模板引用，不是 JavaScript；`connectionRef`、`credentialSlot` 和 `artifact` 名称必须在 `inputContract` 中先声明。
+
+```json
+{
+  "apiVersion": "gcac.workflow/v1",
+  "kind": "CurlSshWorkflow",
+  "metadata": { "name": "example-connection-test", "version": "1.0.0" },
+  "inputContract": {
+    "apiVersion": "gcac.deployment-input/v1",
+    "variables": {},
+    "connections": {
+      "management": {
+        "transport": "http",
+        "allowedProtocols": ["https"],
+        "host": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" },
+        "port": { "type": "number", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "default": 443, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable" },
+        "tls": {
+          "enabled": { "type": "boolean", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "default": true, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable" },
+          "verifyPeer": { "type": "boolean", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "default": true, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable" }
+        },
+        "credentialSlot": "credential"
+      }
+    },
+    "credentials": { "credential": { "allowedKinds": ["USERNAME_PASSWORD"], "required": false, "configurationMode": "advanced", "lifecycle": "pre_execution" } },
+    "artifacts": {}
+  },
+  "steps": [{
+    "name": "probe",
+    "type": "http",
+    "stage": "prepare",
+    "request": {
+      "method": "GET",
+      "connectionRef": "management",
+      "url": "/",
+      "headers": { "Accept": "application/json" },
+      "tls": { "verify": true, "allowInsecure": false },
+      "timeoutSeconds": 30,
+      "maxResponseBytes": 1048576,
+      "successStatusCodes": [200, 301, 302, 401, 403]
+    }
+  }]
+}
+```
+
+发布前至少执行一次 Schema 校验，并确认每个步骤都满足以下不变量：`name` 在同一数组内唯一；`stage` 只能使用 `prepare`、`backup`、`install`、`refresh`、`verify`；HTTP/SSH 步骤必须有 `request.connectionRef`；写操作必须遵守能力合同的幂等策略，非幂等或状态未知时进入人工恢复；`extract` 的输出名不能覆盖输入合同字段；`rollback` 必须是根对象独立数组。未知字段会导致导入或发布失败。
+
+### 2.2 表达式、变量和 SecretRef
+
+普通插值只允许读取 `variables.*`、`connections.*`、`credentials.*` 的非敏感元数据和前序步骤的结构化输出（例如 `steps.login.extracted.token`）。Secret 值只能通过 `formCredentialRefs`、`headerRefs`、`secret://...` 或 Host API Grant 注入；禁止在 JSONata（JSON 查询表达式）、URL、日志、审计或 `externalReceipt` 中展开明文。`optional` 只表示“缺失时输出空值”，不表示可以绕过必填合同。表达式超时、输入/输出超过步骤上限时，步骤失败关闭。
 
 ## 3. 可用步骤和执行器
 
@@ -136,7 +188,7 @@ SSH、SFTP（安全文件传输）和 SCP（安全复制）使用 `connectionRef
 
 ## 4. 失败、取消和回滚
 
-部署、变更和回滚默认失败关闭；只有只读发现可以按合同允许部分继续。提交和执行使用当前租户部署任务设置，不能由插件自行跳过 Dry Run 或审批。
+部署、变更和回滚默认失败关闭；只有只读发现可以按合同允许部分继续。提交和执行使用当前租户部署任务设置，插件不能绕过平台校验或审批。
 
 工作流应在写操作前保存恢复所需的稳定标识和旧值，在写入后执行目标回读。超时或连接中断可能导致外部状态未知，不能自动重放非幂等写操作；必须把状态收敛为失败或 UNKNOWN，并让用户先确认目标实际状态。
 

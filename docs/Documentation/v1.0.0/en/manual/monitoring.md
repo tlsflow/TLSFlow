@@ -17,7 +17,7 @@ lastVerified: 2026-08-22
 
 # Monitoring
 
-Monitoring is used to continuously observe whether application assets are accessible, which certificates the current site actually uses, access latency, certificate changes, and risk events. Monitoring only collects and displays facts; it does not automatically modify certificate or target configurations.
+Monitoring continuously observes application accessibility, the certificate currently served by a site, access latency, certificate changes and risk events. It collects and displays facts only; it does not automatically change certificates or target configuration.
 
 ## Adding Monitor Targets
 
@@ -27,7 +27,6 @@ Monitoring is used to continuously observe whether application assets are access
 4. Read the default monitoring scope (accessibility, access latency, certificate information, and certificate history), and click "Add".
 5. After successful addition, the target will appear in the "Monitor Targets" list on the left.
 
-Screenshot placeholder: Add monitor dialog showing application asset selection, detection frequency, and default monitoring scope description.
 
 ## Finding and Detecting Targets
 
@@ -36,7 +35,6 @@ Screenshot placeholder: Add monitor dialog showing application asset selection, 
 3. Click "Detect Site" to immediately detect the current monitor target. Do not close the page or repeatedly click during detection.
 4. Click "Refresh Data" to reload results and update risk information. When there are many targets, continue scrolling the left list to load more.
 
-Screenshot placeholder: Main monitoring page showing left target list, search/status filters, detect site and refresh data buttons.
 
 ## Reading Target Details
 
@@ -50,7 +48,6 @@ After clicking a target on the left, the right side displays the current target 
 
 If the current target needs frequency adjustment, modify the seconds at the top of details; click "Remove" when no longer needed. Removal only stops monitoring for this target and does not delete application assets or certificates.
 
-Screenshot placeholder: Target details showing accessibility, latency, actual certificate, risk events, and detection history sections.
 
 ## Viewing TLS Deep Scan Results
 
@@ -63,7 +60,6 @@ In target details, click "View Details" next to the TLS score to open TLS deep s
 5. Protocol Details: View detected handshake and protocol parameters.
 6. Click "Re-detect" to get latest results; after detection completes, assess risk based on new score.
 
-Screenshot placeholder: TLS deep scan details dialog showing score, certificate chain, protocol support, cipher suites, and client compatibility tabs.
 
 When the page displays "Partial Results" or "Not Supported", first check the specific description and detection snapshot for that item. It may indicate current detection scope is limited, missing corresponding trust root, or client profile cannot be simulated; it cannot be directly treated as certificate untrusted.
 
@@ -71,7 +67,6 @@ When the page displays "Partial Results" or "Not Supported", first check the spe
 
 Risk status discovered by monitoring, notification delivery, and certificate deployment results are three independent pieces of information. Notification delivery failure does not change completed deployments, and deployment failure does not automatically mark risks as resolved. When handling risks, first confirm site actual certificate and deployment execution results, then close or continue tracking risks according to organizational procedures; to view notification reasons, go to "System Settings → Notifications" delivery records.
 
-Screenshot placeholder: Risk events list showing risk content, occurrence time, current status, and closure time.
 
 ## Considerations When Evaluating Results
 

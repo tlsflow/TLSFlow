@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import { initializeSystem } from '@/api/modules/system-initialization.api'
-import { createActivationRequest, importActivationResponse, type ActivationRequest, type ActivationResponse } from '@/api/modules/licensing.api'
+import { createActivationRequest, importActivationResponse, importLicense, type ActivationRequest, type ActivationResponse } from '@/api/modules/licensing.api'
 import { productBrand } from '@/brand/product-brand'
 import { GcModal, GcUserFlowWizard, type UserFlowStep } from '@/design-system/components'
 import { localeLabels, resolveBrowserLocale, setI18nLocale, supportedLocales, type SupportedLocale } from '@/i18n'
@@ -314,13 +314,37 @@ async function importOfflineResponse(): Promise<void> {
       licenseConfigured.value = true
       return
     }
-    await importActivationResponse(response as unknown as ActivationResponse)
+    // 签发器可能输出直接许可证包，也可能输出绑定本地请求的激活响应。
+    // 直接许可证走许可证导入接口，激活响应继续由后端校验 requestId/nonce。
+    if (isActivationResponsePayload(response)) {
+      await importActivationResponse(response)
+    } else if (response.licenseGrant && typeof response.licenseGrant === 'object' && !Array.isArray(response.licenseGrant)) {
+      const revocationList = response.revocationList
+      await importLicense({
+        licenseGrant: response.licenseGrant as Record<string, unknown>,
+        ...(revocationList && typeof revocationList === 'object' && !Array.isArray(revocationList)
+          ? { revocationList: revocationList as Record<string, unknown> }
+          : {}),
+      })
+    } else {
+      throw new Error(t('systemInitialization.errors.jsonObjectRequired'))
+    }
     licenseConfigured.value = true
   } catch (cause) {
     licenseError.value = formatError(cause, t('systemInitialization.errors.licenseFailed'))
   } finally {
     licenseBusy.value = false
   }
+}
+
+function isActivationResponsePayload(value: unknown): value is ActivationResponse {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const response = value as Partial<ActivationResponse>
+  return (response.schemaVersion === 1 || response.schemaVersion === 2)
+    && typeof response.responseId === 'string'
+    && typeof response.requestId === 'string'
+    && typeof response.nonce === 'string'
+    && !!response.licenseGrant
 }
 
 async function copyActivationRequest(): Promise<void> {
@@ -459,11 +483,11 @@ function formatError(cause: unknown, fallback: string): string {
             <button class="gc-button gc-button--ghost" type="button" :disabled="licenseBusy" @click="copyActivationRequest">{{ activationRequestCopied ? t('systemInitialization.license.requestCopied') : t('systemInitialization.license.copyRequest') }}</button>
           </div>
           <div class="system-initialization__license-import-actions">
-            <button class="gc-button gc-button--secondary" type="button" :disabled="licenseBusy || !activationRequest" @click="chooseActivationResponseFile">{{ t('systemInitialization.license.importFile') }}</button>
+            <button class="gc-button gc-button--secondary" type="button" :disabled="licenseBusy" @click="chooseActivationResponseFile">{{ t('systemInitialization.license.importFile') }}</button>
             <input ref="activationResponseFileInput" hidden type="file" accept="application/json,.json" :aria-label="t('systemInitialization.license.importFile')" @change="handleActivationResponseFileChange">
           </div>
           <label><span>{{ t('systemInitialization.license.activationResponse') }}</span><textarea v-model="activationResponseJson" rows="8" :placeholder="t('systemInitialization.license.activationResponsePlaceholder')"></textarea></label>
-          <button class="gc-button gc-button--primary" type="button" :disabled="licenseBusy || !activationRequest" @click="importOfflineResponse">{{ t('systemInitialization.license.importResponse') }}</button>
+          <button class="gc-button gc-button--primary" type="button" :disabled="licenseBusy" @click="importOfflineResponse">{{ t('systemInitialization.license.importResponse') }}</button>
         </div>
         <p v-if="licenseConfigured" class="system-initialization__success" role="status">{{ t('systemInitialization.license.configured') }}</p>
         <p v-if="licenseError" class="system-initialization__error" role="alert">{{ licenseError }}</p>

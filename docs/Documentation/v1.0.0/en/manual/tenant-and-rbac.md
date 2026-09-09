@@ -1,40 +1,49 @@
 ---
 title: Tenant and RBAC
-description: Initialize tenants, users, and role-based access control
+description: Manage tenant architecture, administrators and role-based access scopes
 docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
 locale: en-US
 specRefs: []
 codeRefs:
+  - web/src/views/settings/TenantArchitectureView.vue
   - backend/src/modules/security
   - backend/src/modules/rbac
-  - backend/src/persistence/entities/tenant.entity.ts
 testRefs: []
-lastVerified: 2026-08-22
+lastVerified: 2026-09-04
 ---
 
 # Tenant and RBAC
 
-Tenants are isolated spaces for personnel, devices, certificates, and application assets; roles determine what members can view, modify, approve, or execute. Plan tenants and roles first, then invite personnel into daily operations.
+A tenant isolates people, devices, certificates and application assets. RBAC (role-based access control) determines which members can view, edit, approve or execute an operation. Define organizational boundaries first, then assign roles and members.
 
-## Initializing a Tenant
+## Plan access
 
-1. Log in using the initial administrator and confirm the tenant name at the top is correct.
-2. Open "System Settings → Roles" and create roles by position, such as read-only viewer, certificate manager, deployment approver, and audit viewer.
-3. Open "System Settings → Users", create local accounts or bind identity source accounts, and assign role positions to each person.
-4. When authorization by team is needed, first create teams in "Users → Groups", then add teams to corresponding roles.
-5. Log in again using a regular role account to verify that the menus it sees and operations it can execute meet expectations.
+- Use tenants to separate companies, teams or environments that must not share resources.
+- Use roles to describe responsibilities, such as read-only viewer, certificate manager, deployment approver and audit viewer.
+- Use groups to grant the same role to a team instead of maintaining users one by one.
+- Where practical, separate high-risk capabilities such as credentials, plugins, approvals and deployment execution.
 
-> [Screenshot placeholder: System settings entry page highlighting "Users", "Groups", "Roles", and tenant management entries]
+## View and change tenant architecture
 
-## Managing Tenant Hierarchy
+Open **System Settings → Tenant Architecture** to see whether the current setup is single-tenant or hierarchical. Before enabling hierarchical mode, review the existing data and resolve every blocker, then select **Enable** during a maintenance window. To return to single-tenant mode, use **Rollback** and retain the approval record.
 
-View in "System Settings → Tenant Architecture" whether the current setup is single-tenant or hierarchical mode. Before switching, first run page checks, address blocking items one by one, then confirm during maintenance window. In hierarchical mode, you can add company nodes, designate administrators, and suspend or resume nodes; these operations simultaneously affect personnel and resources under that node and should retain approval records before operation.
 
-## Checks After Permission Changes
+## Create company nodes and administrators
 
-- The same person can have multiple roles; permission scope is executed according to the system's final calculation.
-- After roles, group memberships, or account status changes, have relevant personnel log in again.
-- Go to "Audit Logs" to confirm permission changes are recorded, and review certificate viewing, application management, deployment approval, and log viewing with actual business accounts.
-- Certificate private materials, credential management, plugin enablement, approval, and deployment execution should ideally belong to different roles to avoid a single account having all high-risk operations.
+In hierarchical mode:
+
+1. In **Create Company Node**, enter the name, code and parent node, then select **Create**.
+2. In **Add Administrator**, choose the company node, enter the user subject ID and select **Add**.
+3. Verify the node status, current tenant and administrators in the tree. Select **Revoke Administrator** to correct an assignment.
+4. Select **Suspend** when a node must be paused, and **Resume** after the recovery conditions are met. The node status affects members and resources below it.
+
+## Assign and verify roles
+
+1. Create or adjust roles in **System Settings → Roles**, then assign them to users or groups in **System Settings → Users**.
+2. Have affected personnel sign in again so new memberships take effect.
+3. Test key operations with real role accounts, including viewing certificates, editing assets, approving deployments and viewing audit logs.
+4. Confirm role, group, tenant-administrator and node-status changes in **Audit Logs**.
+
+One person may have multiple roles; the system calculates the effective permissions together. Do not infer authorization from menu visibility alone.
