@@ -8,6 +8,8 @@ const defaultDefinitions: TaskDefinition[] = [
   ['CERTIFICATE_VERIFY', 'EXECUTION', 'tasks.types.certificateVerify', 'certificate.verify', 'execution.run.read'],
   // 应用专属证书的 ACME/Internal CA 签发统一走此任务；签发成功后由生命周期服务创建标准部署计划。
   ['CERTIFICATE_ISSUE', 'SYSTEM', 'tasks.types.certificateIssue', 'certificate.issue', 'ca.request.retry'],
+  ['APPLICATION_CERTIFICATE_SUPPLY', 'EXECUTION', 'tasks.types.applicationCertificateSupply', 'application.certificate-supply', 'application.deployment.execute'],
+  // 历史任务仍需可读、可收敛；新流程不再创建此类型。
   ['APPLICATION_CERTIFICATE_DEPLOY', 'EXECUTION', 'tasks.types.applicationCertificateDeploy', 'application.certificate-deploy', 'application.deployment.execute'],
   ['CERTIFICATE_ROLLBACK', 'EXECUTION', 'tasks.types.certificateRollback', 'certificate.rollback', 'execution.rollback'],
   ['AGENT_INSTALL', 'EXECUTION', 'tasks.types.agentInstall', 'agent.install', 'agent.write'],

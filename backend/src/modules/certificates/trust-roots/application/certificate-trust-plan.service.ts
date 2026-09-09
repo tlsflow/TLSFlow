@@ -1,4 +1,4 @@
-import { X509Certificate } from 'node:crypto';
+import { createHash, X509Certificate } from 'node:crypto';
 import { AppError } from '../../../../common/errors/app-error.js';
 import type { AgentsApplicationService } from '../../../agents/application/agents.application-service.js';
 import type { AgentTaskEnvelope } from '../../../agents/schema/agents.schema.js';
@@ -85,7 +85,10 @@ export class CertificateTrustPlanService {
       });
     }
 
-    const idempotencyKey = `certificate.trust.inspect:${CERTIFICATE_TRUST_INSPECT_CONTRACT_VERSION}:${input.agentId}:${material.root.fingerprintSha256}`;
+    // 根信任检查属于一次部署会话的子任务。将请求会话摘要纳入幂等键，
+    // 避免某次 Agent 配置故障留下的 failed 任务永久阻断后续新会话。
+    const requestDigest = createHash('sha256').update(input.requestId, 'utf8').digest('hex');
+    const idempotencyKey = `certificate.trust.inspect:${CERTIFICATE_TRUST_INSPECT_CONTRACT_VERSION}:${input.agentId}:${material.root.fingerprintSha256}:${requestDigest}`;
     const existingTask = await this.dependencies.agents.findTaskByIdempotencyKey(
       input.tenantId,
       input.agentId,

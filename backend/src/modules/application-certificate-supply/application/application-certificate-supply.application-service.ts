@@ -1,5 +1,6 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import { structuredLogger } from '../../../common/logging/structured-logger.js';
+import { randomUUID } from 'node:crypto';
 import type { InternalCaApplicationService } from '../../internal-ca/application/internal-ca.application-service.js';
 import type { AcmeRenewalPolicyService } from '../../internal-ca/application/acme-renewal-policy.service.js';
 import type { AcmeRepository } from '../../internal-ca/repository/acme.repository.js';
@@ -46,31 +47,115 @@ export class ApplicationCertificateSupplyApplicationService {
     this.deploymentPlans = deploymentPlans;
   }
 
-  async enqueueDedicatedDeployment(input: { tenantId: string; applicationAssetId: string; actorId: string; reapply?: boolean }): Promise<TaskRun> {
+  async enqueueDedicatedDeployment(input: { tenantId: string; applicationAssetId: string; actorId: string; reapply?: boolean; idempotencyKey?: string }): Promise<TaskRun> {
     if (!this.tasks) throw new AppError('SYSTEM_INTERNAL_ERROR', '统一任务控制面未接入');
     const application = await this.requireApplication(input.tenantId, input.applicationAssetId);
     const current = await this.repository.getPolicy(input.tenantId, input.applicationAssetId);
-    if (!current?.currentVersion || current.currentVersion.supplyMode !== 'dedicated') {
+    const version = current?.currentVersion;
+    if (!version || version.supplyMode !== 'dedicated') {
       throw new AppError('APPLICATION_CERTIFICATE_POLICY_INVALID', '应用没有可部署的专属证书策略');
     }
-    return this.tasks.enqueue({
-      tenantId: input.tenantId,
-      taskType: 'APPLICATION_CERTIFICATE_DEPLOY',
-      requestedBy: input.actorId,
-      triggerSource: 'application.certificate-supply.deploy',
-      // 重新申请按当前策略版本幂等；父任务推进后会生成新策略版本，下一次重新申请自然获得新的代次。
-      idempotencyKey: `application-certificate-deploy:${input.applicationAssetId}:${input.reapply === true ? `reapply:${current.currentVersion.id}` : current.currentVersion.certificateVersionId ?? 'current'}`,
-      payload: { applicationAssetId: input.applicationAssetId, reapply: input.reapply === true },
-      resourceRefs: [{ resourceType: 'applicationAsset', resourceId: input.applicationAssetId }],
-      resourceSummary: {
-        displayName: application.displayName ?? current.currentVersion.primaryDomain,
-        ...(application.displayName ? { applicationDisplayName: application.displayName } : {}),
-        applicationDomain: current.currentVersion.primaryDomain,
-        certificateRequestName: `${application.displayName ?? current.currentVersion.primaryDomain} 专属证书申请`,
-        applicationAssetId: input.applicationAssetId,
-        reapply: input.reapply === true,
-      },
-    });
+    if (input.reapply === true) {
+      const next: UpdateApplicationCertificatePolicyDto = {
+        ...versionToInput(version),
+        certificateAssetId: undefined,
+        certificateVersionId: undefined,
+        status: 'provisioning',
+      };
+      const response = await this.update(input.tenantId, input.applicationAssetId, next, input.actorId, { forceNewVersion: true });
+      const nextVersion = response.currentVersion;
+      const request = this.issuance?.listRequests
+        ? (await this.issuance.listRequests(input.tenantId)).find((item) => item.applicationCertificatePolicyVersionId === nextVersion?.id)
+        : undefined;
+      if (!request) throw new AppError('CERTIFICATE_VERSION_NOT_READY', '新的专属证书签发申请尚未创建');
+      return this.enqueueDedicatedDeployment({ ...input, reapply: false });
+    }
+    const requests = this.issuance?.listRequests ? await this.issuance.listRequests(input.tenantId) : [];
+    const request = requests.find((item) => item.applicationCertificatePolicyVersionId === version.id)
+      ?? (version.certificateVersionId
+        ? requests.find((item) => item.certificateVersionId === version.certificateVersionId)
+        : undefined);
+    if (!request) {
+      throw new AppError('CERTIFICATE_VERSION_NOT_READY', '专属证书签发申请尚未创建，不能启动申请任务', { applicationAssetId: input.applicationAssetId, policyVersionId: version.id });
+    }
+    // provisioning 保存阶段已经创建了固定 v1 父任务。部署入口必须先复用它，
+    // 否则一次申请会同时留下 v1 和随机 v2 两条“专属证书处理”记录。
+    const initialParentKey = `application-certificate-supply:v1:${input.applicationAssetId}:${version.id}`;
+    const initialParent = !input.idempotencyKey?.trim()
+      ? await this.tasks.findByIdempotencyKey?.(input.tenantId, 'APPLICATION_CERTIFICATE_SUPPLY', initialParentKey)
+      : undefined;
+    // 没有 v1 父任务的历史数据仍保留 v2 会话语义；显式幂等键也继续创建独立会话。
+    const sessionKey = input.idempotencyKey?.trim() || randomUUID();
+    const parentKey = initialParent
+      ? initialParentKey
+      : `application-certificate-supply:v2:${input.applicationAssetId}:${version.id}:${sessionKey}`;
+    const parent = initialParent
+      ?? await this.tasks.findByIdempotencyKey?.(input.tenantId, 'APPLICATION_CERTIFICATE_SUPPLY', parentKey)
+      ?? await this.tasks.enqueue({
+        tenantId: input.tenantId,
+        taskType: 'APPLICATION_CERTIFICATE_SUPPLY',
+        requestedBy: input.actorId,
+        triggerSource: 'application.certificate-supply.deploy',
+        idempotencyKey: parentKey,
+        payload: { applicationAssetId: input.applicationAssetId, certificateRequestId: request.id, certificateVersionId: version.certificateVersionId },
+        resourceSummary: { displayName: application.displayName ?? version.primaryDomain, applicationAssetId: input.applicationAssetId, applicationDomain: version.primaryDomain, certificateRequestId: request.id, certificateVersionId: version.certificateVersionId },
+        resourceRefs: [
+          { resourceType: 'applicationAsset', resourceId: input.applicationAssetId },
+          { resourceType: 'certificateRequest', resourceId: request.id },
+        ],
+      });
+    if (request && ['issue_failed', 'rejected', 'cancelled'].includes(request.status)) {
+      await this.retryFailedDedicatedIssuance(input, application, version, request);
+      if (['FAILED', 'CANCELLED'].includes(parent.status) && this.tasks.retry) {
+        return this.tasks.retry(input.tenantId, parent.id, input.actorId);
+      }
+    }
+    // 同一策略版本的部署失败后，部署按钮是恢复入口。固定幂等键仍然复用
+    // 原父任务，但必须把失败任务重新置为 QUEUED；直接返回 FAILED 会让前端
+    // 弹出“已开始”而后台没有任何活动任务。
+    if (['FAILED', 'CANCELLED'].includes(parent.status)) {
+      if (!this.tasks.retry) {
+        throw new AppError('TASK_NOT_RETRYABLE', '历史专属证书部署任务已失败，当前任务服务不支持重试', {
+          taskId: parent.id,
+          applicationAssetId: input.applicationAssetId,
+        });
+      }
+      return this.tasks.retry(input.tenantId, parent.id, input.actorId);
+    }
+    return parent;
+  }
+
+  /** 中文说明：部署按钮是失败申请的唯一恢复入口时，先重试签发子任务，再重试父编排。 */
+  private async retryFailedDedicatedIssuance(
+    input: { tenantId: string; applicationAssetId: string; actorId: string },
+    application: { displayName?: string; primaryDomain: string },
+    version: ApplicationCertificatePolicyVersionEntity,
+    request: { id: string; status: string; failureCode?: string; failureMessage?: string },
+  ): Promise<TaskRun> {
+    if (!this.tasks?.findByIdempotencyKey || !this.tasks.retry) {
+      throw new AppError('CERTIFICATE_ISSUE_FAILED', request.failureMessage ?? '专属证书签发失败，请重试签发任务', { certificateRequestId: request.id, requestStatus: request.status, failureCode: request.failureCode });
+    }
+    const issueKey = `certificate-issue:${request.id}`;
+    const issueTask = await this.tasks.findByIdempotencyKey(input.tenantId, 'CERTIFICATE_ISSUE', issueKey);
+    let retriedIssueTask: TaskRun | undefined;
+    if (issueTask && ['FAILED', 'CANCELLED'].includes(issueTask.status)) {
+      retriedIssueTask = await this.tasks.retry(input.tenantId, issueTask.id, input.actorId);
+    } else if (!issueTask) {
+      retriedIssueTask = await this.tasks.enqueue({
+        tenantId: input.tenantId,
+        taskType: 'CERTIFICATE_ISSUE',
+        requestedBy: input.actorId,
+        triggerSource: 'application.certificate-supply.retry',
+        idempotencyKey: issueKey,
+        payload: { certificateRequestId: request.id, applicationAssetId: input.applicationAssetId, certificateAssetId: version.certificateAssetId, policyVersionId: version.id },
+        resourceRefs: [{ resourceType: 'certificateRequest', resourceId: request.id }],
+      });
+    } else {
+      // 申请记录和任务状态短暂不一致时，沿用现有签发任务，避免重复创建同一幂等代次。
+      retriedIssueTask = issueTask;
+    }
+    if (retriedIssueTask) return retriedIssueTask;
+    throw new AppError('CERTIFICATE_ISSUE_FAILED', '专属证书签发任务未找到，无法恢复', { certificateRequestId: request.id });
   }
 
   /**
@@ -82,8 +167,13 @@ export class ApplicationCertificateSupplyApplicationService {
     const version = current?.currentVersion;
     if (!version || version.supplyMode !== 'dedicated') throw new AppError('APPLICATION_CERTIFICATE_POLICY_INVALID', '应用没有可部署的专属证书策略');
     if (!input.reapply) {
-      if (!version.certificateVersionId) throw new AppError('CERTIFICATE_VERSION_NOT_READY', '专属证书尚未签发完成');
-      return { certificateVersionId: version.certificateVersionId, certificateAssetId: version.certificateAssetId, issueRequired: false };
+      const issued = await this.requireIssuedDedicatedCertificate(input.tenantId, version);
+      return {
+        certificateVersionId: issued.certificateVersionId,
+        certificateAssetId: version.certificateAssetId,
+        certificateRequestId: issued.certificateRequestId,
+        issueRequired: false,
+      };
     }
     const next: UpdateApplicationCertificatePolicyDto = {
       ...versionToInput(version),
@@ -98,8 +188,12 @@ export class ApplicationCertificateSupplyApplicationService {
     return { certificateVersionId: saved?.certificateVersionId, certificateAssetId: saved?.certificateAssetId, certificateRequestId: request?.id, issueRequired: true };
   }
 
-  /** 中文说明：父任务执行器使用此入口把标准部署计划绑定到本次签发的固定版本。 */
-  async createDedicatedDeploymentPlan(input: { tenantId: string; applicationAssetId: string; certificateVersionId: string; actorId: string; parentTaskId: string }): Promise<{ planId: string; jobId: string }> {
+  /**
+   * 中文说明：父编排只把本次签发的固定证书版本注入标准部署计划。
+   * submit/execute 以及后续 CERTIFICATE_DEPLOY、ExecutionRun、Agent Receipt
+   * 全部复用全局证书部署链，不在专属证书模块复制安装逻辑。
+   */
+  async createDedicatedDeploymentPlan(input: { tenantId: string; applicationAssetId: string; certificateVersionId: string; certificateRequestId?: string; actorId: string; parentTaskId?: string }): Promise<{ planId: string; jobId: string }> {
     if (!this.deploymentPlans) throw new AppError('SYSTEM_INTERNAL_ERROR', '部署计划服务未接入专属证书编排');
     const plan = await this.deploymentPlans.createFromApplicationAsset({
       tenantId: input.tenantId,
@@ -108,12 +202,19 @@ export class ApplicationCertificateSupplyApplicationService {
       selectionMode: 'EXPLICIT',
       planType: 'UPDATE',
       reuseDraft: false,
-      idempotencyKey: `application-certificate-deployment:${input.parentTaskId}`,
+      // 以父任务作为会话边界；同一父任务重试复用快照，不同部署会话创建全新的计划和执行任务。
+      idempotencyKey: `certificate-request:v3:${input.certificateRequestId ?? 'request'}:${input.certificateVersionId}:${input.parentTaskId ?? 'standalone'}:deployment`,
       actorId: input.actorId,
     });
     if (plan.certificateVersionId !== input.certificateVersionId) throw new AppError('RESOURCE_VERSION_CONFLICT', '部署计划未绑定本次签发的证书版本');
     await this.deploymentPlans.submit({ tenantId: input.tenantId, planId: plan.id, actorId: input.actorId });
-    const executed = await this.deploymentPlans.execute({ tenantId: input.tenantId, planId: plan.id, actorId: input.actorId, idempotencyKey: `application-certificate-execution:${input.parentTaskId}`, parentTaskId: input.parentTaskId });
+    const executed = await this.deploymentPlans.execute({
+      tenantId: input.tenantId,
+      planId: plan.id,
+      actorId: input.actorId,
+      idempotencyKey: `certificate-request:v3:${input.certificateRequestId ?? 'request'}:${input.certificateVersionId}:${input.parentTaskId ?? 'standalone'}:execution`,
+      ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
+    });
     return { planId: plan.id, jobId: executed.jobId };
   }
 
@@ -128,6 +229,37 @@ export class ApplicationCertificateSupplyApplicationService {
     this.acmeScheduler = scheduler;
   }
 
+  /** 只有当前策略版本对应的申请已进入成功终态，才能创建部署任务。 */
+  private async requireIssuedDedicatedCertificate(
+    tenantId: string,
+    version: ApplicationCertificatePolicyVersionEntity,
+  ): Promise<{ certificateRequestId: string; certificateVersionId: string }> {
+    if (!this.issuance?.listRequests) throw new AppError('SYSTEM_INTERNAL_ERROR', '证书签发状态服务未接入');
+    const requests = await this.issuance.listRequests(tenantId);
+    const request = requests.find((item) => item.applicationCertificatePolicyVersionId === version.id)
+      ?? (version.certificateVersionId
+        ? requests.find((item) => item.certificateVersionId === version.certificateVersionId)
+        : undefined);
+    if (request && ['issue_failed', 'rejected', 'cancelled'].includes(request.status)) {
+      throw new AppError('CERTIFICATE_ISSUE_FAILED', request.failureMessage ?? '专属证书签发失败，不能启动部署', {
+        certificateRequestId: request.id,
+        requestStatus: request.status,
+        failureCode: request.failureCode,
+      });
+    }
+    const certificateVersionId = version.certificateVersionId;
+    if (!request || !['issued', 'deploying', 'active'].includes(request.status)
+      || !certificateVersionId || request.certificateVersionId !== certificateVersionId) {
+      throw new AppError('CERTIFICATE_VERSION_NOT_READY', '专属证书签发尚未完成，不能启动部署', {
+        certificateRequestId: request?.id,
+        certificateVersionId,
+        issuedCertificateVersionId: request?.certificateVersionId,
+        requestStatus: request?.status,
+      });
+    }
+    return { certificateRequestId: request.id, certificateVersionId };
+  }
+
   async get(tenantId: string, applicationAssetId: string): Promise<ApplicationCertificateSupplyResponse> {
     const application = await this.requireApplication(tenantId, applicationAssetId);
     const [policy, candidates, capability, providers] = await Promise.all([
@@ -140,11 +272,33 @@ export class ApplicationCertificateSupplyApplicationService {
     const current = policy?.currentVersion;
     const currentInput = current ? versionToInput(current) : { supplyMode: 'manual' as const };
     const dnsAuthorization = await this.resolveDnsAuthorization(tenantId, currentInput, 'system:application-certificate-supply');
-    const readiness = this.evaluate(currentInput, application.primaryDomain, filtered, capability.mode, capability.evidence, providers, dnsAuthorization);
+    const issuanceRequests = current && this.issuance?.listRequests
+      ? await this.issuance.listRequests(tenantId)
+      : [];
+    const issuanceRequest = current
+      ? issuanceRequests.find((item) => item.applicationCertificatePolicyVersionId === current.id)
+        ?? (current.certificateVersionId
+          ? issuanceRequests.find((item) => item.certificateVersionId === current.certificateVersionId)
+          : undefined)
+      : undefined;
+    const baseReadiness = this.evaluate(currentInput, application.primaryDomain, filtered, capability.mode, capability.evidence, providers, dnsAuthorization);
+    const issuanceFailed = Boolean(issuanceRequest && ['issue_failed', 'rejected', 'cancelled'].includes(issuanceRequest.status));
+    const readiness = issuanceFailed
+      ? { ...baseReadiness, canDeploy: false, reasons: [...new Set([...baseReadiness.reasons, 'CERTIFICATE_ISSUE_FAILED'])] }
+      : baseReadiness;
     return {
       applicationAssetId,
       primaryDomain: application.primaryDomain,
       ...(policy ? { policy: policy.policy, ...(current ? { currentVersion: current } : {}) } : {}),
+      ...(issuanceRequest ? {
+        issuance: {
+          requestId: issuanceRequest.id,
+          status: issuanceRequest.status,
+          ...(issuanceRequest.certificateVersionId ? { certificateVersionId: issuanceRequest.certificateVersionId } : {}),
+          ...(issuanceRequest.failureCode ? { failureCode: issuanceRequest.failureCode } : {}),
+          ...(issuanceRequest.failureMessage ? { failureMessage: issuanceRequest.failureMessage } : {}),
+        },
+      } : {}),
       certificateCandidates: filtered,
       providers: providers.payload,
       capability: {
@@ -183,7 +337,7 @@ export class ApplicationCertificateSupplyApplicationService {
     };
   }
 
-  async update(tenantId: string, applicationAssetId: string, input: UpdateApplicationCertificatePolicyDto, actorId: string, options?: { parentTaskId?: string }): Promise<ApplicationCertificateSupplyResponse> {
+  async update(tenantId: string, applicationAssetId: string, input: UpdateApplicationCertificatePolicyDto, actorId: string, options?: { parentTaskId?: string; forceNewVersion?: boolean }): Promise<ApplicationCertificateSupplyResponse> {
     const application = await this.requireApplication(tenantId, applicationAssetId);
     const existingPolicy = await this.repository.getPolicy(tenantId, applicationAssetId);
     if (input.supplyMode === 'dedicated'
@@ -212,7 +366,7 @@ export class ApplicationCertificateSupplyApplicationService {
     const currentVersion = existingPolicy?.currentVersion;
     // 策略版本不可变：只有相同生命周期状态的重复提交才复用当前版本。
     // draft -> provisioning 必须落新版本并启动签发，不能被配置幂等比较吞掉。
-    if (currentVersion
+    if (!options?.forceNewVersion && currentVersion
       && currentVersion.status === normalized.status
       && sameProvisioningConfig(currentVersion, normalized, application.primaryDomain)) {
       const provisioned = await this.provisionDedicated(tenantId, applicationAssetId, application.primaryDomain, actorId, normalized, currentVersion, options?.parentTaskId);
@@ -375,7 +529,9 @@ export class ApplicationCertificateSupplyApplicationService {
         trustDomainId: issuanceContext.trustDomainId,
         profileVersionId: issuanceContext.profileVersionId,
         commonName: primaryDomain,
-        sans: [],
+        // ADCS 等 CA Provider 要求 SAN 非空；专属证书至少应覆盖应用主域名。
+        // ACME 仍由 Order 根据 Common Name 组织域名，保持其原有的附加 SAN 语义。
+        sans: input.providerType === 'internal_ca' ? [primaryDomain] : [],
         requestedValidityDays: input.renewalWindowDays ?? 90,
         custodyMode: input.custodyMode === 'agent_local' ? 'local_agent' : input.custodyMode ?? 'managed_secret',
         // 签发由统一任务控制面立即调度；Request 先落库是为了支持异步 CA、轮询和重试。
@@ -395,32 +551,61 @@ export class ApplicationCertificateSupplyApplicationService {
         certificateProfileVersionId: issuanceContext.profileVersionId,
       }, { module: 'application-certificate-supply', resourceType: 'certificateRequest', resourceId: request.id, tenantId });
     }
-    if (request && input.providerType === 'internal_ca' && ['approved', 'issue_failed', 'issuing', 'pending_key', 'pending_csr'].includes(request.status)) {
-      // 签发任务是应用专属策略的必要副作用；已注入控制面时入队失败必须向调用方暴露，
-      // 否则策略会停留在 provisioning 而没有任何可恢复的后台任务。
-      if (this.tasks) await this.tasks.enqueue({
+    // 父任务只负责观察签发与部署，两个实际动作保持独立任务记录。
+    if (this.tasks) {
+      const parentKey = `application-certificate-supply:v1:${applicationAssetId}:${boundVersion.id}`;
+      const existingParent = await this.tasks.findByIdempotencyKey?.(tenantId, 'APPLICATION_CERTIFICATE_SUPPLY', parentKey);
+      if (!existingParent) await this.tasks.enqueue({
         tenantId,
-        taskType: 'CERTIFICATE_ISSUE',
+        taskType: 'APPLICATION_CERTIFICATE_SUPPLY',
         requestedBy: actorId,
         triggerSource: 'application.certificate-supply.provision',
-        idempotencyKey: `certificate-issue:${request.id}`,
-        parentTaskId,
-        payload: { certificateRequestId: request.id, applicationAssetId, certificateAssetId: asset.id, policyVersionId: boundVersion.id },
-        resourceSummary: {
-          displayName: application.displayName ?? primaryDomain,
-          ...(application.displayName ? { applicationDisplayName: application.displayName } : {}),
-          applicationDomain: primaryDomain,
-          certificateRequestName: `${application.displayName ?? primaryDomain} 专属证书申请`,
-          applicationAssetId,
-          certificateAssetId: asset.id,
-          policyVersionId: boundVersion.id,
-        },
+        idempotencyKey: parentKey,
+        payload: { applicationAssetId, certificateRequestId: request.id },
+        resourceSummary: { displayName: application.displayName ?? primaryDomain, applicationAssetId, applicationDomain: primaryDomain, certificateRequestId: request.id },
         resourceRefs: [
+          { resourceType: 'applicationAsset', resourceId: applicationAssetId },
           { resourceType: 'certificateRequest', resourceId: request.id },
-          { resourceType: 'certificateAsset', resourceId: asset.id },
-          { resourceType: 'applicationCertificatePolicyVersion', resourceId: boundVersion.id },
         ],
       });
+    }
+    if (request && input.providerType === 'internal_ca' && ['approved', 'issued', 'deploying', 'active', 'issue_failed', 'issuing', 'pending_key', 'pending_csr'].includes(request.status)) {
+      // 签发任务是应用专属策略的必要副作用；已注入控制面时入队失败必须向调用方暴露，
+      // 否则策略会停留在 provisioning 而没有任何可恢复的后台任务。
+      if (this.tasks) {
+        const issueKey = `certificate-issue:${request.id}`;
+        const issueTask = await this.tasks.findByIdempotencyKey?.(tenantId, 'CERTIFICATE_ISSUE', issueKey)
+          ?? await this.tasks.enqueue({
+            tenantId,
+            taskType: 'CERTIFICATE_ISSUE',
+            requestedBy: actorId,
+            triggerSource: 'application.certificate-supply.provision',
+            idempotencyKey: issueKey,
+            payload: { certificateRequestId: request.id, applicationAssetId, certificateAssetId: asset.id, policyVersionId: boundVersion.id },
+            resourceSummary: {
+              displayName: application.displayName ?? primaryDomain,
+              ...(application.displayName ? { applicationDisplayName: application.displayName } : {}),
+              applicationDomain: primaryDomain,
+              certificateRequestName: `${application.displayName ?? primaryDomain} 专属证书申请`,
+              applicationAssetId,
+              certificateAssetId: asset.id,
+              policyVersionId: boundVersion.id,
+            },
+            resourceRefs: [
+              { resourceType: 'certificateRequest', resourceId: request.id },
+              { resourceType: 'certificateAsset', resourceId: asset.id },
+              { resourceType: 'applicationCertificatePolicyVersion', resourceId: boundVersion.id },
+            ],
+          });
+        if (issueTask.status === 'FAILED' || issueTask.status === 'CANCELLED') {
+          throw new AppError('CERTIFICATE_ISSUE_FAILED', issueTask.lastErrorMessage ?? '证书签发任务已失败', {
+            certificateRequestId: request.id,
+            issueTaskId: issueTask.id,
+            taskStatus: issueTask.status,
+            failureCode: issueTask.lastErrorCode,
+          });
+        }
+      }
       structuredLogger.info('应用专属证书签发任务已入列', {
         tenantId,
         applicationAssetId,
@@ -460,7 +645,7 @@ export class ApplicationCertificateSupplyApplicationService {
       }
       // 立即接入统一 ACME 调度器，后台扫描仍负责进程重启或写入竞争后的补偿。
       if (this.acmeScheduler) {
-        await this.acmeScheduler.scheduleInitialIssuance(tenantId, asset.id, new Date(), parentTaskId, {
+        await this.acmeScheduler.scheduleInitialIssuance(tenantId, asset.id, new Date(), undefined, {
           ...(application.displayName ? { applicationDisplayName: application.displayName } : {}),
           applicationDomain: primaryDomain,
           certificateRequestName: `${application.displayName ?? primaryDomain} 专属证书申请`,

@@ -59,6 +59,8 @@ const registeredErrorCodes: Record<string, ErrorCodeDefinition> = {
   CSR_ASSET_MISMATCH: { httpStatus: 422, message: 'CSR 与应用资产不匹配' },
   CERTIFICATE_ISSUANCE_PENDING: { httpStatus: 202, message: '证书签发处理中' },
   CERTIFICATE_ISSUANCE_CONFLICT: { httpStatus: 409, message: '证书签发冲突' },
+  CERTIFICATE_VERSION_NOT_READY: { httpStatus: 409, message: '证书版本尚未完成签发' },
+  CERTIFICATE_ISSUE_FAILED: { httpStatus: 409, message: '证书签发失败' },
   PUBLIC_KEY_MISMATCH: { httpStatus: 422, message: '公钥不匹配' },
   KEY_REUSE_FORBIDDEN: { httpStatus: 409, message: '禁止跨应用复用私钥' },
   DEFAULT_CERTIFICATE_FORMAT_PROTECTED: { httpStatus: 409, message: '宿主默认证书产物配置文件不允许删除' },

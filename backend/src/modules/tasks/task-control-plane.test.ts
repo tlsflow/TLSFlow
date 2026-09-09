@@ -364,6 +364,31 @@ test('等待外部结果的任务可再次领取以主动读取控制面状态�
   assert.equal(polled?.attempt.attemptNo, 2);
 });
 
+test('执行器抛出异步等待错误时进入等待结果，不显示为失败重试', async () => {
+  const { service } = await createFixture();
+  const task = await service.enqueue({
+    tenantId: 'tenant-task-async-error',
+    taskType: 'CERTIFICATE_DEPLOY',
+    triggerSource: 'execution.apply.enqueue',
+  });
+  const waiting = await service.runNext(
+    'worker-async-error',
+    async () => {
+      throw new AppError('EXECUTION_TARGET_UNAVAILABLE', '宿主根信任检查已提交 Agent v2 事实采集任务，必须等待 Receipt 后再生成计划', {
+        asyncPending: true,
+        taskId: 'agent-task-1',
+      });
+    },
+    task.tenantId,
+  );
+
+  assert.equal(waiting?.status, 'WAITING_RESULT');
+  assert.equal(waiting?.lastErrorCode, 'EXECUTION_TARGET_UNAVAILABLE');
+  const detail = await service.detail(task.tenantId, task.id);
+  assert.equal(detail.events.some((event) => event.eventType === 'RETRY_SCHEDULED'), false);
+  assert.equal(detail.events.some((event) => event.eventType === 'WAITING_RESULT'), true);
+});
+
 test('写入结果待确认的任务不能再次领取或自动重放', async () => {
   const { repository, service } = await createFixture();
   const task = await service.enqueue({

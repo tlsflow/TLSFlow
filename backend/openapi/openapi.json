@@ -5743,7 +5743,19 @@
                   "type": "array",
                   "items": {
                     "type": "object",
-                    "additionalProperties": true
+                    "additionalProperties": true,
+                    "properties": {
+                      "productCategory": {
+                        "type": "string",
+                        "enum": [
+                          "WEB_SITE",
+                          "APPLICATION_MIDDLEWARE",
+                          "NETWORK_GATEWAY",
+                          "CLOUD_PLATFORM",
+                          "CA_ISSUANCE"
+                        ]
+                      }
+                    }
                   }
                 }
               }
@@ -9183,7 +9195,7 @@
     "/api/v1/application-assets/:applicationAssetId/certificate-supply-policy/deploy": {
       "post": {
         "operationId": "enqueueApplicationCertificateDeployment",
-        "summary": "创建专属证书部署任务",
+        "summary": "创建专属证书申请或部署任务",
         "tags": [
           "ApplicationCertificateSupply"
         ],
@@ -9196,7 +9208,8 @@
                 "additionalProperties": false,
                 "properties": {
                   "reapply": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "description": "申请新的专属证书，用于证书私钥轮换"
                   }
                 }
               }
@@ -25769,5 +25782,5 @@
       "description": "证书绑定生产事实中心"
     }
   ],
-  "x-generatedAt": "2026-09-01T14:52:03.707Z"
+  "x-generatedAt": "2026-09-07T14:40:56.418Z"
 }

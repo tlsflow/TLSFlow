@@ -246,6 +246,12 @@ export class CertificateLifecycleService {
       await this.updateApplicationPolicyStatus(input.tenantId, request.applicationAssetId, 'needs_attention');
       return { deploymentPlanStatus: 'blocked', deploymentWarnings: ['证书申请尚未生成证书版本'] };
     }
+    // 应用专属证书由 APPLICATION_CERTIFICATE_SUPPLY 父任务统一观察签发与部署。
+    // 这里仅回写“已签发”事实，避免签发完成瞬间抢先创建另一份部署计划。
+    if (request.applicationCertificatePolicyVersionId) {
+      await this.updateApplicationPolicyStatus(input.tenantId, request.applicationAssetId, 'issued', request.certificateVersionId);
+      return { deploymentPlanStatus: 'pending_application_certificate_deploy' };
+    }
     // CA 已签发，部署计划创建前的策略状态必须可观察。
     await this.updateApplicationPolicyStatus(input.tenantId, request.applicationAssetId, 'issued', request.certificateVersionId);
     if (request.deploymentPlanId) {

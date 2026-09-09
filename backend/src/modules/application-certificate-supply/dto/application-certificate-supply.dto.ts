@@ -61,6 +61,14 @@ export interface ApplicationCertificateSupplyResponse {
   primaryDomain: string;
   policy?: import('../schema/application-certificate-supply.schema.js').ApplicationCertificatePolicyEntity;
   currentVersion?: import('../schema/application-certificate-supply.schema.js').ApplicationCertificatePolicyVersionEntity;
+  /** 当前专属策略对应的签发申请状态；用于区分“已入队”和“实际签发失败”。 */
+  issuance?: {
+    requestId: string;
+    status: string;
+    certificateVersionId?: string;
+    failureCode?: string;
+    failureMessage?: string;
+  };
   certificateCandidates: CertificateSupplyCandidateDto[];
   providers: {
     ca: CertificateSupplyProviderDto[];

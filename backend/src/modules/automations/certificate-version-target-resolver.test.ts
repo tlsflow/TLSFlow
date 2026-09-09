@@ -84,6 +84,40 @@ test('证书事件解析器按明确选择的应用资产计算版本影响', as
   assert.equal(items[0]?.target.targetCertificateNotAfter, '2026-12-01T00:00:00.000Z');
 });
 
+test('证书版本事件优先使用证书资产所属应用，忽略过期的静态目标', async () => {
+  const versions = new Map([
+    ['target', { id: 'target', certificateAssetId: 'certificate-target', name: 'test.jacksonz.cn', versionNo: 2, notAfter: '2027-01-01T00:00:00.000Z', deployable: true }],
+    ['current-test', { id: 'current-test', certificateAssetId: 'certificate-target', versionNo: 1, notAfter: '2026-01-01T00:00:00.000Z', deployable: true }],
+  ]);
+  const resolver = new CertificateVersionTargetResolver(
+    {
+      getVersion: async (id: string) => versions.get(id),
+      getVersionByFingerprint: async () => undefined,
+      getAsset: async () => ({ id: 'certificate-target', applicationAssetId: 'application-test', name: 'dedicated:test.jacksonz.cn', primaryDomain: 'test.jacksonz.cn', tags: [] }),
+    } as never,
+    {
+      listCertificateBindings: async () => ({ page: 1, pageSize: 5000, total: 1, items: [{ id: 'binding-test', serviceAssetId: 'application-test', status: 'MANAGED', certificateVersionId: 'current-test', deletedAt: undefined }] }),
+    } as never,
+    {
+      getApplicationAssetTargetByApplicationAssetId: async () => undefined,
+      getServiceAssetDetail: async (_tenantId: string, id: string) => ({ id, displayName: 'test.jacksonz.cn', environment: 'production', metadata: {}, targetBindingDetail: { certificateBindings: [] }, targetSnapshots: [] }),
+      getServiceAsset: async (_tenantId: string, id: string) => ({ id, displayName: 'test.jacksonz.cn', environment: 'production' }),
+      getHost: async () => undefined,
+    } as never,
+    { canReadTarget: async () => true },
+  );
+
+  const items = await resolver.resolve({
+    tenantId: 'tenant-1',
+    actorId: 'user-1',
+    triggerContext: { certificateVersionId: 'target', certificateAssetId: 'certificate-target', sourceType: 'manual_import' },
+    resolver: { type: 'certificate_version_targets', assetIds: ['application-cns'] },
+    guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 1, requirePreview: true, requireDryRun: false, requireApproval: false },
+  });
+
+  assert.deepEqual(items.map((item) => item.target.assetId), ['application-test']);
+});
+
 test('证书事件解析器仅在显式允许时将有效期降级目标标为可执行', async () => {
   const versions = new Map([
     ['target', { id: 'target', certificateAssetId: 'certificate-target', name: 'example.com', versionNo: 4, notAfter: '2026-10-30T00:00:00.000Z', deployable: true }],

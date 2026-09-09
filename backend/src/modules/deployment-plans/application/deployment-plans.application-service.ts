@@ -553,8 +553,9 @@ export class DeploymentPlansApplicationService {
   async createFromApplicationAsset(input: CreateDeploymentPlanFromApplicationAssetInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
     const idempotentPlan = await this.repository.findPlanByIdempotencyKey(input.tenantId, input.actorId, input.idempotencyKey);
     if (idempotentPlan) {
-      const draft = await this.buildCreateInputFromApplicationAsset(input);
-      return input.deferPreflight ? this.createWithoutPreflight(draft, context) : this.create(draft, context);
+      // 幂等键命中后必须返回原计划。重新解析应用资产会产生新的运行时快照，
+      // 即使业务目标相同也会改变请求摘要，错误地触发“不同请求体”冲突。
+      return this.toDto(idempotentPlan);
     }
     if (input.reuseDraft !== false) {
       const reusableDraft = await this.repository.findLatestManualDraftByApplicationAsset(input.tenantId, input.applicationAssetId);

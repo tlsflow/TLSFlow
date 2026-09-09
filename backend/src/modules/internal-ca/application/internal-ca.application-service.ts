@@ -2499,20 +2499,28 @@ export class InternalCaApplicationService {
     const profileVersion = await this.repository.getProfileVersion(request.profileVersionId);
     const keyReference = await this.repository.getKeyReference(tenantId, request.keyReferenceId);
     if (!profileVersion || !keyReference) throw new AppError('RESOURCE_NOT_FOUND', '证书申请依赖对象不存在');
+    // 历史 ADCS 专属申请可能在 SAN 修复前以空数组落库；主域名本身必须进入 SAN，
+    // 否则插件 Provider 会在执行阶段拒绝整个申请。回写后继续沿用原幂等申请。
+    const effectiveSans = provider.type !== 'acme' && request.sans.length === 0
+      ? [request.subjectCommonName]
+      : request.sans;
+    const effectiveRequest = effectiveSans === request.sans
+      ? request
+      : await this.repository.saveRequest({ ...request, sans: effectiveSans, updatedAt: new Date().toISOString() });
     const ledgerRecord = provider.type === 'gcac_builtin'
-      ? await this.reserveIssuanceRecord(tenantId, { caId: authority.id, certificateRequestId: request.id, applicationAssetId: request.applicationAssetId, subjectCommonName: request.subjectCommonName, sans: request.sans })
+      ? await this.reserveIssuanceRecord(tenantId, { caId: authority.id, certificateRequestId: effectiveRequest.id, applicationAssetId: effectiveRequest.applicationAssetId, subjectCommonName: effectiveRequest.subjectCommonName, sans: effectiveRequest.sans })
       : await this.repository.getIssuanceByRequest(tenantId, request.id);
-    await this.repository.saveRequest({ ...request, status: 'issuing', updatedAt: new Date().toISOString() });
+    await this.repository.saveRequest({ ...effectiveRequest, status: 'issuing', updatedAt: new Date().toISOString() });
     try {
       const issued = await this.providers.get(provider.type).signCsr({
         provider,
         authority,
-        csrPem: request.csrPem,
-        subject: request.subjectCommonName,
-        sans: request.sans,
-        validityDays: request.requestedValidityDays,
+        csrPem: effectiveRequest.csrPem,
+        subject: effectiveRequest.subjectCommonName,
+        sans: effectiveRequest.sans,
+        validityDays: effectiveRequest.requestedValidityDays,
         profileRules: profileVersion.rules,
-        idempotencyKey: request.idempotencyKey,
+        idempotencyKey: effectiveRequest.idempotencyKey,
         actorId,
         serialNumber: provider.type === 'gcac_builtin' ? ledgerRecord?.serialNumber : undefined,
         actionBinding,
@@ -2524,8 +2532,8 @@ export class InternalCaApplicationService {
         providerRequestId: issued.providerRequestId,
         status: issued.status,
       }, { module: 'internal-ca', resourceType: 'certificateRequest', resourceId: requestId, tenantId });
-      if (issued.status !== 'issued') return this.saveNonFinalIssuance(request, issued);
-      const completed = await this.completeIssuedRequest(request, issued, provider, authority, keyReference, actorId, context);
+      if (issued.status !== 'issued') return this.saveNonFinalIssuance(effectiveRequest, issued);
+      const completed = await this.completeIssuedRequest(effectiveRequest, issued, provider, authority, keyReference, actorId, context);
       return this.handleIssuedLifecycle({ tenantId, request: completed, keyCustodyMode: keyReference.custodyMode, actorId, context });
     } catch (error) {
       structuredLogger.warn('证书签发任务失败', {
@@ -2536,7 +2544,7 @@ export class InternalCaApplicationService {
       }, { module: 'internal-ca', resourceType: 'certificateRequest', resourceId: requestId, tenantId });
       if (ledgerRecord && ledgerRecord.status !== 'issued') await this.repository.saveIssuanceRecord({ ...ledgerRecord, status: 'failed', updatedAt: new Date().toISOString() });
       await this.repository.saveRequest({
-        ...request,
+        ...effectiveRequest,
         status: 'issue_failed',
         failureCode: error instanceof AppError ? error.errorCode : 'CA_PROVIDER_UNAVAILABLE',
         failureMessage: error instanceof Error ? error.message : String(error),

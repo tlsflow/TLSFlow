@@ -22,7 +22,7 @@ export class ApplicationCertificateSupplyController {
     router.get('/api/v1/application-assets/:applicationAssetId/certificate-supply-policy', '查询应用证书供应策略', tags, (request) => this.get(request));
     router.put('/api/v1/application-assets/:applicationAssetId/certificate-supply-policy', '保存应用证书供应策略', tags, (request) => this.update(request));
     router.post('/api/v1/application-assets/:applicationAssetId/certificate-supply-policy/preview', '预览应用证书供应策略', tags, (request) => this.preview(request));
-    router.post('/api/v1/application-assets/:applicationAssetId/certificate-supply-policy/deploy', '创建专属证书部署任务', tags, (request) => this.deploy(request));
+    router.post('/api/v1/application-assets/:applicationAssetId/certificate-supply-policy/deploy', '创建专属证书申请或部署任务', tags, (request) => this.deploy(request));
   }
 
   private async get(request: HttpRequest) {
@@ -50,7 +50,7 @@ export class ApplicationCertificateSupplyController {
 
   private async deploy(request: HttpRequest) {
     const applicationAssetId = this.readApplicationAssetId(request);
-    const body = validateObject(request.body, { reapply: { type: 'boolean' } });
+    const body = validateObject(request.body, { reapply: { type: 'boolean' as const } });
     const subject = this.subjectFromRequest(request);
     await this.assertCan(subject, 'application.deployment.execute', 'service_asset', request, applicationAssetId);
     return {
@@ -60,6 +60,7 @@ export class ApplicationCertificateSupplyController {
         applicationAssetId,
         actorId: subject.id,
         reapply: body.reapply === true,
+        idempotencyKey: this.readIdempotencyKey(request),
       }),
     };
   }
@@ -69,6 +70,15 @@ export class ApplicationCertificateSupplyController {
     const id = matched?.[1];
     if (!id) throw new AppError('VALIDATION_FAILED', 'applicationAssetId 不能为空', { field: 'applicationAssetId' });
     return id;
+  }
+
+  private readIdempotencyKey(request: HttpRequest): string | undefined {
+    const values = [request.headers['x-idempotency-key'], request.headers['idempotency-key']];
+    for (const value of values) {
+      const normalized = Array.isArray(value) ? value[0] : value;
+      if (typeof normalized === 'string' && normalized.trim()) return normalized.trim();
+    }
+    return request.context.requestId;
   }
 
   private subjectFromRequest(request: HttpRequest): SecuritySubject {
@@ -101,9 +111,9 @@ export function getApplicationCertificateSupplyRouteContracts(): RouteContract[]
       method: 'POST',
       path: '/api/v1/application-assets/:applicationAssetId/certificate-supply-policy/deploy',
       operationId: 'enqueueApplicationCertificateDeployment',
-      summary: '创建专属证书部署任务',
+      summary: '创建专属证书申请或部署任务',
       tags,
-      requestSchema: { type: 'object', additionalProperties: false, properties: { reapply: { type: 'boolean' } } },
+      requestSchema: { type: 'object', additionalProperties: false, properties: { reapply: { type: 'boolean', description: '申请新的专属证书，用于证书私钥轮换' } } },
       responseSchema: { type: 'object', additionalProperties: true },
     },
     {

@@ -61,3 +61,28 @@ test('应用证书供应策略接口拒绝不支持的供应方式', async () =>
     context,
   }));
 });
+
+test('专属证书部署把每次请求的幂等键传给新会话任务', async () => {
+  let received: Record<string, unknown> | undefined;
+  const router = new Router();
+  new ApplicationCertificateSupplyController(undefined, {
+    get: async () => ({}),
+    update: async () => ({}),
+    preview: async () => ({}),
+    enqueueDedicatedDeployment: async (input: Record<string, unknown>) => { received = input; return { id: 'task-new-session' }; },
+  } as never).register(router);
+  const route = router.match('POST', '/api/v1/application-assets/app-1/certificate-supply-policy/deploy');
+  assert.ok(route);
+
+  await route.handler({
+    method: 'POST',
+    path: '/api/v1/application-assets/app-1/certificate-supply-policy/deploy',
+    query: {},
+    headers: { 'x-idempotency-key': 'deploy-session-header' },
+    body: {},
+    context,
+  });
+
+  assert.equal(received?.idempotencyKey, 'deploy-session-header');
+  assert.equal(received?.applicationAssetId, 'app-1');
+});

@@ -312,7 +312,23 @@ export class TasksApplicationService {
     try {
       result = await executor(task, attempt);
     } catch (error) {
-      result = { success: false, errorCode: 'TASK_EXECUTOR_THROWN', errorMessage: error instanceof Error ? error.message : String(error) };
+      // Agent 事实采集已提交但尚未返回 Receipt 时，属于等待外部结果，不是执行失败。
+      // 保留错误明细并进入统一轮询，避免前端显示“等待重试”误导用户。
+      const details = error instanceof AppError && error.details && typeof error.details === 'object'
+        ? error.details as Record<string, unknown>
+        : undefined;
+      if (details?.asyncPending === true) {
+        result = {
+          success: false,
+          waitingStatus: 'WAITING_RESULT' as const,
+          retryAfterSeconds: 10,
+          errorCode: error instanceof AppError ? error.errorCode : 'EXECUTION_TARGET_UNAVAILABLE',
+          errorMessage: error instanceof Error ? error.message : String(error),
+          detail: details,
+        };
+      } else {
+        result = { success: false, errorCode: 'TASK_EXECUTOR_THROWN', errorMessage: error instanceof Error ? error.message : String(error) };
+      }
     }
     const definition = this.registry.get(task.taskType, task.definitionVersion);
     try {

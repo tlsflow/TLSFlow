@@ -38,8 +38,8 @@ export interface TaskWorkerAdapterDependencies {
   pluginCatalog?: BuiltinPluginCatalogRefresher;
   credentialHealth?: Pick<CredentialHealthService, 'executeTask'>;
   internalCa?: Pick<InternalCaApplicationService, 'issueRequest' | 'refreshRequestIssuance' | 'listRequests'>;
-  applicationCertificateSupply?: Pick<ApplicationCertificateSupplyApplicationService, 'prepareDedicatedDeployment' | 'createDedicatedDeploymentPlan' | 'updateLifecycleStatus'>;
-  taskControl?: Pick<TasksApplicationService, 'detail'>;
+  applicationCertificateSupply?: Pick<ApplicationCertificateSupplyApplicationService, 'createDedicatedDeploymentPlan' | 'updateLifecycleStatus'>;
+  taskControl?: Pick<TasksApplicationService, 'detail' | 'list'>;
 }
 
 /**
@@ -126,55 +126,51 @@ export function createTaskExecutorRegistry(
   });
   registry.register('certificate.issue', certificateIssue);
 
-  registry.register('application.certificate-deploy', dependencyExecutor('应用专属证书部署编排 Worker', dependencies.applicationCertificateSupply, async (task) => {
-    if (!dependencies.taskControl) throw new AppError('SYSTEM_INTERNAL_ERROR', '统一任务详情服务未接入');
+  // 专属证书这里只协调签发结果和标准部署计划；实际安装始终由
+  // createApplyRun 生成的 CERTIFICATE_DEPLOY 任务执行，不能在此复制安装逻辑。
+  const applicationCertificateSupply = dependencyExecutor('应用专属证书编排 Worker', dependencies.applicationCertificateSupply, async (task) => {
+    if (!dependencies.taskControl) throw new AppError('SYSTEM_INTERNAL_ERROR', '统一任务查询服务未接入');
     const applicationAssetId = requiredPayloadString(task, 'applicationAssetId');
-    const reapply = task.payload.reapply === true;
-    const currentDetail = await dependencies.taskControl.detail(task.tenantId, task.id);
-    let prepared = readDedicatedPreparation(task.progress);
-    if (!prepared) {
-      prepared = await dependencies.applicationCertificateSupply!.prepareDedicatedDeployment({
-        tenantId: task.tenantId,
-        applicationAssetId,
-        actorId: task.requestedBy ?? 'task-worker',
-        reapply,
-        parentTaskId: task.id,
-      });
-    }
-    const issueChild = currentDetail.childTasks.find((child) => child.taskType === 'CERTIFICATE_ISSUE' || child.taskType === 'ACME_CERTIFICATE_ISSUE');
-    if (prepared.issueRequired) {
-      if (issueChild?.status === 'FAILED' || issueChild?.status === 'CANCELLED') {
-        return { success: false, retryable: false, errorCode: issueChild.lastErrorCode ?? 'CERTIFICATE_ISSUE_FAILED', errorMessage: issueChild.lastErrorMessage ?? '专属证书签发失败', detail: { applicationAssetId, issueTaskId: issueChild.id } };
+    const certificateRequestId = optionalPayloadString(task, 'certificateRequestId');
+    if (!certificateRequestId) return { success: false, waitingStatus: 'WAITING_RESULT', retryAfterSeconds: 10, errorCode: 'CERTIFICATE_ISSUE_PENDING', errorMessage: '专属证书申请记录尚未关联，等待签发任务创建', detail: { applicationAssetId } };
+    const deploymentTaskId = optionalRecordString(task.progress, 'deploymentTaskId');
+    if (deploymentTaskId) {
+      const deployment = await dependencies.taskControl.detail(task.tenantId, deploymentTaskId);
+      const current = deployment.task;
+      if (current.status === 'SUCCEEDED') {
+        await dependencies.applicationCertificateSupply!.updateLifecycleStatus(task.tenantId, applicationAssetId, 'deployed', optionalRecordString(task.progress, 'certificateVersionId'));
+        return { success: true, detail: { applicationAssetId, certificateRequestId, certificateVersionId: optionalRecordString(task.progress, 'certificateVersionId'), deploymentTaskId } };
       }
-      if (!issueChild || issueChild.status !== 'SUCCEEDED') {
-        return { success: false, waitingStatus: 'WAITING_RESULT', retryAfterSeconds: 10, errorCode: 'CERTIFICATE_ISSUE_PENDING', errorMessage: '专属证书正在签发，等待签发子任务完成', detail: { applicationAssetId, preparation: prepared, issueTaskId: issueChild?.id, issueRequired: true } };
+      if (current.status === 'FAILED' || current.status === 'CANCELLED') {
+        await dependencies.applicationCertificateSupply!.updateLifecycleStatus(task.tenantId, applicationAssetId, 'needs_attention', optionalRecordString(task.progress, 'certificateVersionId'));
+        return { success: false, retryable: false, errorCode: current.lastErrorCode ?? 'CERTIFICATE_DEPLOY_FAILED', errorMessage: current.lastErrorMessage ?? '标准证书部署失败', detail: { applicationAssetId, certificateRequestId, certificateVersionId: optionalRecordString(task.progress, 'certificateVersionId'), deploymentTaskId } };
       }
-      prepared.certificateVersionId = prepared.certificateVersionId ?? readCertificateVersionFromTask(issueChild);
-      if (!prepared.certificateVersionId) {
-        return { success: false, waitingStatus: 'WAITING_RESULT', retryAfterSeconds: 10, errorCode: 'CERTIFICATE_VERSION_PENDING', errorMessage: '签发任务已完成但证书版本尚未回写', detail: { applicationAssetId, preparation: prepared, issueTaskId: issueChild.id } };
-      }
+      return { success: false, waitingStatus: 'WAITING_RESULT', retryAfterSeconds: 10, errorCode: 'CERTIFICATE_DEPLOY_PENDING', errorMessage: '标准证书部署仍在执行', detail: { applicationAssetId, certificateRequestId, certificateVersionId: optionalRecordString(task.progress, 'certificateVersionId'), deploymentTaskId } };
     }
-    const deploymentChild = currentDetail.childTasks.find((child) => child.taskType === 'CERTIFICATE_DEPLOY');
-    if (!deploymentChild) {
-      const created = await dependencies.applicationCertificateSupply!.createDedicatedDeploymentPlan({
-        tenantId: task.tenantId,
-        applicationAssetId,
-        certificateVersionId: prepared.certificateVersionId!,
-        actorId: task.requestedBy ?? 'task-worker',
-        parentTaskId: task.id,
-      });
-      return { success: false, waitingStatus: 'WAITING_RESULT', retryAfterSeconds: 5, errorCode: 'CERTIFICATE_DEPLOY_PENDING', errorMessage: '标准证书部署子任务已创建，等待执行完成', detail: { applicationAssetId, preparation: prepared, certificateVersionId: prepared.certificateVersionId, deploymentPlanId: created.planId, deploymentTaskId: created.jobId } };
+    const issuePage = await dependencies.taskControl.list({ tenantId: task.tenantId, taskType: 'CERTIFICATE_ISSUE', resourceType: 'certificateRequest', resourceId: certificateRequestId, includeAll: true, page: 1, pageSize: 20 });
+    const issueTask = issuePage.items.find((item) => item.taskType === 'CERTIFICATE_ISSUE');
+    if (!issueTask || issueTask.status === 'QUEUED' || issueTask.status === 'RUNNING' || issueTask.status === 'RETRY_WAITING' || issueTask.status === 'WAITING_RESULT') {
+      return { success: false, waitingStatus: 'WAITING_RESULT', retryAfterSeconds: 10, errorCode: 'CERTIFICATE_ISSUE_PENDING', errorMessage: '专属证书正在签发，等待签发任务完成', detail: { applicationAssetId, certificateRequestId, issueTaskId: issueTask?.id } };
     }
-    if (deploymentChild.status === 'SUCCEEDED') {
-      await dependencies.applicationCertificateSupply!.updateLifecycleStatus(task.tenantId, applicationAssetId, 'deployed', prepared.certificateVersionId);
-      return { success: true, detail: { applicationAssetId, certificateVersionId: prepared.certificateVersionId, deploymentTaskId: deploymentChild.id } };
+    if (issueTask.status === 'FAILED' || issueTask.status === 'CANCELLED') {
+      return { success: false, retryable: false, errorCode: issueTask.lastErrorCode ?? 'CERTIFICATE_ISSUE_FAILED', errorMessage: issueTask.lastErrorMessage ?? '专属证书签发失败', detail: { applicationAssetId, certificateRequestId, issueTaskId: issueTask.id } };
     }
-    if (deploymentChild.status === 'FAILED' || deploymentChild.status === 'CANCELLED') {
-      await dependencies.applicationCertificateSupply!.updateLifecycleStatus(task.tenantId, applicationAssetId, 'needs_attention', prepared.certificateVersionId);
-      return { success: false, retryable: false, errorCode: deploymentChild.lastErrorCode ?? 'CERTIFICATE_DEPLOY_FAILED', errorMessage: deploymentChild.lastErrorMessage ?? '标准证书部署失败', detail: { applicationAssetId, certificateVersionId: prepared.certificateVersionId, deploymentTaskId: deploymentChild.id } };
-    }
-    return { success: false, waitingStatus: 'WAITING_RESULT', retryAfterSeconds: 10, errorCode: 'CERTIFICATE_DEPLOY_PENDING', errorMessage: '标准证书部署仍在执行', detail: { applicationAssetId, preparation: prepared, certificateVersionId: prepared.certificateVersionId, deploymentTaskId: deploymentChild.id } };
-  }));
+    const certificateVersionId = readCertificateVersionFromTask(issueTask);
+    if (!certificateVersionId) return { success: false, waitingStatus: 'WAITING_RESULT', retryAfterSeconds: 10, errorCode: 'CERTIFICATE_VERSION_PENDING', errorMessage: '签发任务已完成但证书版本尚未回写', detail: { applicationAssetId, certificateRequestId, issueTaskId: issueTask.id } };
+    const created = await dependencies.applicationCertificateSupply!.createDedicatedDeploymentPlan({
+      tenantId: task.tenantId,
+      applicationAssetId,
+      certificateVersionId,
+      certificateRequestId,
+      actorId: task.requestedBy ?? 'task-worker',
+      parentTaskId: task.id,
+    });
+    return { success: false, waitingStatus: 'WAITING_RESULT', retryAfterSeconds: 5, errorCode: 'CERTIFICATE_DEPLOY_PENDING', errorMessage: '标准证书部署任务已创建，等待执行完成', detail: { applicationAssetId, certificateRequestId, certificateVersionId, deploymentPlanId: created.planId, deploymentTaskId: created.jobId } };
+  });
+  registry.register('application.certificate-supply', applicationCertificateSupply);
+  // 仅兼容历史任务记录；新流程不会创建 APPLICATION_CERTIFICATE_DEPLOY。
+  // 新的安装任务统一由 DeploymentPlansApplicationService 生成 CERTIFICATE_DEPLOY。
+  registry.register('application.certificate-deploy', applicationCertificateSupply);
 
   const execution = dependencyExecutor('Execution Worker', dependencies.executions, async (task) => {
     const runId = requiredPayloadString(task, 'runId');
@@ -508,6 +504,14 @@ function readCertificateVersionFromTask(task: TaskRun): string | undefined {
   return optionalRecordString(task.progress, 'certificateVersionId')
     ?? optionalRecordString(detail, 'certificateVersionId')
     ?? optionalRecordString(task.payload, 'certificateVersionId');
+}
+
+function readCertificateRequestFromTask(task: TaskRun | undefined): string | undefined {
+  if (!task) return undefined;
+  const detail = isRecord(task.progress?.detail) ? task.progress.detail : undefined;
+  return optionalRecordString(task.progress, 'certificateRequestId')
+    ?? optionalRecordString(detail, 'certificateRequestId')
+    ?? optionalRecordString(task.payload, 'certificateRequestId');
 }
 
 function dependencyExecutor<T>(

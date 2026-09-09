@@ -73,7 +73,13 @@ export class CertificateVersionTargetResolver implements AutomationTargetResolve
       }
     }
 
-    const requestedSelectedAssetIds = input.resolver.type === 'certificate_version_targets'
+    // 证书版本事件携带的证书资产是本次业务动作的唯一事实来源。
+    // 专属证书资产记录了所属应用，事件触发时必须优先部署到该应用，
+    // 不能被自动化里遗留的静态 assetIds 带偏到另一个应用。
+    const eventApplicationAssetId = asset.applicationAssetId;
+    const requestedSelectedAssetIds = eventApplicationAssetId
+      ? [eventApplicationAssetId]
+      : input.resolver.type === 'certificate_version_targets'
       ? [...new Set(input.resolver.assetIds ?? [])]
       : [];
     const hasExplicitSelection = requestedSelectedAssetIds.length > 0;

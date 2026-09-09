@@ -103,23 +103,59 @@ test('Internal CA 统一签发任务支持显式重试失败申请，并保持�
   assert.equal((issued.detail as { certificateVersionId?: string }).certificateVersionId, 'version-1');
 });
 
-test('专属证书部署父任务先等待签发子任务，再创建标准部署子任务', async () => {
-  let prepared = 0;
+test('专属证书申请父任务在签发成功后创建标准部署任务', async () => {
+  let plans = 0;
+  let parentTaskId: string | undefined;
+  const registry = createTaskExecutorRegistry({
+    applicationCertificateSupply: {
+      createDedicatedDeploymentPlan: async (input: { parentTaskId?: string }) => { plans += 1; parentTaskId = input.parentTaskId; return { planId: 'plan-1', jobId: 'child-deploy-1' }; },
+    } as never,
+    taskControl: {
+      detail: async (_tenantId: string, _taskId: string) => ({ task: task('CERTIFICATE_DEPLOY', { applicationAssetId: 'app-1' }), attempts: [], events: [], childTasks: [], resourceRefs: [], auditEvents: [] }),
+      list: async () => ({ items: [{ taskType: 'CERTIFICATE_ISSUE', status: 'SUCCEEDED', progress: { certificateVersionId: 'version-fixed' } }] }),
+    } as never,
+  });
+  const result = await registry.get('application.certificate-supply')(task('APPLICATION_CERTIFICATE_SUPPLY', { applicationAssetId: 'app-1', certificateRequestId: 'request-1' }), attempt);
+  assert.equal(result.waitingStatus, 'WAITING_RESULT');
+  assert.equal(plans, 1);
+  assert.equal(parentTaskId, 'task-APPLICATION_CERTIFICATE_SUPPLY');
+  assert.equal((result.detail as { certificateVersionId?: string }).certificateVersionId, 'version-fixed');
+});
+
+test('专属证书签发任务未完成时继续等待，不创建部署任务', async () => {
   let plans = 0;
   const registry = createTaskExecutorRegistry({
     applicationCertificateSupply: {
-      prepareDedicatedDeployment: async () => { prepared += 1; return { issueRequired: false, certificateVersionId: 'version-fixed', certificateAssetId: 'asset-1' }; },
-      createDedicatedDeploymentPlan: async () => { plans += 1; return { planId: 'plan-1', jobId: 'child-deploy-1' }; },
+      createDedicatedDeploymentPlan: async () => { plans += 1; return { planId: 'plan-unexpected', jobId: 'job-unexpected' }; },
     } as never,
     taskControl: {
-      detail: async (_tenantId: string, _taskId: string) => ({ task: task('APPLICATION_CERTIFICATE_DEPLOY', { applicationAssetId: 'app-1' }), attempts: [], events: [], childTasks: [], resourceRefs: [], auditEvents: [] }),
+      detail: async (_tenantId: string, _taskId: string) => ({ task: task('CERTIFICATE_DEPLOY', { applicationAssetId: 'app-1' }), attempts: [], events: [], childTasks: [], resourceRefs: [], auditEvents: [] }),
+      list: async () => ({ items: [{ taskType: 'CERTIFICATE_ISSUE', status: 'RUNNING' }] }),
     } as never,
   });
-  const result = await registry.get('application.certificate-deploy')(task('APPLICATION_CERTIFICATE_DEPLOY', { applicationAssetId: 'app-1' }), attempt);
+  const result = await registry.get('application.certificate-supply')(task('APPLICATION_CERTIFICATE_SUPPLY', { applicationAssetId: 'app-1', certificateRequestId: 'request-1' }), attempt);
+  assert.equal(result.success, false);
   assert.equal(result.waitingStatus, 'WAITING_RESULT');
-  assert.equal(prepared, 1);
-  assert.equal(plans, 1);
-  assert.equal((result.detail as { certificateVersionId?: string }).certificateVersionId, 'version-fixed');
+  assert.equal(result.errorCode, 'CERTIFICATE_ISSUE_PENDING');
+  assert.equal(plans, 0);
+});
+
+test('专属证书签发失败时终止部署父任务，不创建部署子任务', async () => {
+  let plans = 0;
+  const registry = createTaskExecutorRegistry({
+    applicationCertificateSupply: {
+      createDedicatedDeploymentPlan: async () => { plans += 1; return { planId: 'plan-unexpected', jobId: 'job-unexpected' }; },
+    } as never,
+    taskControl: {
+      detail: async (_tenantId: string, _taskId: string) => ({ task: task('CERTIFICATE_DEPLOY', { applicationAssetId: 'app-1' }), attempts: [], events: [], childTasks: [], resourceRefs: [], auditEvents: [] }),
+      list: async () => ({ items: [{ taskType: 'CERTIFICATE_ISSUE', status: 'FAILED', lastErrorCode: 'CERTIFICATE_ISSUE_FAILED', lastErrorMessage: '专属证书签发失败' }] }),
+    } as never,
+  });
+  const result = await registry.get('application.certificate-supply')(task('APPLICATION_CERTIFICATE_SUPPLY', { applicationAssetId: 'app-1', certificateRequestId: 'request-1' }), attempt);
+  assert.equal(result.success, false);
+  assert.equal(result.retryable, false);
+  assert.equal(result.errorCode, 'CERTIFICATE_ISSUE_FAILED');
+  assert.equal(plans, 0);
 });
 
 test('ACME 旧代次统一任务不会在人工重试后再次执行 RenewalJob', async () => {

@@ -109,19 +109,38 @@ export class ApplicationCertificateSupplyRepository implements ApplicationCertif
 
   async resolveCustodyCapability(tenantId: string, applicationAssetId: string): Promise<{ mode: 'agent_local' | 'device_local' | 'managed_secret'; evidence: Record<string, unknown> }> {
     const rows = (await this.db.query<Record<string, unknown>>(
-      `select target.id, target.managed_target_id, managed.supported_capabilities, managed.execution_locations,
-              managed.target_type
+      `select target.id, target.managed_target_id, target.status as application_target_status,
+              managed.supported_capabilities, managed.execution_locations, managed.target_type,
+              managed.agent_id, managed.device_asset_id,
+              host.agent_id as host_agent_id, service.agent_id as service_agent_id,
+              managed.status as managed_target_status
          from pg_application_asset_targets target
          join pg_managed_targets managed on managed.id = target.managed_target_id and managed.tenant_id = target.tenant_id
+         left join pg_hosts host on host.id = managed.device_id and host.tenant_id = managed.tenant_id
+         left join pg_service_assets service on service.id = managed.service_asset_id and service.tenant_id = managed.tenant_id
         where target.tenant_id = $1 and target.application_asset_id = $2
           and target.deleted_at is null and managed.deleted_at is null
+          and upper(target.status) = 'ACTIVE' and upper(managed.status) = 'ACTIVE'
         order by target.created_at asc`,
       [tenantId, applicationAssetId],
     )).rows;
     const hasCsr = (row: Record<string, unknown>) => jsonStrings(row.supported_capabilities).some((item) => /(?:key\.generate_csr|generate_csr|csr)/i.test(item));
     const locations = (row: Record<string, unknown>) => jsonStrings(row.execution_locations).map((item) => item.toLowerCase());
-    const agent = rows.find((row) => hasCsr(row) && locations(row).some((item) => item === 'agent'));
-    if (agent) return { mode: 'agent_local', evidence: { targetId: agent.managed_target_id, capability: 'key.generate_csr', executionLocation: 'agent' } };
+    const agent = rows.find((row) => hasCsr(row) && [row.agent_id, row.host_agent_id, row.service_agent_id].some((value) => typeof value === 'string' && value.trim()));
+    if (agent) {
+      const agentId = [agent.agent_id, agent.host_agent_id, agent.service_agent_id].find((value) => typeof value === 'string' && value.trim());
+      return {
+        mode: 'agent_local',
+        evidence: {
+          targetId: agent.managed_target_id,
+          agentId,
+          targetType: agent.target_type,
+          capability: 'key.generate_csr',
+          executionLocation: 'agent',
+          identification: 'managed_target.agent_id|host.agent_id|service_asset.agent_id',
+        },
+      };
+    }
     const device = rows.find((row) => hasCsr(row) && locations(row).some((item) => item === 'gateway' || item === 'device'));
     if (device) return { mode: 'device_local', evidence: { targetId: device.managed_target_id, capability: 'key.generate_csr', executionLocation: 'gateway' } };
     return { mode: 'managed_secret', evidence: { targetCount: rows.length, reason: rows.length ? 'target_without_local_csr' : 'target_missing' } };

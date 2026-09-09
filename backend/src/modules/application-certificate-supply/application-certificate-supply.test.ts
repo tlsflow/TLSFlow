@@ -130,8 +130,8 @@ describe('应用证书供应策略', () => {
     await db.exec(`
       insert into pg_service_assets (id, tenant_id, address, address_type, port, protocol, display_name, discovery_source, status, asset_kind)
       values ('app-dedicated-a', '${tenantA}', 'dedicated.example.test', 'DNS', 443, 'HTTPS', '专属订单系统', 'MANUAL', 'ACTIVE', 'APPLICATION');
-      insert into pg_managed_targets (id, tenant_id, service_asset_id, target_type, target_key, discovery_provider_key, supported_capabilities, execution_locations, created_at, updated_at)
-      values ('target-dedicated-a', '${tenantA}', 'app-dedicated-a', 'server.test', 'dedicated.example.test', 'test', '[\"key.generate_csr\",\"certificate.install_issued\"]', '[\"agent\"]', now(), now());
+      insert into pg_managed_targets (id, tenant_id, service_asset_id, agent_id, target_type, target_key, discovery_provider_key, supported_capabilities, execution_locations, created_at, updated_at)
+      values ('target-dedicated-a', '${tenantA}', 'app-dedicated-a', 'agent-dedicated-a', 'server.test', 'dedicated.example.test', 'test', '[\"key.generate_csr\",\"certificate.install_issued\"]', '[\"agent\"]', now(), now());
       insert into pg_application_asset_targets (id, tenant_id, application_asset_id, managed_target_id, status, created_at, updated_at)
       values ('link-dedicated-a', '${tenantA}', 'app-dedicated-a', 'target-dedicated-a', 'ACTIVE', now(), now());
     `);
@@ -167,6 +167,8 @@ describe('应用证书供应策略', () => {
     }, 'operator');
     const certificateAssetId = saved.currentVersion?.certificateAssetId;
     assert.ok(certificateAssetId);
+    assert.equal(saved.capability.custodyMode, 'agent_local');
+    assert.equal(saved.capability.evidence.agentId, 'agent-dedicated-a');
     assert.notEqual(certificateAssetId, 'app-dedicated-a');
     const asset = await certificates.getRepository().getAsset(certificateAssetId!, tenantA);
     assert.equal(asset?.applicationAssetId, 'app-dedicated-a');
@@ -175,6 +177,7 @@ describe('应用证书供应策略', () => {
     assert.equal(requests[0]?.applicationAssetId, 'app-dedicated-a');
     assert.equal(requests[0]?.certificateAssetId, certificateAssetId);
     assert.equal(requests[0]?.applicationCertificatePolicyVersionId, saved.currentVersion?.id);
+    assert.deepEqual(requests[0]?.sans, ['dedicated.example.test']);
     assert.notEqual(requests[0]?.status, 'pending_approval');
     assert.equal(requests[0]?.approvalId, undefined);
     const row = await db.query<{ certificate_asset_id: string; application_certificate_policy_version_id: string }>(
@@ -183,13 +186,15 @@ describe('应用证书供应策略', () => {
     );
     assert.equal(row.rows[0]?.certificate_asset_id, certificateAssetId);
     assert.equal(row.rows[0]?.application_certificate_policy_version_id, saved.currentVersion?.id);
-    assert.equal(enqueued.length, 1);
-    assert.equal(enqueued[0]?.taskType, 'CERTIFICATE_ISSUE');
-    assert.equal(enqueued[0]?.payload?.certificateRequestId, requests[0]?.id);
-    assert.equal(enqueued[0]?.resourceSummary?.displayName, '专属订单系统');
-    assert.equal(enqueued[0]?.resourceSummary?.applicationDisplayName, '专属订单系统');
-    assert.equal(enqueued[0]?.resourceSummary?.applicationDomain, 'dedicated.example.test');
-    assert.equal(enqueued[0]?.resourceSummary?.certificateRequestName, '专属订单系统 专属证书申请');
+    assert.equal(enqueued.length, 2);
+    const issueTask = enqueued.find((item) => item.taskType === 'CERTIFICATE_ISSUE');
+    const parentTask = enqueued.find((item) => item.taskType === 'APPLICATION_CERTIFICATE_SUPPLY');
+    assert.equal(issueTask?.payload?.certificateRequestId, requests[0]?.id);
+    assert.equal(issueTask?.resourceSummary?.displayName, '专属订单系统');
+    assert.equal(issueTask?.resourceSummary?.applicationDisplayName, '专属订单系统');
+    assert.equal(issueTask?.resourceSummary?.applicationDomain, 'dedicated.example.test');
+    assert.equal(issueTask?.resourceSummary?.certificateRequestName, '专属订单系统 专属证书申请');
+    assert.equal(parentTask?.payload?.certificateRequestId, requests[0]?.id);
   });
 
   it('完整专属配置默认只保存 draft，不创建证书资产或申请', async () => {
@@ -633,4 +638,275 @@ describe('应用证书供应策略', () => {
     assert.equal(response?.currentVersion?.certificateAssetId, undefined);
     assert.equal(response?.currentVersion?.status, 'draft');
   });
+
+  it('专属证书签发中时创建父任务并等待签发完成', async () => {
+    let enqueueCalls = 0;
+    const repository = {
+      getApplication: async () => ({ id: 'app-deploy-pending', primaryDomain: 'pending.example.test' }),
+      getPolicy: async () => ({
+        policy: { id: 'policy-deploy-pending', tenantId: tenantA, applicationAssetId: 'app-deploy-pending', createdAt: 'now', updatedAt: 'now' },
+        currentVersion: { id: 'version-deploy-pending', tenantId: tenantA, applicationAssetId: 'app-deploy-pending', primaryDomain: 'pending.example.test', supplyMode: 'dedicated', certificateVersionId: 'version-pending', certificateAssetId: 'asset-pending', status: 'provisioning' },
+      }),
+    };
+    const issuance = { listRequests: async () => [{ id: 'request-pending', applicationCertificatePolicyVersionId: 'version-deploy-pending', certificateVersionId: 'version-pending', status: 'issuing' }] };
+    const service = new ApplicationCertificateSupplyApplicationService(repository as never, undefined, undefined, issuance as never, undefined, {
+      enqueue: async (input: any) => { enqueueCalls += 1; return { id: 'unexpected-task', ...input }; },
+    });
+
+    const task = await service.enqueueDedicatedDeployment({ tenantId: tenantA, applicationAssetId: 'app-deploy-pending', actorId: 'operator' });
+    assert.equal(task.id, 'unexpected-task');
+    assert.equal(enqueueCalls, 1);
+  });
+
+  it('创建阶段已有 v1 父任务时部署入口复用该任务，不重复创建专属证书处理记录', async () => {
+    let enqueueCalls = 0;
+    const repository = {
+      getApplication: async () => ({ id: 'app-deploy-existing-parent', primaryDomain: 'existing-parent.example.test' }),
+      getPolicy: async () => ({
+        policy: { id: 'policy-existing-parent', tenantId: tenantA, applicationAssetId: 'app-deploy-existing-parent', createdAt: 'now', updatedAt: 'now' },
+        currentVersion: { id: 'version-existing-parent', tenantId: tenantA, applicationAssetId: 'app-deploy-existing-parent', primaryDomain: 'existing-parent.example.test', supplyMode: 'dedicated', certificateVersionId: 'version-existing', certificateAssetId: 'asset-existing', status: 'provisioning' },
+      }),
+    };
+    const issuance = { listRequests: async () => [{ id: 'request-existing-parent', applicationCertificatePolicyVersionId: 'version-existing-parent', certificateVersionId: 'version-existing', status: 'issuing' }] };
+    const parentTask = { id: 'parent-existing', taskType: 'APPLICATION_CERTIFICATE_SUPPLY', status: 'QUEUED' };
+    const tasks = {
+      enqueue: async (input: any) => { enqueueCalls += 1; return { id: 'unexpected-task', ...input }; },
+      findByIdempotencyKey: async (_tenant: string, taskType: string, key: string) => taskType === 'APPLICATION_CERTIFICATE_SUPPLY' && key === 'application-certificate-supply:v1:app-deploy-existing-parent:version-existing-parent' ? parentTask : undefined,
+    };
+    const service = new ApplicationCertificateSupplyApplicationService(repository as never, undefined, undefined, issuance as never, undefined, tasks as never);
+
+    const task = await service.enqueueDedicatedDeployment({ tenantId: tenantA, applicationAssetId: 'app-deploy-existing-parent', actorId: 'operator' });
+
+    assert.equal(task.id, 'parent-existing');
+    assert.equal(enqueueCalls, 0);
+  });
+
+  it('重新申请证书时强制创建新策略版本，避免复用已失败的签发任务', async () => {
+    let updateOptions: any;
+    let updated = false;
+    const repository = {
+      getApplication: async () => ({ id: 'app-reapply-version', primaryDomain: 'reapply-version.example.test' }),
+      getPolicy: async () => ({
+        policy: { id: 'policy-reapply-version', tenantId: tenantA, applicationAssetId: 'app-reapply-version', createdAt: 'now', updatedAt: 'now' },
+        currentVersion: updated
+          ? { id: 'version-new', tenantId: tenantA, applicationAssetId: 'app-reapply-version', primaryDomain: 'reapply-version.example.test', supplyMode: 'dedicated', providerType: 'internal_ca', certificateAssetId: 'asset-new', status: 'provisioning' }
+          : { id: 'version-old-failed', tenantId: tenantA, applicationAssetId: 'app-reapply-version', primaryDomain: 'reapply-version.example.test', supplyMode: 'dedicated', providerType: 'internal_ca', certificateVersionId: 'version-old-cert', certificateAssetId: 'asset-old', status: 'provisioning' },
+      }),
+    };
+    const issuance = { listRequests: async () => [{ id: 'request-new', applicationCertificatePolicyVersionId: 'version-new', status: 'issuing' }] };
+    const tasks = { enqueue: async (input: any) => ({ id: 'parent-new', ...input }), findByIdempotencyKey: async () => undefined };
+    const service = new ApplicationCertificateSupplyApplicationService(repository as never, undefined, undefined, issuance as never, undefined, tasks as never);
+    (service as any).update = async (_tenantId: string, _applicationAssetId: string, _input: unknown, _actorId: string, options: unknown) => {
+      updateOptions = options;
+      updated = true;
+      return { currentVersion: { id: 'version-new' } };
+    };
+
+    const task = await service.enqueueDedicatedDeployment({ tenantId: tenantA, applicationAssetId: 'app-reapply-version', actorId: 'operator', reapply: true });
+
+    assert.equal(updateOptions?.forceNewVersion, true);
+    assert.equal(task.id, 'parent-new');
+  });
+
+  it('查询专属策略时返回签发失败事实并禁止部署', async () => {
+    const repository = {
+      getApplication: async () => ({ id: 'app-issue-status-failed', primaryDomain: 'failed.example.test' }),
+      getPolicy: async () => ({
+        policy: { id: 'policy-issue-status-failed', tenantId: tenantA, applicationAssetId: 'app-issue-status-failed', createdAt: 'now', updatedAt: 'now' },
+        currentVersion: {
+          id: 'version-issue-status-failed', policyId: 'policy-issue-status-failed', tenantId: tenantA,
+          applicationAssetId: 'app-issue-status-failed', versionNo: 1, isActive: true,
+          primaryDomain: 'failed.example.test', supplyMode: 'dedicated', providerType: 'internal_ca',
+          providerId: 'provider-failed', certificateAuthorityId: 'ca-failed', certificateProfileVersionId: 'profile-failed',
+          certificateAssetId: 'asset-failed', custodyMode: 'managed_secret', deploymentArtifactMode: 'certificate_with_private_key',
+          autoRenew: false, rotateKeyOnRenewal: false, status: 'provisioning', policySnapshot: {}, createdAt: 'now', updatedAt: 'now',
+        },
+      }),
+      listCertificateCandidates: async () => [],
+      resolveCustodyCapability: async () => ({ mode: 'managed_secret', evidence: {} }),
+    };
+    const internalCa = {
+      listProviders: async () => [{ id: 'provider-failed', name: 'Provider', type: 'plugin', status: 'active' }],
+      listAuthorities: async () => [{ id: 'ca-failed', providerId: 'provider-failed', name: 'CA', status: 'active' }],
+      listProfiles: async () => [{
+        profile: { id: 'profile', name: 'Profile', status: 'active', currentVersion: 1 },
+        versions: [{ id: 'profile-failed', versionNo: 1 }],
+      }],
+      listAcmeProviderProfiles: () => [],
+      listRequests: async () => [{
+        id: 'request-failed', applicationCertificatePolicyVersionId: 'version-issue-status-failed',
+        status: 'issue_failed', failureCode: 'TASK_EXECUTOR_THROWN', failureMessage: 'CA Provider 返回错误',
+      }],
+    };
+    const service = new ApplicationCertificateSupplyApplicationService(repository as never, internalCa as never, undefined, internalCa as never);
+
+    const response = await service.get(tenantA, 'app-issue-status-failed');
+
+    assert.equal(response.issuance?.status, 'issue_failed');
+    assert.equal(response.issuance?.failureCode, 'TASK_EXECUTOR_THROWN');
+    assert.equal(response.issuance?.failureMessage, 'CA Provider 返回错误');
+    assert.equal(response.readiness.canDeploy, false);
+    assert.ok(response.readiness.reasons.includes('CERTIFICATE_ISSUE_FAILED'));
+  });
+
+  it('专属证书签发失败时恢复签发任务并创建父任务', async () => {
+    let enqueueCalls = 0;
+    const repository = {
+      getApplication: async () => ({ id: 'app-deploy-failed', primaryDomain: 'failed.example.test' }),
+      getPolicy: async () => ({
+        policy: { id: 'policy-deploy-failed', tenantId: tenantA, applicationAssetId: 'app-deploy-failed', createdAt: 'now', updatedAt: 'now' },
+        currentVersion: { id: 'version-deploy-failed', tenantId: tenantA, applicationAssetId: 'app-deploy-failed', primaryDomain: 'failed.example.test', supplyMode: 'dedicated', certificateVersionId: 'version-failed', certificateAssetId: 'asset-failed', status: 'provisioning' },
+      }),
+    };
+    const issuance = { listRequests: async () => [{ id: 'request-failed', applicationCertificatePolicyVersionId: 'version-deploy-failed', certificateVersionId: 'version-failed', status: 'issue_failed', failureCode: 'CA_DOWN', failureMessage: 'CA 不可用' }] };
+    const tasks = {
+      enqueue: async (input: any) => { enqueueCalls += 1; return { id: 'unexpected-task', ...input }; },
+      findByIdempotencyKey: async () => undefined,
+      retry: async (_tenant: string, id: string) => ({ id, status: 'QUEUED' }),
+    };
+    const service = new ApplicationCertificateSupplyApplicationService(repository as never, undefined, undefined, issuance as never, undefined, tasks as never);
+
+    const task = await service.enqueueDedicatedDeployment({ tenantId: tenantA, applicationAssetId: 'app-deploy-failed', actorId: 'operator' });
+    assert.equal(task.id, 'unexpected-task');
+    assert.equal(enqueueCalls, 2);
+  });
+
+  it('专属证书签发失败时部署入口重试签发任务并恢复父编排', async () => {
+    const retried: string[] = [];
+    const repository = {
+      getApplication: async () => ({ id: 'app-deploy-retry', primaryDomain: 'retry.example.test' }),
+      getPolicy: async () => ({
+        policy: { id: 'policy-deploy-retry', tenantId: tenantA, applicationAssetId: 'app-deploy-retry', createdAt: 'now', updatedAt: 'now' },
+        currentVersion: { id: 'version-deploy-retry', tenantId: tenantA, applicationAssetId: 'app-deploy-retry', primaryDomain: 'retry.example.test', supplyMode: 'dedicated', certificateVersionId: 'version-retry', certificateAssetId: 'asset-retry', status: 'provisioning' },
+      }),
+    };
+    const issuance = { listRequests: async () => [{ id: 'request-retry', applicationCertificatePolicyVersionId: 'version-deploy-retry', certificateVersionId: 'version-retry', status: 'issue_failed', failureCode: 'CA_DOWN' }] };
+    const issueTask = { id: 'issue-task-retry', taskType: 'CERTIFICATE_ISSUE', status: 'FAILED' };
+    const parentTask = { id: 'parent-task-retry', taskType: 'APPLICATION_CERTIFICATE_SUPPLY', status: 'FAILED' };
+    const tasks = {
+      enqueue: async (input: any) => { retried.push(`enqueue:${input.taskType}`); return { id: 'new-task', ...input }; },
+      findByIdempotencyKey: async (_tenant: string, taskType: string) => taskType === 'CERTIFICATE_ISSUE' ? issueTask : parentTask,
+      retry: async (_tenant: string, id: string) => { retried.push(`retry:${id}`); return { id, taskType: id === issueTask.id ? 'CERTIFICATE_ISSUE' : 'APPLICATION_CERTIFICATE_SUPPLY', status: 'QUEUED' }; },
+    };
+    const service = new ApplicationCertificateSupplyApplicationService(repository as never, undefined, undefined, issuance as never, undefined, tasks as never);
+
+    const task = await service.enqueueDedicatedDeployment({ tenantId: tenantA, applicationAssetId: 'app-deploy-retry', actorId: 'operator' });
+
+    assert.equal(task.id, 'parent-task-retry');
+    assert.deepEqual(retried, ['retry:issue-task-retry', 'retry:parent-task-retry']);
+  });
+
+  it('专属证书签发成功后才创建固定版本部署任务', async () => {
+    const enqueued: any[] = [];
+    const repository = {
+      getApplication: async () => ({ id: 'app-deploy-issued', displayName: '已签发应用', primaryDomain: 'issued.example.test' }),
+      getPolicy: async () => ({
+        policy: { id: 'policy-deploy-issued', tenantId: tenantA, applicationAssetId: 'app-deploy-issued', createdAt: 'now', updatedAt: 'now' },
+        currentVersion: { id: 'version-deploy-issued', tenantId: tenantA, applicationAssetId: 'app-deploy-issued', primaryDomain: 'issued.example.test', supplyMode: 'dedicated', certificateVersionId: 'version-issued', certificateAssetId: 'asset-issued', status: 'provisioning' },
+      }),
+    };
+    const issuance = { listRequests: async () => [{ id: 'request-issued', applicationCertificatePolicyVersionId: 'version-deploy-issued', certificateVersionId: 'version-issued', status: 'issued' }] };
+    const service = new ApplicationCertificateSupplyApplicationService(repository as never, undefined, undefined, issuance as never, undefined, {
+      enqueue: async (input: any) => { enqueued.push(input); return { id: 'task-issued', ...input }; },
+    });
+
+    const task = await service.enqueueDedicatedDeployment({ tenantId: tenantA, applicationAssetId: 'app-deploy-issued', actorId: 'operator', idempotencyKey: 'deploy-session-1' });
+    assert.equal(task.id, 'task-issued');
+    assert.equal(enqueued.length, 1);
+    assert.equal(enqueued[0]?.taskType, 'APPLICATION_CERTIFICATE_SUPPLY');
+    assert.equal(enqueued[0]?.idempotencyKey, 'application-certificate-supply:v2:app-deploy-issued:version-deploy-issued:deploy-session-1');
+    assert.equal(enqueued[0]?.payload?.applicationAssetId, 'app-deploy-issued');
+    assert.equal(enqueued[0]?.resourceSummary?.certificateVersionId, 'version-issued');
+    assert.equal(enqueued[0]?.resourceSummary?.certificateRequestId, 'request-issued');
+    assert.equal(enqueued[0]?.resourceSummary?.certificateVersionId, 'version-issued');
+  });
+
+  it('已签发证书的历史失败部署再次点击时恢复原父任务', async () => {
+    const retried: string[] = [];
+    const repository = {
+      getApplication: async () => ({ id: 'app-deploy-history-failed', displayName: '历史失败应用', primaryDomain: 'history-failed.example.test' }),
+      getPolicy: async () => ({
+        policy: { id: 'policy-history-failed', tenantId: tenantA, applicationAssetId: 'app-deploy-history-failed', createdAt: 'now', updatedAt: 'now' },
+        currentVersion: { id: 'version-history-failed', tenantId: tenantA, applicationAssetId: 'app-deploy-history-failed', primaryDomain: 'history-failed.example.test', supplyMode: 'dedicated', certificateVersionId: 'version-history-failed', certificateAssetId: 'asset-history-failed', status: 'issued' },
+      }),
+    };
+    const issuance = { listRequests: async () => [{ id: 'request-history-failed', applicationCertificatePolicyVersionId: 'version-history-failed', certificateVersionId: 'version-history-failed', status: 'issued' }] };
+    const parentTask = { id: 'parent-history-failed', taskType: 'APPLICATION_CERTIFICATE_SUPPLY', status: 'FAILED' };
+    const tasks = {
+      enqueue: async () => { throw new Error('不应创建第二个父任务'); },
+      findByIdempotencyKey: async () => parentTask,
+      retry: async (_tenant: string, id: string) => { retried.push(id); return { ...parentTask, status: 'QUEUED' }; },
+    };
+    const service = new ApplicationCertificateSupplyApplicationService(repository as never, undefined, undefined, issuance as never, undefined, tasks as never);
+
+    const task = await service.enqueueDedicatedDeployment({ tenantId: tenantA, applicationAssetId: 'app-deploy-history-failed', actorId: 'operator' });
+
+    assert.equal(task.id, parentTask.id);
+    assert.equal(task.status, 'QUEUED');
+    assert.deepEqual(retried, [parentTask.id]);
+  });
+
+  it('专属证书安装只注入固定证书版本并复用标准 CERTIFICATE_DEPLOY 执行链', async () => {
+    const calls: Array<{ method: string; input: any }> = [];
+    const service = new ApplicationCertificateSupplyApplicationService({} as never);
+    service.setDedicatedDeploymentPlans({
+      createFromApplicationAsset: async (input: any) => {
+        calls.push({ method: 'create', input });
+        return { id: 'plan-standard', certificateVersionId: input.targetCertificateVersionId } as never;
+      },
+      submit: async (input: any) => {
+        calls.push({ method: 'submit', input });
+        return {} as never;
+      },
+      execute: async (input: any) => {
+        calls.push({ method: 'execute', input });
+        return { jobId: 'task-standard-certificate-deploy' } as never;
+      },
+    });
+
+    const result = await service.createDedicatedDeploymentPlan({
+      tenantId: tenantA,
+      applicationAssetId: 'app-standard-chain',
+      certificateVersionId: 'certificate-version-dedicated',
+      certificateRequestId: 'request-dedicated',
+      actorId: 'operator',
+      parentTaskId: 'parent-supply',
+    });
+
+    assert.deepEqual(result, { planId: 'plan-standard', jobId: 'task-standard-certificate-deploy' });
+    assert.deepEqual(calls.map((call) => call.method), ['create', 'submit', 'execute']);
+    assert.equal(calls[0]?.input.selectionMode, 'EXPLICIT');
+    assert.equal(calls[0]?.input.targetCertificateVersionId, 'certificate-version-dedicated');
+    assert.equal(calls[0]?.input.applicationAssetId, 'app-standard-chain');
+    assert.equal(calls[1]?.input.planId, 'plan-standard');
+    assert.equal(calls[2]?.input.planId, 'plan-standard');
+    assert.equal(calls[2]?.input.parentTaskId, 'parent-supply');
+    assert.match(calls[2]?.input.idempotencyKey, /certificate-version-dedicated:parent-supply:execution$/);
+  });
+
+  it('不同部署会话不复用历史专属处理任务和标准执行任务', async () => {
+    const parentKeys: string[] = [];
+    const repository = {
+      getApplication: async () => ({ id: 'app-session-boundary', displayName: '会话边界应用', primaryDomain: 'session.example.test' }),
+      getPolicy: async () => ({
+        policy: { id: 'policy-session-boundary', tenantId: tenantA, applicationAssetId: 'app-session-boundary', createdAt: 'now', updatedAt: 'now' },
+        currentVersion: { id: 'version-session-boundary', tenantId: tenantA, applicationAssetId: 'app-session-boundary', primaryDomain: 'session.example.test', supplyMode: 'dedicated', certificateVersionId: 'version-session', certificateAssetId: 'asset-session', status: 'issued' },
+      }),
+    };
+    const issuance = { listRequests: async () => [{ id: 'request-session', applicationCertificatePolicyVersionId: 'version-session-boundary', certificateVersionId: 'version-session', status: 'issued' }] };
+    const tasks = {
+      enqueue: async (input: any) => { parentKeys.push(input.idempotencyKey); return { id: `parent-${parentKeys.length}`, status: 'QUEUED', ...input }; },
+      findByIdempotencyKey: async () => undefined,
+    };
+    const service = new ApplicationCertificateSupplyApplicationService(repository as never, undefined, undefined, issuance as never, undefined, tasks as never);
+
+    await service.enqueueDedicatedDeployment({ tenantId: tenantA, applicationAssetId: 'app-session-boundary', actorId: 'operator', idempotencyKey: 'session-a' });
+    await service.enqueueDedicatedDeployment({ tenantId: tenantA, applicationAssetId: 'app-session-boundary', actorId: 'operator', idempotencyKey: 'session-b' });
+
+    assert.equal(parentKeys.length, 2);
+    assert.notEqual(parentKeys[0], parentKeys[1]);
+    assert.match(parentKeys[0], /:session-a$/);
+    assert.match(parentKeys[1], /:session-b$/);
+  });
+
 });
