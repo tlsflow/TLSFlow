@@ -58,6 +58,18 @@ async function createDiscoveryRequest(
     refreshWebInventory,
   });
   dependencies.policyAuthority.assertReady();
+  // 直连发现不经过 DeploymentPlan 编译链。生产 Authority 可用时，先由其为固定的
+  // 只读发现范围建立精确规则；本地 Authority 不实现该入口，仍按原有逻辑签发。
+  if (typeof dependencies.policyAuthority.provisionDiscoveryAuthorization === 'function') {
+    await dependencies.policyAuthority.provisionDiscoveryAuthorization({
+      tenantId: input.tenantId,
+      agentId: input.agent.id,
+      pluginId: anchor.pluginId,
+      pluginVersionId: anchor.id,
+      planDigest,
+      allowedPaths: paths,
+    });
+  }
   const authorization = await dependencies.policyAuthority.issueAuthorization({
     agentId: input.agent.id,
     tenantId: input.tenantId,

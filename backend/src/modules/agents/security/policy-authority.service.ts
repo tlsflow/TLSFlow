@@ -32,7 +32,7 @@ import {
   type TokenRevocationRecordV1,
 } from './agent-security.contract.js';
 import { CERTIFICATE_UPDATE_POLICY_REF, CERTIFICATE_UPDATE_POLICY_VERSION } from './policy-version.constants.js';
-import { selectWebDiscoveryPaths } from '../agent-discovery-paths.js';
+import { isAllowedWebDiscoveryPathSet, selectWebDiscoveryPaths } from '../agent-discovery-paths.js';
 
 export interface PolicyAuthorityTrustRootV1 {
   rootKeyId: string;
@@ -190,6 +190,20 @@ export interface PolicyAuthorityProvisioningRequestV1 {
   bootstrapLocalPolicy?: boolean;
   /** provisioning 只能接收完整已编译计划，禁止插件 runtime 自行拼装授权字段。 */
   compiledPlan: AgentPlanV1;
+}
+
+/**
+ * Web 发现没有可执行部署 Plan 和 Execution Grant；它只能申请固定的只读事实采集范围。
+ * 这个受限入口用于把该范围写入 Policy Authority 的正式 provisioning 存储，不能用于
+ * 证书安装、命令执行或任何带 Artifact 的操作。
+ */
+export interface PolicyAuthorityDiscoveryProvisioningRequestV1 {
+  tenantId: string;
+  agentId: string;
+  pluginId: string;
+  pluginVersionId: string;
+  planDigest: string;
+  allowedPaths: string[];
 }
 
 export interface SignedPolicyAuthorityProvisioningRuleV1 extends PolicyAuthorityPolicyRuleV1 {
@@ -790,6 +804,91 @@ export class PolicyAuthorityServiceV1 {
     return structuredClone(validatedResult);
   }
 
+  /**
+   * 为 Agent 直连 Web 发现签发精确的只读规则。发现不是部署执行，不能伪造一个
+   * Deployment Plan 来复用写入 provisioning 入口；规则的动作、Capability、策略引用
+   * 与制品范围均由服务端固定，调用方只能给出身份绑定、Plan 摘要和受控目录子集。
+   */
+  provisionDiscoveryAuthorization(request: PolicyAuthorityDiscoveryProvisioningRequestV1): PolicyAuthorityProvisioningResultV1 {
+    this.refreshConfiguredKeySet();
+    this.assertBootstrap(this.currentTime());
+    if (!this.provisioning) failClosed('Policy Authority provisioning 存储不可用');
+    const validated = validateDiscoveryProvisioningRequest(request);
+    const requestDigest = sha256Digest({ kind: 'application.discover', ...validated, allowedPaths: [...validated.allowedPaths].sort() });
+    const existing = this.provisioning.find(requestDigest);
+    if (existing) {
+      const key = this.findKey(existing.rule.authorityKeyId, this.currentTime(), true);
+      assertProvisioningSignatures(existing, key.publicKeyPem);
+      return structuredClone(existing);
+    }
+
+    const issuedAt = this.currentTime();
+    const activeKey = this.getActiveSigningKey(issuedAt);
+    const actions = ['filesystem.read', 'process.list', 'service.list'];
+    const validUntil = addSeconds(issuedAt, 365 * 24 * 60 * 60);
+    const ruleUnsigned: Omit<SignedPolicyAuthorityProvisioningRuleV1, 'signature'> = {
+      provisioningVersion: policyAuthorityProvisioningVersion,
+      policyRef: 'gcac.agent.discovery',
+      policyVersion: '1',
+      agentId: validated.agentId,
+      tenantId: validated.tenantId,
+      pluginId: validated.pluginId,
+      pluginVersionId: validated.pluginVersionId,
+      capability: 'application.discover',
+      planDigest: validated.planDigest,
+      actions,
+      allowedPaths: [...validated.allowedPaths],
+      allowedServices: [],
+      artifactDigests: [],
+      commandRules: [],
+      authorityKeyId: activeKey.keyId,
+      issuedAt,
+      validUntil,
+    };
+    const rule = { ...ruleUnsigned, signature: signPolicyPayload(ruleUnsigned, activeKey.privateKey) };
+    // 这份材料仅用于使 provisioning 记录具备完整的签名和审计结构；发现载荷不会下发它，
+    // 因此不会覆盖 Agent 当前用于证书部署的本地策略。
+    const localPolicy = validateAgentLocalPolicy({
+      policyVersion: agentSecurityContractVersion,
+      agentId: validated.agentId,
+      authorityKeyIds: [activeKey.keyId],
+      allowedActions: actions,
+      pathRules: validated.allowedPaths.map((prefix) => ({ prefix, operations: ['filesystem.read'] })),
+      serviceRules: [],
+      commandRules: [],
+      disabled: false,
+      updatedAt: issuedAt,
+    });
+    const localUnsigned: Omit<SignedAgentLocalPolicyMaterialV1, 'signature'> = {
+      materialVersion: policyAuthorityProvisioningVersion,
+      tenantId: validated.tenantId,
+      agentId: validated.agentId,
+      localPolicy,
+      authorityKeyId: activeKey.keyId,
+    };
+    const localPolicyMaterial = { ...localUnsigned, signature: signPolicyPayload(localUnsigned, activeKey.privateKey) };
+    const revision = `discovery-${requestDigest.slice(0, 32)}`;
+    const receiptUnsigned: Omit<PolicyAuthorityProvisioningReceiptV1, 'signature'> = {
+      receiptVersion: policyAuthorityProvisioningReceiptVersion,
+      revision,
+      requestDigest,
+      ruleDigest: sha256Digest(rule),
+      localPolicyDigest: sha256Digest(localUnsigned),
+      issuedAt,
+    };
+    const receipt = { ...receiptUnsigned, signature: signPolicyPayload(receiptUnsigned, activeKey.privateKey) };
+    const result = validatePolicyAuthorityProvisioningResultV1({
+      provisioningVersion: policyAuthorityProvisioningVersion,
+      revision,
+      requestDigest,
+      rule,
+      localPolicyMaterial,
+      receipt,
+    });
+    this.provisioning.commit(result);
+    return structuredClone(result);
+  }
+
   /** 轮换只替换已由信任根签名且具备可用 ACTIVE 私钥的新 KeySet。 */
   refreshKeySet(source: SignedPolicyAuthorityKeySetV1 | PolicyAuthorityKeySetSourceV1): void {
     let nextSource: SignedPolicyAuthorityKeySetV1;
@@ -1263,7 +1362,7 @@ function resolveKeySet(value: SignedPolicyAuthorityKeySetV1 | PolicyAuthorityKey
 }
 function validatePolicyBundle(input: unknown, trustRoot: PolicyAuthorityTrustRootV1): SignedPolicyAuthorityPolicyBundleV1 {
   if (!input || typeof input !== 'object' || Array.isArray(input)) failClosed('生产策略包必须是对象');
-  const value = input as unknown as Record<string, unknown>;
+  const value = input as Record<string, unknown>;
   exactRuntimeKeys(value, ['bundleVersion', 'authorityId', 'issuedAt', 'rules', 'signature'], '生产策略包');
   if (value.bundleVersion !== policyAuthorityPolicyBundleVersion
     || value.authorityId !== trustRoot.authorityId
@@ -1391,6 +1490,36 @@ function validateProvisioningRequest(input: PolicyAuthorityProvisioningRequestV1
     currentLocalPolicy,
     ...(bootstrapLocalPolicy ? { bootstrapLocalPolicy: true } : {}),
     compiledPlan,
+  };
+}
+
+function validateDiscoveryProvisioningRequest(
+  input: PolicyAuthorityDiscoveryProvisioningRequestV1,
+): PolicyAuthorityDiscoveryProvisioningRequestV1 {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) failClosed('发现 provisioning 请求必须是对象');
+  const value = input as unknown as Record<string, unknown>;
+  exactRuntimeKeys(value, ['tenantId', 'agentId', 'pluginId', 'pluginVersionId', 'planDigest', 'allowedPaths'], '发现 provisioning 请求');
+  for (const field of ['tenantId', 'agentId', 'pluginVersionId'] as const) {
+    if (typeof value[field] !== 'string' || !isSafeIdentifier(value[field])) failClosed(`发现 provisioning ${field} 无效`);
+  }
+  if (typeof value.pluginId !== 'string' || !new RegExp(canonicalPluginIdPattern).test(value.pluginId)) {
+    failClosed('发现 provisioning pluginId 无效');
+  }
+  if (typeof value.planDigest !== 'string' || !/^[a-f0-9]{64}$/.test(value.planDigest)) {
+    failClosed('发现 provisioning planDigest 无效');
+  }
+  if (!Array.isArray(value.allowedPaths) || value.allowedPaths.some((path) => typeof path !== 'string')) {
+    failClosed('发现 provisioning allowedPaths 无效');
+  }
+  const allowedPaths = [...new Set(value.allowedPaths as string[])];
+  if (!isAllowedWebDiscoveryPathSet(allowedPaths)) failClosed('发现 provisioning allowedPaths 超出 Web 发现受控目录');
+  return {
+    tenantId: value.tenantId as string,
+    agentId: value.agentId as string,
+    pluginId: value.pluginId as string,
+    pluginVersionId: value.pluginVersionId as string,
+    planDigest: value.planDigest as string,
+    allowedPaths,
   };
 }
 

@@ -18,6 +18,7 @@ import {
   validatePolicyAuthorityProvisioningResultV1,
   type PolicyAuthorityAuthorizationRequestV1,
   type PolicyAuthorityAuthorizationResultV1,
+  type PolicyAuthorityDiscoveryProvisioningRequestV1,
   type PolicyAuthorityAgentTrustMaterialRequestV1,
   type PolicyAuthorityAgentTrustMaterialV1,
   type PolicyAuthorityProvisioningRequestV1,
@@ -30,7 +31,7 @@ export const policyAuthorityIpcStartupTimeoutMs = 5_000;
 export const policyAuthorityIpcRequestTimeoutMs = 30_000;
 const maximumIpcLineBytes = 64 * 1024;
 
-type PolicyAuthorityIpcMethod = 'hello' | 'health' | 'getTrustedKeySet' | 'issueAgentTrustMaterial' | 'issueAuthorization' | 'provisionAgentPlan' | 'revokeToken' | 'revokeDecision' | 'revokeKey' | 'refreshKeySet' | 'shutdown';
+type PolicyAuthorityIpcMethod = 'hello' | 'health' | 'getTrustedKeySet' | 'issueAgentTrustMaterial' | 'issueAuthorization' | 'provisionAgentPlan' | 'provisionDiscoveryAuthorization' | 'revokeToken' | 'revokeDecision' | 'revokeKey' | 'refreshKeySet' | 'shutdown';
 
 interface PolicyAuthorityIpcRequestV1 {
   protocolVersion: typeof policyAuthorityIpcVersion;
@@ -77,7 +78,7 @@ const ipcRequestSchema: JsonSchema = {
   properties: {
     protocolVersion: { const: policyAuthorityIpcVersion },
     requestId: { type: 'string', pattern: '^[A-Za-z0-9._:-]{1,256}$' },
-    method: { enum: ['hello', 'health', 'getTrustedKeySet', 'issueAgentTrustMaterial', 'issueAuthorization', 'provisionAgentPlan', 'revokeToken', 'revokeDecision', 'revokeKey', 'refreshKeySet', 'shutdown'] },
+    method: { enum: ['hello', 'health', 'getTrustedKeySet', 'issueAgentTrustMaterial', 'issueAuthorization', 'provisionAgentPlan', 'provisionDiscoveryAuthorization', 'revokeToken', 'revokeDecision', 'revokeKey', 'refreshKeySet', 'shutdown'] },
     payload: { type: 'object', additionalProperties: true, maxProperties: 200 },
   },
 };
@@ -89,7 +90,7 @@ const ipcResponseSchema: JsonSchema = {
   properties: {
     protocolVersion: { const: policyAuthorityIpcVersion },
     requestId: { type: 'string', pattern: '^[A-Za-z0-9._:-]{1,256}$' },
-    method: { enum: ['hello', 'health', 'getTrustedKeySet', 'issueAgentTrustMaterial', 'issueAuthorization', 'provisionAgentPlan', 'revokeToken', 'revokeDecision', 'revokeKey', 'refreshKeySet', 'shutdown'] },
+    method: { enum: ['hello', 'health', 'getTrustedKeySet', 'issueAgentTrustMaterial', 'issueAuthorization', 'provisionAgentPlan', 'provisionDiscoveryAuthorization', 'revokeToken', 'revokeDecision', 'revokeKey', 'refreshKeySet', 'shutdown'] },
     ok: { type: 'boolean' },
     result: { type: 'object', additionalProperties: true, maxProperties: 200 },
     error: {
@@ -257,6 +258,18 @@ export class PolicyAuthorityProcessClientV1 {
       return validatePolicyAuthorityProvisioningResultV1(result);
     } catch (error) {
       const failure = error instanceof AppError ? error : unavailable('Policy Authority provisioning 响应无效', error);
+      if (failure.errorCode === 'VALIDATION_FAILED') this.failProcess(failure);
+      throw failure;
+    }
+  }
+
+  async provisionDiscoveryAuthorization(request: PolicyAuthorityDiscoveryProvisioningRequestV1): Promise<PolicyAuthorityProvisioningResultV1> {
+    try {
+      const result = await this.request('provisionDiscoveryAuthorization', request);
+      if (!result.rule || !result.localPolicyMaterial || !result.receipt) throw unavailable('Policy Authority 发现 provisioning 响应不完整');
+      return validatePolicyAuthorityProvisioningResultV1(result);
+    } catch (error) {
+      const failure = error instanceof AppError ? error : unavailable('Policy Authority 发现 provisioning 响应无效', error);
       if (failure.errorCode === 'VALIDATION_FAILED') this.failProcess(failure);
       throw failure;
     }
@@ -521,6 +534,10 @@ async function handleProcessLine(line: string, services: ProductionPolicyAuthori
     }
     if (request.method === 'provisionAgentPlan') {
       writeSuccess(request, services.service.provisionAgentPlan(request.payload as PolicyAuthorityProvisioningRequestV1) as unknown as Record<string, unknown>);
+      return;
+    }
+    if (request.method === 'provisionDiscoveryAuthorization') {
+      writeSuccess(request, services.service.provisionDiscoveryAuthorization(request.payload as PolicyAuthorityDiscoveryProvisioningRequestV1) as unknown as Record<string, unknown>);
       return;
     }
     if (request.method === 'revokeToken') {

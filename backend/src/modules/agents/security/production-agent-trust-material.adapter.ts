@@ -35,6 +35,29 @@ export class ProductionAgentTrustMaterialIssuerV1 implements AgentTrustMaterialI
     return { ...this.trustedKeySet };
   }
 
+  async refreshTrustedKeySet(): Promise<void> {
+    const keySet = this.policyAuthority instanceof PolicyAuthorityServiceV1
+      ? this.policyAuthority.getTrustedKeySet()
+      : await this.policyAuthority.getTrustedKeySet();
+    const refreshed: Record<string, string> = {};
+    if (keySet && typeof keySet === 'object' && Array.isArray((keySet as { keys?: unknown }).keys)) {
+      for (const key of (keySet as { keys: Array<{ keyId: string; publicKeyPem: string; status: string }> }).keys) {
+        if (key.status !== 'ACTIVE') continue;
+        refreshed[key.keyId] = rawPublicKeyBase64(key.publicKeyPem);
+      }
+    } else if (keySet && typeof keySet === 'object' && !Array.isArray(keySet)) {
+      // 进程版 Policy Authority 已在 IPC 客户端转换为 keyId -> raw Ed25519 公钥。
+      for (const [keyId, publicKey] of Object.entries(keySet as Record<string, unknown>)) {
+        if (typeof publicKey !== 'string' || publicKey.trim() === '') failClosed('Policy Authority KeySet 条目无效');
+        const bytes = Buffer.from(publicKey, 'base64');
+        if (bytes.length !== 32) failClosed('Policy Authority 公钥长度无效');
+        refreshed[keyId] = publicKey;
+      }
+    }
+    if (Object.keys(refreshed).length === 0) failClosed('Policy Authority 当前没有 ACTIVE 公钥');
+    this.trustedKeySet = refreshed;
+  }
+
   async issue(input: { tenantId: string; agentId: string; osType?: string }): Promise<unknown> {
     const request: PolicyAuthorityAgentTrustMaterialRequestV1 = {
       tenantId: input.tenantId,
@@ -133,6 +156,14 @@ function rawPublicKeyPem(base64: string): string {
     bytes,
   ]);
   return createPublicKey({ key: der, format: 'der', type: 'spki' }).export({ type: 'spki', format: 'pem' }).toString();
+}
+
+function rawPublicKeyBase64(publicKeyPem: string): string {
+  const key = createPublicKey(publicKeyPem);
+  if (key.asymmetricKeyType !== 'ed25519') failClosed('Policy Authority KeySet 必须使用 Ed25519');
+  const der = Buffer.from(key.export({ type: 'spki', format: 'der' }));
+  if (der.length < 32) failClosed('Policy Authority 公钥长度无效');
+  return der.subarray(-32).toString('base64');
 }
 
 function failClosed(message: string): never {

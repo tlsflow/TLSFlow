@@ -15,8 +15,10 @@ test('Windows Go 宿主升级链路把接受与传输失败分开记录', async 
   try {
     const acceptedState = createUpgradeStore();
     let acceptedEnvelope: Record<string, unknown> | undefined;
+    const callOrder: string[] = [];
     const acceptedClient = {
       dispatchUpgrade: async (_agent: AgentRegistration, envelope: Record<string, unknown>) => {
+        callOrder.push('dispatch');
         acceptedEnvelope = envelope;
         return { success: true, accepted: true, transactionId: envelope.transactionId, status: 'accepted' };
       },
@@ -24,6 +26,7 @@ test('Windows Go 宿主升级链路把接受与传输失败分开记录', async 
     let enqueuedTaskInput: Record<string, unknown> | undefined;
     const acceptedService = createService(acceptedState, acceptedClient as never, {
       enqueue: async (input: Record<string, unknown>) => {
+        callOrder.push('enqueue');
         enqueuedTaskInput = input;
         return { id: 'task-agent-upgrade-1' } as never;
       },
@@ -41,6 +44,7 @@ test('Windows Go 宿主升级链路把接受与传输失败分开记录', async 
     assert.equal((accepted.result as { accepted?: boolean }).accepted, true);
     assert.equal(enqueuedTaskInput?.taskType, 'AGENT_UPDATE');
     assert.equal(enqueuedTaskInput?.triggerSource, 'agent-upgrade-confirmed');
+    assert.deepEqual(callOrder, ['dispatch', 'enqueue']);
     assert.equal((accepted.result as { taskId?: string }).taskId, 'task-agent-upgrade-1');
     assert.equal((acceptedEnvelope?.release as { productLine?: string }).productLine, 'windows-go-full');
     assert.match(String(acceptedEnvelope?.upgradeBootstrapUrl), /^https:\/\/control-plane\.invalid\/agent-install\.ps1\?token=/u);

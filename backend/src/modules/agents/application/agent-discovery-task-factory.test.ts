@@ -78,6 +78,49 @@ test('证书信任事实请求复用完整 Agent v2 授权且关闭 Web 库存�
   assert.equal('discoverySpec' in request.payload, false);
 });
 
+test('生产 Authority 会先为精确 Web 发现范围装配只读规则', async () => {
+  let provisioningInput: Record<string, unknown> | undefined;
+  const factory = createAgentDiscoveryTaskFactory({
+    plugins: { listAccessibleVersions: async () => [plugin('web.apache')] },
+    policyAuthority: {
+      assertReady: () => undefined,
+      provisionDiscoveryAuthorization: async (input: Record<string, unknown>) => {
+        provisioningInput = input;
+        return {};
+      },
+      issueAuthorization: async (input: Record<string, unknown>) => ({
+        token: { actions: input.actions, allowedPaths: input.allowedPaths, allowedServices: [], artifactDigests: [] },
+        decision: { allowed: true },
+      }),
+    },
+  } as never);
+
+  await factory.createForAgent({
+    tenantId: 'tenant-1',
+    agent: { id: 'agent-1', descriptor: { osType: 'WINDOWS' } },
+    requestedBy: 'user-1',
+    requestId: 'request-1',
+  } as never);
+
+  assert.deepEqual(provisioningInput, {
+    tenantId: 'tenant-1',
+    agentId: 'agent-1',
+    pluginId: 'web.apache',
+    pluginVersionId: 'web.apache-version-1',
+    planDigest: digest({
+      actionType: 'agent.fact.collect',
+      agentId: 'agent-1',
+      tenantId: 'tenant-1',
+      pluginId: 'web.apache',
+      pluginVersionId: 'web.apache-version-1',
+      capability: 'application.discover',
+      paths: [],
+      refreshWebInventory: true,
+    }),
+    allowedPaths: [],
+  });
+});
+
 test('没有 Agent 发现授权锚点时失败关闭', async () => {
   const factory = createAgentDiscoveryTaskFactory({
     plugins: { listAccessibleVersions: async () => [] },

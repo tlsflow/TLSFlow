@@ -89,6 +89,44 @@ test('同一编译计划 provisioning 幂等，并将 Artifact 摘要排除在 A
   assert.equal(issued.decision.allowed, true);
 });
 
+test('Web 发现 provisioning 只建立精确的只读规则，并可签发短时 Token', () => {
+  const context = createContext();
+  const service = new PolicyAuthorityServiceV1({ ...context.options, provisioning: new InMemoryPolicyAuthorityProvisioningStoreV1() });
+  const request = {
+    tenantId: context.request.tenantId,
+    agentId: context.request.agentId,
+    pluginId: context.request.pluginId,
+    pluginVersionId: context.request.pluginVersionId,
+    planDigest: 'd'.repeat(64),
+    allowedPaths: [],
+  };
+  const provisioned = service.provisionDiscoveryAuthorization(request);
+  assert.equal(provisioned.rule.capability, 'application.discover');
+  assert.deepEqual(provisioned.rule.actions, ['filesystem.read', 'process.list', 'service.list']);
+  assert.deepEqual(provisioned.rule.artifactDigests, []);
+  assert.deepEqual(provisioned.rule.allowedServices, []);
+  assert.equal(provisioned.localPolicyMaterial.localPolicy.disabled, false);
+
+  const issued = service.issueAuthorization({
+    ...context.request,
+    capability: 'application.discover',
+    actions: ['filesystem.read', 'process.list', 'service.list'],
+    allowedPaths: [],
+    allowedServices: [],
+    artifactDigests: [],
+    policyRef: 'gcac.agent.discovery',
+    policyVersion: '1',
+    planDigest: request.planDigest,
+    lifetimeSeconds: 300,
+  });
+  assert.equal(issued.decision.allowed, true);
+  assert.ok(issued.token);
+  assert.throws(
+    () => service.provisionDiscoveryAuthorization({ ...request, allowedPaths: ['/tmp'] }),
+    /受控目录/,
+  );
+});
+
 test('首次 provisioning 自动绑定 PA Key，不要求调用方预先填写本地信任 Key', () => {
   const context = createContext();
   const service = new PolicyAuthorityServiceV1({ ...context.options, provisioning: new InMemoryPolicyAuthorityProvisioningStoreV1() });

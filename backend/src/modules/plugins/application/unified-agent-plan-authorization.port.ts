@@ -6,6 +6,7 @@ import {
   requireProductionPolicyAuthorityServicesV1,
   type PolicyAuthorityAuthorizationRequestV1,
   type PolicyAuthorityAuthorizationResultV1,
+  type PolicyAuthorityDiscoveryProvisioningRequestV1,
   type PolicyAuthorityProvisioningRequestV1,
   type PolicyAuthorityProvisioningResultV1,
   type ProductionPolicyAuthorityServicesV1,
@@ -20,6 +21,8 @@ export interface UnifiedAgentPlanPolicyAuthorityPortV1 {
   issueAuthorization(request: PolicyAuthorityAuthorizationRequestV1): PolicyAuthorityAuthorizationResultV1 | Promise<PolicyAuthorityAuthorizationResultV1>;
   /** 管理面 provisioning 入口；执行编译路径不自行触发该管理操作。 */
   provisionAgentPlan?(request: PolicyAuthorityProvisioningRequestV1): PolicyAuthorityProvisioningResultV1 | Promise<PolicyAuthorityProvisioningResultV1>;
+  /** 仅为 Agent 直连 Web 发现装配固定的只读规则，不能传入部署操作或制品。 */
+  provisionDiscoveryAuthorization?(request: PolicyAuthorityDiscoveryProvisioningRequestV1): PolicyAuthorityProvisioningResultV1 | Promise<PolicyAuthorityProvisioningResultV1>;
 }
 
 export interface UnifiedAgentPlanGrantPortV1 {
@@ -60,6 +63,7 @@ export function createUnifiedAgentPlanPolicyAuthorityPortV1(
     assertReady: () => assertProductionPolicyAuthorityReady(production),
     issueAuthorization: (request) => production.service.issueAuthorization(request),
     provisionAgentPlan: (request) => production.service.provisionAgentPlan(request),
+    provisionDiscoveryAuthorization: (request) => production.service.provisionDiscoveryAuthorization(request),
   };
 }
 
@@ -74,6 +78,7 @@ export function createUnifiedAgentPlanPolicyAuthorityProcessPortV1(
     assertReady: () => client.assertReady(),
     issueAuthorization: (request) => client.issueAuthorization(request),
     provisionAgentPlan: (request) => client.provisionAgentPlan(request),
+    provisionDiscoveryAuthorization: (request) => client.provisionDiscoveryAuthorization(request),
   };
 }
 

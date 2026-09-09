@@ -1642,6 +1642,7 @@ function renderWindowsGoBootstrapScript(manifest: unknown): string {
     'New-Item -ItemType Directory -Force -Path $manifest.configDir, $manifest.dataDir, $manifest.logDir, $policyDir | Out-Null',
     '& icacls.exe $policyDir /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)(F)" "*S-1-5-32-544:(OI)(CI)(F)" | Out-Null',
     'if ($LASTEXITCODE -ne 0) { throw "Go Agent policy directory ACL configuration failed: $policyDir" }',
+    'if (-not $isGateway) { Remove-Item -LiteralPath (Join-Path $policyDir "agent-trust-material.json") -Force -ErrorAction SilentlyContinue }',
     '[System.IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 10), $utf8Bom)',
     'New-Item -ItemType Directory -Force -Path $manifest.installRoot | Out-Null',
     'Copy-Item -LiteralPath $agentSource -Destination $agentTarget -Force',

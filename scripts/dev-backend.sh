@@ -51,11 +51,17 @@ fi
 export HOST="${HOST:-0.0.0.0}"
 export PORT="${PORT:-3003}"
 export API_PREFIX="${API_PREFIX:-/api/v1}"
+# 调试脚本显式使用 development，避免继承 PM2 或终端中的 production 环境，
+# 从而错误装配生产 Policy Authority 或跳过本地 Authority。
+export NODE_ENV=development
 # 开发脚本仍执行生产安全边界，但不能把 Docker 专用的 /app 路径带到本机。
 # 显式传入的路径保持优先，未配置时统一持久化到仓库根目录 data/runtime。
 export GCAC_RUNTIME_SECRETS_FILE="${GCAC_RUNTIME_SECRETS_FILE:-$ROOT_DIR/data/runtime/runtime-secrets.enc}"
 export GCAC_POLICY_AUTHORITY_STATE_FILE="${GCAC_POLICY_AUTHORITY_STATE_FILE:-$ROOT_DIR/data/runtime/policy-authority-state.json}"
 export GCAC_POLICY_AUTHORITY_SIGNING_KEYS_FILE="${GCAC_POLICY_AUTHORITY_SIGNING_KEYS_FILE:-$ROOT_DIR/data/runtime/policy-authority-signing-keys.json}"
+# 调试环境的本地 Agent Authority 必须固定到工作区持久目录；否则不同后端进程
+# 会各自生成 local-signing Key，安装清单与注册响应将无法互相验证。
+export GCAC_LOCAL_AGENT_AUTHORITY_DIR="${GCAC_LOCAL_AGENT_AUTHORITY_DIR:-$ROOT_DIR/data/runtime/local-agent-authority}"
 # Docker 镜像通过 Dockerfile 注入 Policy Authority 进程规格；本地热重载需要提供等价的宿主配置。
 export GCAC_POLICY_AUTHORITY_PROCESS_ROLE="${GCAC_POLICY_AUTHORITY_PROCESS_ROLE:-host}"
 export GCAC_POLICY_AUTHORITY_EXECUTABLE_PATH="${GCAC_POLICY_AUTHORITY_EXECUTABLE_PATH:-$(command -v node)}"

@@ -39,6 +39,8 @@ const agentUpgradeHelperTimeoutMs = 5 * 60 * 1000;
 export interface AgentTrustMaterialIssuer {
   issue(input: { tenantId: string; agentId: string; osType?: string }): Promise<unknown>;
   getTrustedKeySet(): Record<string, string>;
+  /** 在生成安装清单前同步 Policy Authority 的当前公钥，避免轮换窗口使用旧 KeySet。 */
+  refreshTrustedKeySet?: () => Promise<void>;
 }
 
 export type AgentInstallMaterialPlatform = 'windows_go' | 'windows_compatibility' | 'linux_go';
@@ -1262,14 +1264,6 @@ export class AgentsApplicationService {
       assertGoFullRelease(agent, release, plan.targetVersion);
       const transactionId = plan.transactionId || newId('agtxn');
       const attempt = (plan.attempt ?? 0) + 1;
-      const globalTask = await this.enqueueUpgradeTask({
-        tenantId,
-        agent,
-        plan,
-        actorId,
-        transactionId,
-        attempt,
-      });
       const dispatching = await this.repository.updateUpgradePlan(plan.id, {
         transactionId,
         actorId,
@@ -1278,7 +1272,7 @@ export class AgentsApplicationService {
         attempt,
         status: 'dispatching',
         reason: '正在通过 Agent 管理端点发送升级授权',
-        result: globalTask ? { taskId: globalTask.id } : plan.result,
+        result: plan.result,
         updatedAt: new Date().toISOString(),
       });
       let envelope: AgentUpgradeEnvelope;
@@ -1321,6 +1315,29 @@ export class AgentsApplicationService {
         throw error;
       }
       const accepted = response.accepted === true || response.success === true || response.status === 'accepted';
+      // 先完成 Agent 授权，再创建状态轮询任务。否则 Worker 可能在授权请求到达前
+      // 读取 Agent 磁盘中的上一笔 status.json，并将旧事务误判为本次事务的结果。
+      let globalTask: Awaited<ReturnType<AgentsApplicationService['enqueueUpgradeTask']>>;
+      if (accepted) {
+        try {
+          globalTask = await this.enqueueUpgradeTask({
+            tenantId,
+            agent,
+            plan: dispatching,
+            actorId,
+            transactionId,
+            attempt,
+          });
+        } catch (error) {
+          structuredLogger.error('Agent 升级已接受但轮询任务入队失败', {
+            tenantId,
+            agentId: agent.id,
+            planId: plan.id,
+            transactionId,
+            error: safeErrorMessage(error),
+          }, { module: 'agents', resourceType: 'agent_upgrade', resourceId: plan.id });
+        }
+      }
       return this.repository.updateUpgradePlan(plan.id, {
         status: accepted ? 'accepted' : 'rejected',
         reason: accepted ? 'Agent 已接受升级事务，等待本地 Receipt' : response.errorMessage || 'Agent 拒绝升级事务',
@@ -1331,7 +1348,7 @@ export class AgentsApplicationService {
           status: response.status,
           transactionId,
           actualTransactionId: response.transactionId,
-          taskId: globalTask?.id,
+          ...(globalTask ? { taskId: globalTask.id } : {}),
           errorCode: response.errorCode,
           errorMessage: response.errorMessage,
         },
@@ -1695,6 +1712,7 @@ export class AgentsApplicationService {
 
   async buildWindowsInstallManifest(session: AgentInstallSession, baseUrl = session.controlPlaneUrl, bootstrapToken?: string): Promise<AgentInstallSessionManifest> {
     requireInstallPlatform(session.platform, WINDOWS_INSTALL_PLATFORMS, '安装会话不是 Windows 平台');
+    await this.trustMaterialIssuer?.refreshTrustedKeySet?.();
     const agentVersion = session.platform === 'windows_adcs_service' ? await readWindowsAdcsAgentVersion() : undefined;
     return {
       ...this.baseInstallManifest(session, baseUrl),
@@ -1717,6 +1735,7 @@ export class AgentsApplicationService {
 
   async buildLinuxGoInstallManifest(session: AgentInstallSession, baseUrl = session.controlPlaneUrl): Promise<AgentInstallSessionManifest> {
     requireInstallPlatform(session.platform, ['linux_go_systemd'], '安装会话不是 Linux Go 平台');
+    await this.trustMaterialIssuer?.refreshTrustedKeySet?.();
     if (session.role === 'gateway') {
       return {
         ...this.baseInstallManifest(session, baseUrl),
