@@ -17,18 +17,42 @@ interface AuthState {
   user: CurrentUser | null
 }
 
+const SESSION_TOKEN_KEY = 'gcac.auth.session-token'
+
+function readSessionToken(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return window.sessionStorage.getItem(SESSION_TOKEN_KEY)
+  } catch {
+    return null
+  }
+}
+
+function writeSessionToken(token: string | null): void {
+  if (typeof window === 'undefined') return
+  try {
+    if (token) window.sessionStorage.setItem(SESSION_TOKEN_KEY, token)
+    else window.sessionStorage.removeItem(SESSION_TOKEN_KEY)
+  } catch {
+    // 中文说明：存储不可用时仍依赖 HttpOnly Cookie 恢复登录态。
+  }
+}
+
 export const useAuthStore = defineStore('auth', {
-  state: (): AuthState => ({ token: null, user: null }),
+  state: (): AuthState => ({ token: readSessionToken(), user: null }),
   getters: {
     isAuthenticated: (state) => Boolean(state.user)
   },
   actions: {
     setSession(session: AuthSession): void {
-      this.token = session.token ?? null
+      // 中文说明：Cookie 恢复的会话不返回 Bearer token，不能覆盖已有的会话级 token。
+      this.token = session.token !== undefined ? (session.token ?? null) : this.token
       this.user = session.user
+      writeSessionToken(this.token)
     },
     setToken(token: string | null): void {
       this.token = token
+      writeSessionToken(token)
     },
     async refreshCurrentUser(): Promise<void> {
       const result = await getCurrentUser()
@@ -67,6 +91,7 @@ export const useAuthStore = defineStore('auth', {
     clearSession(): void {
       this.token = null
       this.user = null
+      writeSessionToken(null)
     }
   }
 })
