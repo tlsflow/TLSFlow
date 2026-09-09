@@ -31,6 +31,10 @@ describe('任务快速区范围', () => {
       taskType: 'CERTIFICATE_DEPLOY',
       category: 'EXECUTION',
     }))).toBe(true)
+    expect(isQuickTask(task({
+      taskType: 'APPLICATION_CERTIFICATE_DEPLOY',
+      category: 'EXECUTION',
+    }))).toBe(true)
   })
 
   it('显示自动化运行任务，包括等待审批的任务', () => {

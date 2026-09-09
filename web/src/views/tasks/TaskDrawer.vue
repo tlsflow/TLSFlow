@@ -268,11 +268,16 @@ function applyQuickTasksState(next: { active: TaskRun[]; recent: TaskRun[] }): v
 function applyQuickTaskActivity(state: TaskActivityState): void {
   appliedQuickKeyword.value = keyword.value.trim()
   const keywordValue = appliedQuickKeyword.value
-  const activeTasks = mergeTasks(fallbackActiveTasks.value, state.activeTasks)
-  const recentTasks = mergeTasks(fallbackRecentCompleted.value, state.recentTasks)
+  // 中文说明：实时状态覆盖 REST 缓存，并在两组之间按任务 ID 合并，避免同一任务残留两个状态。
+  const allTasks = mergeTasks(
+    [...fallbackActiveTasks.value, ...fallbackRecentCompleted.value],
+    [...state.activeTasks, ...state.recentTasks],
+  )
+  const activeTasks = allTasks.filter((task) => QUICK_ACTIVE_STATUS_SET.has(task.status) && isQuickTask(task))
+  const activeIds = new Set(activeTasks.map((task) => task.id))
   applyQuickTasksState({
-    active: sortTasks(activeTasks.filter((task) => QUICK_ACTIVE_STATUS_SET.has(task.status) && isQuickTask(task) && matchesTaskKeyword(task, keywordValue))),
-    recent: sortTasks(recentTasks.filter((task) => QUICK_COMPLETED_STATUS_SET.has(task.status) && isQuickTask(task) && matchesTaskKeyword(task, keywordValue))).slice(0, RECENT_TASK_LIMIT),
+    active: sortTasks(activeTasks.filter((task) => matchesTaskKeyword(task, keywordValue))),
+    recent: sortTasks(allTasks.filter((task) => QUICK_COMPLETED_STATUS_SET.has(task.status) && isQuickTask(task) && !activeIds.has(task.id) && matchesTaskKeyword(task, keywordValue))).slice(0, RECENT_TASK_LIMIT),
   })
 }
 
@@ -302,8 +307,11 @@ async function refreshQuickTasks(): Promise<void> {
     const active = tasks.filter((task) => QUICK_ACTIVE_STATUS_SET.has(task.status))
     const recent = tasks.filter((task) => QUICK_COMPLETED_STATUS_SET.has(task.status))
     // 中文说明：接口结果只作为兜底；实时状态已存在时由实时任务覆盖同一 ID，避免旧响应回写旧状态。
-    fallbackActiveTasks.value = mergeTasks(active, fallbackActiveTasks.value).filter((task) => QUICK_ACTIVE_STATUS_SET.has(task.status) && isQuickTask(task))
-    fallbackRecentCompleted.value = mergeTasks(recent, fallbackRecentCompleted.value).filter((task) => QUICK_COMPLETED_STATUS_SET.has(task.status) && isQuickTask(task)).slice(0, 50)
+    // 中文说明：REST 结果是当前状态的权威快照，活动列表不能继续合并已完成任务的旧缓存。
+    fallbackActiveTasks.value = sortTasks(active)
+    fallbackRecentCompleted.value = mergeTasks(recent, fallbackRecentCompleted.value)
+      .filter((task) => QUICK_COMPLETED_STATUS_SET.has(task.status) && isQuickTask(task))
+      .slice(0, 50)
     applyQuickTaskActivity(currentTaskActivity())
   } catch {
     // 中文说明：实时流仍会继续工作，兜底请求失败时不清空已经展示的任务。
@@ -483,11 +491,9 @@ function applyRealtimeTaskSnapshot(message: TaskRealtimeMessage): void {
   if (message.type === 'snapshot') {
     const active = message.activeTasks.filter((task) => QUICK_ACTIVE_STATUS_SET.has(task.status) && isQuickTask(task))
     const recent = (message.recentTasks ?? []).filter((task) => QUICK_COMPLETED_STATUS_SET.has(task.status) && isQuickTask(task))
-    // 中文说明：空首帧不能抹掉 REST 兜底结果，避免代理或服务端暂时没有推送历史记录时面板变空。
-    if (active.length > 0 || recent.length > 0 || (fallbackActiveTasks.value.length === 0 && fallbackRecentCompleted.value.length === 0)) {
-      fallbackActiveTasks.value = active
-      fallbackRecentCompleted.value = recent.slice(0, 50)
-    }
+    // 中文说明：实时快照是当前状态权威来源，空快照也必须清除已经完成的旧活动任务。
+    fallbackActiveTasks.value = active
+    fallbackRecentCompleted.value = recent.slice(0, 50)
     message.activeTasks.forEach((task) => applyRealtimeTaskToAllTasks(task))
     message.recentTasks?.forEach((task) => applyRealtimeTaskToAllTasks(task))
     return
@@ -503,6 +509,8 @@ function handleRealtimeMessage(message: TaskRealtimeMessage): void {
 
 function applyRealtimeTaskChange(task: TaskRun): void {
   updateFallbackTask(task)
+  // 中文说明：实时事件先更新任务事件模块，再同步抽屉本地兜底集合，避免完成任务同时留在活动和最近完成中。
+  applyQuickTaskActivity(currentTaskActivity())
   applyRealtimeTaskToAllTasks(task)
   if (detailTask.value?.id === task.id && detail.value) {
     detail.value = { ...detail.value, task }

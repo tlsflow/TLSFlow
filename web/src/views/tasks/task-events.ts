@@ -1,5 +1,5 @@
 import { readApiRequestContext } from '@/api/client'
-import type { TaskRun, TaskStatus } from '@/api/modules/tasks.api'
+import { listTasks, type TaskRun, type TaskStatus } from '@/api/modules/tasks.api'
 import { TENANT_CONTEXT_CHANGED_EVENT } from '@/stores/tenant-context.events'
 
 export interface TaskRealtimeSnapshotMessage {
@@ -49,6 +49,7 @@ const EXECUTION_TASK_TYPES = new Set([
   'CERTIFICATE_DEPLOY',
   'CERTIFICATE_VERIFY',
   'CERTIFICATE_ROLLBACK',
+  'APPLICATION_CERTIFICATE_DEPLOY',
   'AGENT_INSTALL',
   'AGENT_UPDATE',
   'PLUGIN_REFERENCE_REFRESH',
@@ -74,6 +75,7 @@ let reconnectTimer: number | undefined
 let connectStarted = false
 let realtimeConnected = false
 let pendingDeploymentExecutionOpen: DeploymentExecutionOpenDetail | undefined
+let fallbackRefreshPromise: Promise<void> | undefined
 
 let tenantContextListenerAttached = false
 
@@ -179,6 +181,7 @@ export function subscribeTaskActivity(
 ): () => void {
   activityListeners.add(listener)
   listener(currentActivityState())
+  void refreshTaskActivityFallback()
   ensureTaskRealtimeConnection()
   return () => {
     activityListeners.delete(listener)
@@ -202,6 +205,7 @@ export function resetTaskRealtimeConnection(): void {
   activeExecutionTasks.clear()
   recentTasks.clear()
   emitActivity()
+  void refreshTaskActivityFallback()
   if (realtimeListeners.size > 0) ensureTaskRealtimeConnection()
 }
 
@@ -234,6 +238,7 @@ function ensureTaskRealtimeConnection(): void {
     socket = undefined
     realtimeConnected = false
     emitActivity()
+    void refreshTaskActivityFallback()
     scheduleReconnect()
   })
   nextSocket.addEventListener('error', () => {
@@ -295,7 +300,7 @@ function applyRealtimeMessage(message: TaskRealtimeMessage): void {
     })
     recentTasks.clear()
     message.recentTasks?.forEach((task) => {
-      if (isTrackedRecentTask(task)) recentTasks.set(task.id, task)
+      if (isTrackedRecentTask(task) && !activeExecutionTasks.has(task.id)) recentTasks.set(task.id, task)
     })
   } else if (isTrackedActiveTask(message.task)) {
     activeExecutionTasks.set(message.task.id, message.task)
@@ -316,9 +321,38 @@ function emitActivity(): void {
   activityListeners.forEach((listener) => listener(state))
 }
 
+/**
+ * 中文说明：WebSocket 建连或首帧失败时，用任务列表补齐活动状态，保证顶栏角标和抽屉仍然一致。
+ * 实时连接一旦建立，REST 响应不再覆盖实时状态，避免旧响应回写。
+ */
+async function refreshTaskActivityFallback(): Promise<void> {
+  if (realtimeConnected || fallbackRefreshPromise || !readApiRequestContext()?.tenantId?.trim()) return
+  fallbackRefreshPromise = listTasks({ page: 1, pageSize: 100, includeAll: true })
+    .then((response) => {
+      if (realtimeConnected) return
+      const tasks = response.data?.items ?? []
+      activeExecutionTasks.clear()
+      recentTasks.clear()
+      tasks.forEach((task) => {
+        if (isTrackedActiveTask(task)) activeExecutionTasks.set(task.id, task)
+        else if (isTrackedRecentTask(task) && !activeExecutionTasks.has(task.id)) recentTasks.set(task.id, task)
+      })
+      pruneRecentTasks()
+      emitActivity()
+    })
+    .catch(() => {
+      // 中文说明：接口兜底失败时保留当前状态，等待实时流或下一次重连。
+    })
+    .finally(() => {
+      fallbackRefreshPromise = undefined
+    })
+  await fallbackRefreshPromise
+}
+
 function currentActivityState(): TaskActivityState {
   const activeTasks = sortTasks([...activeExecutionTasks.values()])
-  const completedTasks = sortTasks([...recentTasks.values()]).slice(0, RECENT_TASK_LIMIT)
+  const activeIds = new Set(activeTasks.map((task) => task.id))
+  const completedTasks = sortTasks([...recentTasks.values()]).filter((task) => !activeIds.has(task.id)).slice(0, RECENT_TASK_LIMIT)
   return {
     activeTasks,
     recentTasks: completedTasks,
