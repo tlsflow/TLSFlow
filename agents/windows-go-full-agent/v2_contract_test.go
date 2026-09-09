@@ -470,6 +470,23 @@ func TestV2AcceptsBoundedServiceRestartOperation(t *testing.T) {
 	}
 }
 
+func TestV2RejectsADCSOperationsInGoFullAgent(t *testing.T) {
+	for _, operationType := range []string{"ca.certificate.issue", "ca.certificate.renew", "ca.certificate.query", "ca.certificate.revoke", "ca.revocation.evidence"} {
+		err := validateAgentPlanOperation(agentPlanAction{
+			OperationID:    operationType,
+			OperationType:  operationType,
+			Stage:          "execute",
+			Input:          map[string]any{"caConfig": "server\\CA"},
+			DependsOn:      []string{},
+			IdempotencyKey: operationType + "-once",
+			TimeoutSeconds: 30,
+		})
+		if err == nil {
+			t.Fatalf("Go Full Agent 不得接受 AD CS 操作 %s", operationType)
+		}
+	}
+}
+
 type windowsV2TestFixture struct {
 	Request map[string]any
 	Plan    agentPlanV2

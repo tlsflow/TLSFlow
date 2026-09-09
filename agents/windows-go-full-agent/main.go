@@ -34,7 +34,7 @@ import (
 var defaultAgentConfigTemplate []byte
 
 const (
-	agentVersion                = "0.1.47"
+	agentVersion                = "0.1.48"
 	defaultConfigPath           = `C:\ProgramData\GCAC\FullAgentGo\config\agent.config.json`
 	defaultMetadata             = `C:\ProgramData\GCAC\FullAgentGo\service.install.json`
 	defaultTaskPoll             = 5
@@ -1175,7 +1175,7 @@ func writeAgentTrustMaterialAtomically(config *AgentConfig, material *agentTrust
 func verifyTrustMaterialSignature(keyID, signature string, value any, keySet map[string]string) error {
 	encodedKey, ok := keySet[keyID]
 	if !ok {
-		return errors.New("本地策略签发 Key 未配置")
+		return fmt.Errorf("本地策略签发 Key 未配置: %s", keyID)
 	}
 	publicKey, err := base64.StdEncoding.DecodeString(encodedKey)
 	if err != nil || len(publicKey) != ed25519.PublicKeySize {

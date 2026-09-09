@@ -678,7 +678,7 @@ func validateAgentPlanOperation(operation agentPlanAction) error {
 	if operation.Input == nil {
 		return errors.New("operation input is required")
 	}
-	if !v2ContainsString([]string{"process.list", "service.list", "service.status", "filesystem.stat", "filesystem.read", "filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.material.validate", "certificate.store.inspect", "certificate.store.install", "key.generate_csr", "certificate.install_issued", "certificate.iis.binding.update", "certificate.iis.binding.verify", "certificate.iis.binding.rollback", "certificate.tls.verify", "ca.certificate.issue", "ca.certificate.renew", "ca.certificate.query", "ca.certificate.revoke", "ca.revocation.evidence", "service.start", "service.stop", "service.restart", "service.reload", "command.execute_allowlisted"}, operation.OperationType) {
+	if !v2ContainsString([]string{"process.list", "service.list", "service.status", "filesystem.stat", "filesystem.read", "filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.material.validate", "certificate.store.inspect", "certificate.store.install", "key.generate_csr", "certificate.install_issued", "certificate.iis.binding.update", "certificate.iis.binding.verify", "certificate.iis.binding.rollback", "certificate.tls.verify", "service.start", "service.stop", "service.restart", "service.reload", "command.execute_allowlisted"}, operation.OperationType) {
 		return fmt.Errorf("unsupported Agent operation: %s", operation.OperationType)
 	}
 	if v2ContainsString([]string{"service.status", "service.start", "service.stop", "service.restart", "service.reload"}, operation.OperationType) && stringValue(operation.Input, "serviceName") == "" {
@@ -710,9 +710,6 @@ func validateAgentPlanOperation(operation agentPlanAction) error {
 	}
 	if operation.OperationType == "certificate.material.validate" {
 		return validateWindowsCertificateMaterialInput(operation.Input)
-	}
-	if strings.HasPrefix(operation.OperationType, "ca.") {
-		return validateCertificateAuthorityOperationInput(operation.OperationType, operation.Input)
 	}
 	if strings.HasPrefix(operation.OperationType, "certificate.iis.binding.") {
 		return validateIISBindingOperationInput(operation.OperationType, operation.Input)
@@ -879,8 +876,6 @@ func executeAgentPlan(ctx context.Context, plan agentPlanV2, token AgentCapabili
 				operationDetail, err = executeLocalKeyGenerate(operationCtx, plan, operation)
 			case "certificate.install_issued":
 				operationDetail, err = executeIssuedCertificateInstall(operationCtx, plan, operation)
-			case "ca.certificate.issue", "ca.certificate.renew", "ca.certificate.query", "ca.certificate.revoke", "ca.revocation.evidence":
-				operationDetail, err = executeCertificateAuthorityOperation(operationCtx, plan, operation)
 			case "certificate.iis.binding.update":
 				operationDetail, err = executeIISBindingOperation(operationCtx, operation, "update")
 			case "certificate.iis.binding.verify":
@@ -951,7 +946,7 @@ func executeAgentPlan(ctx context.Context, plan agentPlanV2, token AgentCapabili
 }
 
 func isAgentWriteOperationType(operationType string) bool {
-	return v2ContainsString([]string{"filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.store.install", "key.generate_csr", "certificate.install_issued", "certificate.iis.binding.update", "certificate.iis.binding.rollback", "ca.certificate.issue", "ca.certificate.renew", "ca.certificate.revoke", "service.start", "service.stop", "service.restart", "service.reload", "command.execute_allowlisted"}, operationType)
+	return v2ContainsString([]string{"filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.store.install", "key.generate_csr", "certificate.install_issued", "certificate.iis.binding.update", "certificate.iis.binding.rollback", "service.start", "service.stop", "service.restart", "service.reload", "command.execute_allowlisted"}, operationType)
 }
 
 func unknownAgentWriteDetail(plan agentPlanV2, reason string, fields map[string]any) map[string]any {
@@ -1009,7 +1004,7 @@ func receiptOperationID(plan agentPlanV2, results []map[string]any) string {
 
 func hasAgentWriteOperation(plan agentPlanV2) bool {
 	for _, operation := range plan.Operations {
-		if v2ContainsString([]string{"filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.store.install", "key.generate_csr", "certificate.install_issued", "certificate.iis.binding.update", "certificate.iis.binding.rollback", "ca.certificate.issue", "ca.certificate.renew", "ca.certificate.revoke", "service.start", "service.stop", "service.restart", "service.reload", "command.execute_allowlisted"}, operation.OperationType) {
+		if v2ContainsString([]string{"filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.store.install", "key.generate_csr", "certificate.install_issued", "certificate.iis.binding.update", "certificate.iis.binding.rollback", "service.start", "service.stop", "service.restart", "service.reload", "command.execute_allowlisted"}, operation.OperationType) {
 			return true
 		}
 	}

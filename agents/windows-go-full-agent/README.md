@@ -11,6 +11,8 @@ Agent 只注册以下四个动作：
 - `agent.plan.execute`
 - `agent.execution.receipt`
 
+Windows Go Full Agent 与 Windows AD CS Agent 是两个独立产品。Full Agent 只负责通用证书材料、Windows 证书库、IIS/TLS 及文件原子更新，不包含 AD CS CA 连接、`caConfig`、`certreq -submit/-retrieve` 或 `certutil -config` 操作；AD CS 申请、查询、吊销和 CA 观测只能由独立的 Windows AD CS Agent 执行。
+
 写计划必须携带 `AgentCapabilityTokenV1`、独立 `PolicyAuthorityDecisionV1`、租户/插件版本绑定、路径/服务/Artifact 摘要、短期过期时间和一次性 nonce。缺少信任根、本地策略、签名或撤销状态时失败关闭；写操作失败或结果不明时返回 `UNKNOWN`，禁止自动重试和旧路径回退。
 
 计划只允许固定通用原语：文件原子替换、带签名检查点的恢复、固定 Windows Service 控制，以及固定程序和参数模板的 `command.execute_allowlisted`。Agent 不接受 Shell、PowerShell、CMD、裸脚本、自由字符串命令或下载后执行。
