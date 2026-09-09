@@ -19,6 +19,7 @@
     "check:plugin-architecture:zero": "node ../scripts/architecture/check-plugin-architecture.mjs --require-zero",
     "generate:openapi": "npm run build && node dist/common/openapi/write-openapi.js",
     "check:openapi": "npm run generate:openapi && node --test \"dist/common/openapi/openapi.contract.test.js\"",
+    "govern:application-certificate-supply-v2": "tsx src/database/govern-application-certificate-supply-v2.ts",
     "check:compatibility-architecture": "node ../scripts/compatibility/check-compatibility-architecture.mjs && node ../scripts/architecture/check-plugin-architecture.mjs && node ../scripts/architecture/check-deployment-input-architecture.mjs && node --test ../scripts/compatibility/check-compatibility-architecture.test.mjs ../scripts/architecture/check-plugin-architecture.test.mjs ../scripts/architecture/check-deployment-input-architecture.test.mjs",
     "check:plugin-vendor-neutrality": "node ../scripts/architecture/check-plugin-architecture.mjs --preset vendor-neutrality --raw",
     "check:jsonata-worker": "node scripts/verify-jsonata-worker.mjs",

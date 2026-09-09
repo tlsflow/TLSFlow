@@ -240,6 +240,32 @@ export class TasksApplicationService {
     }
   }
 
+  async adoptIdempotencyKey(tenantId: string, id: string, idempotencyKey: string, actorId?: string, reason?: string): Promise<TaskRun> {
+    try {
+      const task = await this.repository.adoptIdempotencyKey(tenantId, id, idempotencyKey, actorId, reason);
+      if (shouldWriteTaskAudit(task)) {
+        await this.audit?.write({
+          eventType: 'task.idempotency_adopted',
+          actorType: 'user',
+          actorId: actorId ?? 'system',
+          action: 'task.idempotency_adopt',
+          resourceType: 'task',
+          resourceId: id,
+          result: 'success',
+          riskLevel: 'high',
+          detail: { taskId: id, idempotencyKey, reason },
+        });
+      }
+      this.realtime?.publishTask(task);
+      return task;
+    } catch (error) {
+      if (error instanceof Error && error.message === 'NOT_FOUND') throw new AppError('RESOURCE_NOT_FOUND', '任务不存在');
+      if (error instanceof Error && error.message === 'TASK_NOT_ACTIVE') throw new AppError('TASK_NOT_RETRYABLE', '任务当前状态不允许接管幂等键');
+      if (error instanceof Error && error.message === 'IDEMPOTENCY_CONFLICT') throw new AppError('IDEMPOTENCY_CONFLICT', '规范幂等键已有其他活动任务');
+      throw error;
+    }
+  }
+
   async resolveApprovalTask(
     tenantId: string,
     resourceType: string,

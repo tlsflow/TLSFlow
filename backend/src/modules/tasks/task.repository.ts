@@ -736,6 +736,102 @@ export class TaskRepository {
     return result;
   }
 
+  /**
+   * 中文说明：历史任务接管只允许把活动任务改成新的规范幂等键。
+   * 不删除既有任务、事件、尝试和审计事实；新键只修复后续请求的查找入口，
+   * 并追加一条接管事件记录。
+   */
+  async adoptIdempotencyKey(tenantId: string, id: string, idempotencyKey: string, actorId?: string, reason?: string): Promise<TaskRun> {
+    const nextKey = idempotencyKey.trim();
+    if (!nextKey) throw new Error('幂等键不能为空');
+    const result = await this.db.transaction(async (tx) => {
+      const task = await this.getByIdWithDb(tx, tenantId, id);
+      if (!task) throw new Error('NOT_FOUND');
+      if (task.idempotencyKey === nextKey) return task;
+      if (['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(task.status)) throw new Error('TASK_NOT_ACTIVE');
+      const conflict = await tx.query<{ id: string }>(
+        `select id
+           from task_runs
+          where tenant_id = $1
+            and task_type = $2
+            and idempotency_key = $3
+            and id <> $4
+            and status not in ('SUCCEEDED', 'FAILED', 'CANCELLED')
+          limit 1
+          for update`,
+        [tenantId, task.taskType, nextKey, id],
+      );
+      if (conflict.rows[0]) throw new Error('IDEMPOTENCY_CONFLICT');
+
+      await tx.query(
+        `update task_runs set idempotency_key = $3
+          where tenant_id = $1 and id = $2`,
+        [tenantId, id, nextKey],
+      );
+
+      if (task.idempotencyKey) {
+        const previousRecord = await tx.query<{
+          action_type: string;
+          resource_type: string;
+          resource_id: string;
+          request_hash: string;
+          status_code: number;
+          response_summary: Record<string, unknown>;
+          created_at: string;
+          expires_at: string;
+        }>(
+          `select action_type, resource_type, resource_id, request_hash, status_code,
+                  response_summary, created_at, expires_at
+             from idempotency_records
+            where tenant_id = $1
+              and action_type = $2
+              and resource_type = 'task'
+              and resource_id = $3
+              and idempotency_key = $4
+            order by created_at desc
+            limit 1`,
+          [tenantId, `task.enqueue.${task.taskType}`, task.taskType, task.idempotencyKey],
+        );
+        const record = previousRecord.rows[0];
+        if (record) {
+          await tx.query(
+            `insert into idempotency_records
+              (id, tenant_id, action_type, resource_type, resource_id, idempotency_key,
+               request_hash, status_code, response_summary, created_at, expires_at)
+             values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::timestamptz,
+                     greatest($11::timestamptz, now() + interval '1 day'))
+             on conflict (tenant_id, action_type, resource_type, resource_id, idempotency_key)
+             do nothing`,
+            [
+              newId('idem'),
+              tenantId,
+              record.action_type,
+              record.resource_type,
+              record.resource_id,
+              nextKey,
+              record.request_hash,
+              record.status_code,
+              JSON.stringify({ ...(record.response_summary ?? {}), idempotencyKey: nextKey }),
+              record.created_at,
+              record.expires_at,
+            ],
+          );
+        }
+      }
+
+      await appendEvent(tx, id, 'PROGRESS', {
+        source: 'task-governance',
+        action: 'idempotency-key-adopted',
+        previousIdempotencyKey: task.idempotencyKey,
+        idempotencyKey: nextKey,
+        ...(reason ? { reason } : {}),
+      }, actorId);
+      return this.getByIdWithDb(tx, tenantId, id);
+    });
+    if (!result) throw new Error('任务幂等键接管后无法读取');
+    return result;
+  }
+
   /** 中文说明：审批任务只记录审批决策，不应被部署执行器再次消费。 */
   async resolveApprovalTask(
     tenantId: string,
