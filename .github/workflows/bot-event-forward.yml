@@ -1,0 +1,135 @@
+name: Routine event forward
+
+on:
+  issues:
+  pull_request:
+    types:
+      - assigned
+      - unassigned
+      - labeled
+      - unlabeled
+      - opened
+      - edited
+      - closed
+      - reopened
+      - synchronize
+      - converted_to_draft
+      - ready_for_review
+      - locked
+      - unlocked
+      - review_requested
+      - review_request_removed
+      - auto_merge_enabled
+      - auto_merge_disabled
+      - enqueued
+      - dequeued
+      - milestoned
+      - demilestoned
+  issue_comment:
+  release:
+
+permissions:
+  contents: read
+
+jobs:
+  forward:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    continue-on-error: true
+    steps:
+      - name: Forward compact event
+        continue-on-error: true
+        env:
+          ROUTINE_WEBHOOK_URL: ${{ secrets.ROUTINE_WEBHOOK_URL }}
+          ROUTINE_WEBHOOK_KEY: ${{ secrets.ROUTINE_WEBHOOK_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$ROUTINE_WEBHOOK_URL" || -z "$ROUTINE_WEBHOOK_KEY" ]]; then
+            echo "Routine forwarding skipped: configure ROUTINE_WEBHOOK_URL and ROUTINE_WEBHOOK_KEY."
+            exit 0
+          fi
+
+          payload="$(mktemp "$RUNNER_TEMP/routine-event.XXXXXX")"
+          trap 'rm -f "$payload"' EXIT
+          # The event file contains github.event without interpolating untrusted text into shell.
+          jq -cr --arg event "$GITHUB_EVENT_NAME" --arg repository "$GITHUB_REPOSITORY" '
+            def short($limit):
+              if type == "string" then .[0:$limit] else null end;
+            def clean: with_entries(select(.value != null));
+            def actor: {login: (.login | short(256))} | clean;
+            def item:
+              {
+                id, number,
+                title: (.title | short(512)),
+                body: (.body | short(4096)),
+                state,
+                html_url: (.html_url | short(2048)),
+                user: (.user | actor),
+                created_at, updated_at
+              } | clean;
+            def ref:
+              {ref: (.ref | short(512)), sha: (.sha | short(64))} | clean;
+            {
+              repository: {full_name: ($repository | short(512))},
+              event: $event,
+              action: (.action | short(128)),
+              number: (.number // .issue.number // .pull_request.number),
+              sender: (.sender | actor),
+              payload: ({
+                issue: (if .issue then
+                  (.issue | item + {is_pull_request: has("pull_request")})
+                  else null end),
+                pull_request: (if .pull_request then
+                  (.pull_request | item + {
+                    draft, merged,
+                    merge_commit_sha: (.merge_commit_sha | short(64)),
+                    head: (.head | ref), base: (.base | ref)
+                  }) else null end),
+                comment: (if .comment then (.comment | item) else null end),
+                release: (if .release then (.release | {
+                  id,
+                  tag_name: (.tag_name | short(512)),
+                  name: (.name | short(512)),
+                  body: (.body | short(4096)),
+                  html_url: (.html_url | short(2048)),
+                  draft, prerelease, created_at, published_at,
+                  author: (.author | actor)
+                } | clean) else null end),
+                label: (if .label then
+                  {name: (.label.name | short(256))} else null end),
+                assignee: (if .assignee then (.assignee | actor) else null end),
+                requested_reviewer: (if .requested_reviewer then
+                  (.requested_reviewer | actor) else null end),
+                requested_team: (if .requested_team then
+                  {slug: (.requested_team.slug | short(256))} else null end),
+                milestone: (if .milestone then {
+                  number: .milestone.number,
+                  title: (.milestone.title | short(512))
+                } else null end)
+              } | clean)
+            } | clean
+            | if (tojson | utf8bytelength) > 99000 then
+                walk(if type == "string" then .[0:128] else . end)
+                | .payload_truncated = true
+              else . end
+            | tojson
+            | if utf8bytelength < 100000 then .
+              else error("Compact event exceeds the 100 KB limit") end
+          ' "$GITHUB_EVENT_PATH" > "$payload"
+
+          bytes="$(wc -c < "$payload")"
+          if (( bytes > 100000 )); then
+            echo "::warning::Routine forwarding skipped: payload exceeds 100 KB."
+            exit 0
+          fi
+          # One request only; no checkout, retries, response logging, or event execution.
+          curl --disable --silent --show-error --fail \
+            --connect-timeout 5 --max-time 20 --retry 0 \
+            --request POST \
+            --header "Authorization: Bearer $ROUTINE_WEBHOOK_KEY" \
+            --header "Content-Type: application/json" \
+            --data-binary "@$payload" \
+            --output /dev/null \
+            "$ROUTINE_WEBHOOK_URL"
+          echo "Routine event forwarded ($bytes bytes)."
